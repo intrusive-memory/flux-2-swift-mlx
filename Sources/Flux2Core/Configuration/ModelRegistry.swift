@@ -372,8 +372,16 @@ public enum ModelRegistry {
 
     // MARK: - Paths
 
-    /// Base directory for model storage (same as MistralCore: ~/Library/Caches/models)
+    /// Custom override for model storage directory.
+    /// Set this before any download/check call to redirect model storage.
+    nonisolated(unsafe) public static var customModelsDirectory: URL?
+
+    /// Base directory for model storage.
+    /// Uses customModelsDirectory if set, otherwise falls back to ~/Library/Caches/models
     public static var modelsDirectory: URL {
+        if let custom = customModelsDirectory {
+            return custom
+        }
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         return cacheDir.appendingPathComponent("models", isDirectory: true)
     }

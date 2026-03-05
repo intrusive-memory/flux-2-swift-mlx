@@ -97,7 +97,7 @@ The models are downloaded automatically from HuggingFace on first run.
 - Transformer: Klein 4B (~4-7GB) or Klein 9B (~5-17GB depending on quantization)
 - VAE: Flux.2 VAE (~3GB)
 
-Models are cached in `~/Library/Caches/models/`.
+Models are cached in `~/Library/Caches/models/` by default (configurable via `--models-dir` or `ModelRegistry.customModelsDirectory` for sandboxed apps).
 
 ## Usage
 

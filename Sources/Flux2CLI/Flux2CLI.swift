@@ -4,8 +4,18 @@
 import Foundation
 import ArgumentParser
 import Flux2Core
+import FluxTextEncoders
 import ImageIO
 import UniformTypeIdentifiers
+
+/// Configure custom models directory for both registries
+func configureModelsDirectory(_ path: String?) {
+    guard let path = path else { return }
+    let url = URL(fileURLWithPath: path)
+    ModelRegistry.customModelsDirectory = url
+    TextEncoderModelDownloader.customModelsDirectory = url
+    TextEncoderModelDownloader.reconfigureHubApi()
+}
 
 @main
 struct Flux2CLI: AsyncParsableCommand {
@@ -94,7 +104,13 @@ struct TextToImage: AsyncParsableCommand {
     @Option(name: .long, help: "HuggingFace token for gated models (or set HF_TOKEN env var)")
     var hfToken: String?
 
+    @Option(name: .long, help: "Custom models directory (for sandboxed apps or custom storage)")
+    var modelsDir: String?
+
     func run() async throws {
+        // Configure custom models directory
+        configureModelsDirectory(modelsDir)
+
         // Configure debug logging
         if debug {
             Flux2Debug.enableDebugMode()
@@ -409,8 +425,14 @@ struct ImageToImage: AsyncParsableCommand {
     @Option(name: .long, help: "HuggingFace token for gated models (or set HF_TOKEN env var)")
     var hfToken: String?
 
+    @Option(name: .long, help: "Custom models directory (for sandboxed apps or custom storage)")
+    var modelsDir: String?
+
     func run() async throws {
         let startTime = Date()
+
+        // Configure custom models directory
+        configureModelsDirectory(modelsDir)
 
         // Parse model variant
         guard let modelVariant = Flux2Model(rawValue: model) else {
@@ -673,7 +695,13 @@ struct Download: AsyncParsableCommand {
     @Flag(name: .long, help: "Only download VAE")
     var vaeOnly: Bool = false
 
+    @Option(name: .long, help: "Custom models directory (for sandboxed apps or custom storage)")
+    var modelsDir: String?
+
     func run() async throws {
+        // Configure custom models directory
+        configureModelsDirectory(modelsDir)
+
         // Get token from environment if not provided
         let token = hfToken ?? ProcessInfo.processInfo.environment["HF_TOKEN"]
 
@@ -770,7 +798,12 @@ struct Info: ParsableCommand {
         abstract: "Show system and model information"
     )
 
+    @Option(name: .long, help: "Custom models directory (for sandboxed apps or custom storage)")
+    var modelsDir: String?
+
     func run() throws {
+        // Configure custom models directory
+        configureModelsDirectory(modelsDir)
         print("Flux.2 Swift MLX Framework")
         print("Version: \(Flux2Core.version)")
         print()
