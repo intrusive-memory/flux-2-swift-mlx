@@ -187,7 +187,7 @@ For local models, you can bypass the download system entirely by providing the p
 
 To integrate local models into the full pipeline (so they work with `Flux2Pipeline`), you can either:
 
-1. **Place files in the cache directory**: Copy your safetensors to `~/Library/Caches/models/your-model-name/`. The `findModelPath(for:)` function checks this location.
+1. **Place files in the models directory**: Copy your safetensors to `~/Library/Caches/models/your-model-name/` (or the custom directory set via `ModelRegistry.customModelsDirectory`). The `findModelPath(for:)` function checks this location.
 
 2. **Override `loadTransformer()` in the pipeline**: Add a case in `Flux2Pipeline.loadTransformer()` that reads from a local path instead of using the downloader.
 

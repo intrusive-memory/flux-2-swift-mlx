@@ -49,23 +49,21 @@ public class Flux2ModelDownloader: @unchecked Sendable {
             }
         }
 
-        // Check cache directory
-        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            let repoId = repoId(for: component)
-            var path = cacheDir.appendingPathComponent("models")
+        // Check configured models directory
+        let repoId = repoId(for: component)
+        var path = ModelRegistry.modelsDirectory
 
-            for part in repoId.split(separator: "/") {
-                path = path.appendingPathComponent(String(part))
-            }
+        for part in repoId.split(separator: "/") {
+            path = path.appendingPathComponent(String(part))
+        }
 
-            let cacheHasConfig = FileManager.default.fileExists(atPath: path.appendingPathComponent("config.json").path)
-            let cacheHasModelIndex = FileManager.default.fileExists(atPath: path.appendingPathComponent("model_index.json").path)
+        let cacheHasConfig = FileManager.default.fileExists(atPath: path.appendingPathComponent("config.json").path)
+        let cacheHasModelIndex = FileManager.default.fileExists(atPath: path.appendingPathComponent("model_index.json").path)
 
-            if cacheHasConfig || cacheHasModelIndex {
-                let verification = verifyModel(at: path)
-                if verification.complete {
-                    return path
-                }
+        if cacheHasConfig || cacheHasModelIndex {
+            let verification = verifyModel(at: path)
+            if verification.complete {
+                return path
             }
         }
 
@@ -76,7 +74,6 @@ public class Flux2ModelDownloader: @unchecked Sendable {
             .appendingPathComponent("huggingface")
             .appendingPathComponent("hub")
 
-        let repoId = repoId(for: component)
         let modelFolder = "models--\(repoId.replacingOccurrences(of: "/", with: "--"))"
         let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent("snapshots")
 

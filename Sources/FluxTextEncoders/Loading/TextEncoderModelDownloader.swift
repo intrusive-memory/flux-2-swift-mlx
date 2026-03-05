@@ -15,16 +15,41 @@ public class TextEncoderModelDownloader {
     /// HuggingFace token for private/gated models
     private var hfToken: String?
 
-    /// Hub API instance
-    nonisolated(unsafe) private static var hubApi: HubApi = {
-        setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
-        return HubApi(
-            downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        )
-    }()
+    /// Custom override for model storage directory.
+    /// Set this before any download/check call to redirect model storage.
+    nonisolated(unsafe) public static var customModelsDirectory: URL?
 
-    /// Default models directory
+    /// Hub API instance — recreated if custom directory is set
+    nonisolated(unsafe) private static var hubApi: HubApi = makeHubApi()
+
+    private static func makeHubApi() -> HubApi {
+        setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
+        let base = customModelsDirectory?.deletingLastPathComponent()
+            ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        return HubApi(downloadBase: base)
+    }
+
+    /// Call after setting customModelsDirectory to update the HubApi
+    public static func reconfigureHubApi() {
+        hubApi = makeHubApi()
+    }
+
+    /// Directory where HubApi downloads models.
+    /// Uses customModelsDirectory if set, otherwise falls back to ~/Library/Caches/models
+    private static var hubDownloadDirectory: URL {
+        if let custom = customModelsDirectory {
+            return custom
+        }
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        return cacheDir.appendingPathComponent("models")
+    }
+
+    /// Legacy models directory (Mistral).
+    /// Uses customModelsDirectory if set, otherwise falls back to ~/.mistral/models
     public static var modelsDirectory: URL {
+        if let custom = customModelsDirectory {
+            return custom
+        }
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         return homeDir.appendingPathComponent(".mistral").appendingPathComponent("models")
     }
@@ -43,18 +68,14 @@ public class TextEncoderModelDownloader {
 
     /// Get the HuggingFace Hub cache path for a model
     public static func hubCachePath(for model: ModelInfo) -> URL? {
-        // Check new location: ~/Library/Caches/models/{org}/{repo}
-        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            // Split repoId (e.g., "lmstudio-community/Model-Name") and append each part
-            // to avoid URL encoding of the slash
-            var newPath = cacheDir.appendingPathComponent("models")
-            for component in model.repoId.split(separator: "/") {
-                newPath = newPath.appendingPathComponent(String(component))
-            }
+        // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
+        var newPath = hubDownloadDirectory
+        for component in model.repoId.split(separator: "/") {
+            newPath = newPath.appendingPathComponent(String(component))
+        }
 
-            if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-                return newPath
-            }
+        if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
+            return newPath
         }
 
         // Check legacy location: ~/.cache/huggingface/hub/models--{org}--{repo}/snapshots/...
@@ -324,19 +345,17 @@ public class TextEncoderModelDownloader {
     /// Find a Qwen3 model path (checks Hub cache)
     /// Verifies safetensors files are complete before returning path
     public static func findQwen3ModelPath(for model: Qwen3ModelInfo) -> URL? {
-        // Check new location: ~/Library/Caches/models/{org}/{repo}
-        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            var newPath = cacheDir.appendingPathComponent("models")
-            for component in model.repoId.split(separator: "/") {
-                newPath = newPath.appendingPathComponent(String(component))
-            }
+        // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
+        var newPath = hubDownloadDirectory
+        for component in model.repoId.split(separator: "/") {
+            newPath = newPath.appendingPathComponent(String(component))
+        }
 
-            if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-                // Verify safetensors files are complete
-                let verification = verifyShardedModel(at: newPath)
-                if verification.complete {
-                    return newPath
-                }
+        if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
+            // Verify safetensors files are complete
+            let verification = verifyShardedModel(at: newPath)
+            if verification.complete {
+                return newPath
             }
         }
 
@@ -379,19 +398,17 @@ public class TextEncoderModelDownloader {
     public static func findQwen3ModelPath(for variant: Qwen3Variant) -> URL? {
         let repoId = variant.repoId
 
-        // Check new location: ~/Library/Caches/models/{org}/{repo}
-        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            var newPath = cacheDir.appendingPathComponent("models")
-            for component in repoId.split(separator: "/") {
-                newPath = newPath.appendingPathComponent(String(component))
-            }
+        // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
+        var newPath = hubDownloadDirectory
+        for component in repoId.split(separator: "/") {
+            newPath = newPath.appendingPathComponent(String(component))
+        }
 
-            if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-                // Verify safetensors files are complete
-                let verification = verifyShardedModel(at: newPath)
-                if verification.complete {
-                    return newPath
-                }
+        if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
+            // Verify safetensors files are complete
+            let verification = verifyShardedModel(at: newPath)
+            if verification.complete {
+                return newPath
             }
         }
 

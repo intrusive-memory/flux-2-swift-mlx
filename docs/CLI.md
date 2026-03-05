@@ -43,6 +43,7 @@ flux2 t2i <prompt> [options]
 | `--upsample-prompt` | | | Enhance prompt with visual details before encoding |
 | `--interpret` | | | Image to analyze with VLM and inject into prompt (all models) |
 | `--checkpoint` | | | Save intermediate images every N steps |
+| `--models-dir` | | | Custom models directory (for sandboxed apps or custom storage) |
 | `--debug` | | | Enable verbose debug output |
 | `--profile` | | | Enable performance profiling |
 
@@ -223,6 +224,7 @@ flux2 i2i <prompt> --images <img1> --images <img2> [--images <img3>] [options]
 | `--seed` | | random | Random seed |
 | `--upsample-prompt` | | false | Enhance prompt with Mistral before encoding |
 | `--checkpoint` | | | Save intermediate images every N steps |
+| `--models-dir` | | | Custom models directory (for sandboxed apps or custom storage) |
 | `--profile` | | false | Show detailed performance profiling |
 | `--text-quant` | | `8bit` | Text encoder quantization |
 | `--transformer-quant` | | `qint8` | Transformer quantization |
@@ -380,6 +382,7 @@ flux2 download [options]
 | `--transformer-quant` | `qint8` | Which transformer variant to download |
 | `--all` | false | Download all model variants |
 | `--vae-only` | false | Only download VAE |
+| `--models-dir` | | Custom models directory (for sandboxed apps or custom storage) |
 
 ### Examples
 
@@ -499,6 +502,38 @@ Model Status:
 | Memory Efficient | 4bit | qint8 | ~47GB | 64GB Macs |
 | Minimal | 4bit | qint8 | ~47GB | 48GB Macs |
 | Ultra-Minimal | 4bit | int4 | ~30GB | 32GB Macs |
+
+---
+
+## Custom Models Directory
+
+By default, models are stored in `~/Library/Caches/models/`. You can override this with `--models-dir` for sandboxed apps or custom storage locations.
+
+```bash
+# Download models to a custom directory
+flux2 download --models-dir /path/to/my/models
+
+# Generate using models from custom directory
+flux2 t2i "a cat" --models-dir /path/to/my/models
+
+# Training with custom directory
+flux2 train-lora --config config.yaml --models-dir /path/to/my/models
+```
+
+### Programmatic Usage (Library)
+
+When using Flux2Core/FluxTextEncoders as libraries in a sandboxed macOS app:
+
+```swift
+import Flux2Core
+import FluxTextEncoders
+
+// Set custom directory before any download/model check
+let modelsDir = URL(fileURLWithPath: "/path/to/my/models")
+ModelRegistry.customModelsDirectory = modelsDir
+TextEncoderModelDownloader.customModelsDirectory = modelsDir
+TextEncoderModelDownloader.reconfigureHubApi()
+```
 
 ---
 

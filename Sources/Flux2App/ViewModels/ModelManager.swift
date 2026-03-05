@@ -67,10 +67,7 @@ class ModelManager: ObservableObject {
 
     /// Models cache directory
     static var modelsCacheDirectory: URL {
-        if let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            return cacheDir.appendingPathComponent("models")
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/models")
+        return ModelRegistry.modelsDirectory
     }
 
     init() {

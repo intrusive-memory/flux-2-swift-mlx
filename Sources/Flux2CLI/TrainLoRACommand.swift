@@ -210,9 +210,15 @@ struct TrainLoRA: AsyncParsableCommand {
     @Flag(name: .long, help: "Dry run - validate configuration without training")
     var dryRun: Bool = false
 
+    @Option(name: .long, help: "Custom models directory (for sandboxed apps or custom storage)")
+    var modelsDir: String?
+
     // MARK: - Run
 
     func run() async throws {
+        // Configure custom models directory
+        configureModelsDirectory(modelsDir)
+
         // Configure logging
         if verbose {
             Flux2Debug.enableDebugMode()
