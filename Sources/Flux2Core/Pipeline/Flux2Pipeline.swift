@@ -6,6 +6,7 @@ import MLX
 import MLXRandom
 import MLXNN
 import CoreGraphics
+import ImageIO
 
 #if canImport(AppKit)
 import AppKit
@@ -17,13 +18,14 @@ public enum Flux2GenerationMode: Sendable {
     case textToImage
 
     /// Image-to-Image generation with reference images
-    /// - Parameters:
-    ///   - images: Reference images (1-3). Multiple images are concatenated along sequence dimension
+    /// - Parameter images: Reference images (1-3). Multiple images are concatenated along sequence dimension
     ///             with unique time-based position IDs for each, allowing the transformer to
     ///             attend to all reference images during generation.
-    ///   - strength: Denoising strength (0.0-1.0). 1.0 = full denoising (ignores image),
-    ///               0.5 = 50% denoising, 0.1 = minimal changes
-    case imageToImage(images: [CGImage], strength: Float)
+    ///
+    /// Note: Flux.2 I2I uses conditioning mode (not noise-injection like SD).
+    /// Reference images provide visual context through transformer attention.
+    /// The model always denoises from pure noise while attending to reference tokens.
+    case imageToImage(images: [CGImage])
 }
 
 /// Progress callback for generation (currentStep, totalSteps)
@@ -493,6 +495,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     }
 
     /// Generate image with reference images
+    ///
+    /// Flux.2 uses conditioning mode: reference images provide visual context through
+    /// transformer attention. The model always denoises from pure noise.
+    ///
     /// - Parameters:
     ///   - prompt: Text description
     ///   - images: 1-3 reference images. Multiple images are concatenated along sequence dimension
@@ -503,7 +509,6 @@ public class Flux2Pipeline: @unchecked Sendable {
     ///   - steps: Number of denoising steps
     ///   - guidance: Guidance scale
     ///   - seed: Optional random seed
-    ///   - strength: Denoising strength (0.0-1.0). Default 0.8. Lower = preserve more of original image
     ///   - upsamplePrompt: Enhance prompt with visual details before encoding (default false)
     ///   - checkpointInterval: Save intermediate image every N steps (nil = disabled)
     ///   - onProgress: Optional progress callback
@@ -518,7 +523,6 @@ public class Flux2Pipeline: @unchecked Sendable {
         steps: Int = 50,
         guidance: Float = 4.0,
         seed: UInt64? = nil,
-        strength: Float = 0.8,
         upsamplePrompt: Bool = false,
         checkpointInterval: Int? = nil,
         onProgress: Flux2ProgressCallback? = nil,
@@ -528,20 +532,55 @@ public class Flux2Pipeline: @unchecked Sendable {
             throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
         }
 
-        guard strength > 0.0 && strength <= 1.0 else {
-            throw Flux2Error.invalidConfiguration("Strength must be between 0.0 and 1.0")
-        }
-
         // Infer dimensions from first image if not provided
         let targetHeight = height ?? images[0].height
         let targetWidth = width ?? images[0].width
 
         return try await generate(
-            mode: .imageToImage(images: images, strength: strength),
+            mode: .imageToImage(images: images),
             prompt: prompt,
             interpretImagePaths: interpretImagePaths,
             height: targetHeight,
             width: targetWidth,
+            steps: steps,
+            guidance: guidance,
+            seed: seed,
+            upsamplePrompt: upsamplePrompt,
+            checkpointInterval: checkpointInterval,
+            onProgress: onProgress,
+            onCheckpoint: onCheckpoint
+        )
+    }
+
+    /// Generate image with reference images from raw image data (PNG/JPEG)
+    /// - Note: Uses CGImageSource for pixel-exact decoding, avoiding NSImage roundtrip
+    ///         which can introduce subpixel shifts via AppKit re-rendering.
+    public func generateImageToImage(
+        prompt: String,
+        imageData: [Data],
+        interpretImagePaths: [String]? = nil,
+        height: Int? = nil,
+        width: Int? = nil,
+        steps: Int = 50,
+        guidance: Float = 4.0,
+        seed: UInt64? = nil,
+        upsamplePrompt: Bool = false,
+        checkpointInterval: Int? = nil,
+        onProgress: Flux2ProgressCallback? = nil,
+        onCheckpoint: Flux2CheckpointCallback? = nil
+    ) async throws -> CGImage {
+        let images = try imageData.enumerated().map { index, data in
+            guard let cgImage = Self.cgImage(from: data) else {
+                throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
+            }
+            return cgImage
+        }
+        return try await generateImageToImage(
+            prompt: prompt,
+            images: images,
+            interpretImagePaths: interpretImagePaths,
+            height: height,
+            width: width,
             steps: steps,
             guidance: guidance,
             seed: seed,
@@ -596,7 +635,6 @@ public class Flux2Pipeline: @unchecked Sendable {
         steps: Int = 50,
         guidance: Float = 4.0,
         seed: UInt64? = nil,
-        strength: Float = 0.8,
         upsamplePrompt: Bool = false,
         checkpointInterval: Int? = nil,
         onProgress: Flux2ProgressCallback? = nil,
@@ -606,20 +644,55 @@ public class Flux2Pipeline: @unchecked Sendable {
             throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
         }
 
-        guard strength > 0.0 && strength <= 1.0 else {
-            throw Flux2Error.invalidConfiguration("Strength must be between 0.0 and 1.0")
-        }
-
         // Infer dimensions from first image if not provided
         let targetHeight = height ?? images[0].height
         let targetWidth = width ?? images[0].width
 
         return try await generateWithResult(
-            mode: .imageToImage(images: images, strength: strength),
+            mode: .imageToImage(images: images),
             prompt: prompt,
             interpretImagePaths: interpretImagePaths,
             height: targetHeight,
             width: targetWidth,
+            steps: steps,
+            guidance: guidance,
+            seed: seed,
+            upsamplePrompt: upsamplePrompt,
+            checkpointInterval: checkpointInterval,
+            onProgress: onProgress,
+            onCheckpoint: onCheckpoint
+        )
+    }
+
+    /// Generate image with reference images from raw image data with full result
+    /// - Note: Uses CGImageSource for pixel-exact decoding, avoiding NSImage roundtrip.
+    /// - Returns: Flux2GenerationResult containing image and prompt metadata
+    public func generateImageToImageWithResult(
+        prompt: String,
+        imageData: [Data],
+        interpretImagePaths: [String]? = nil,
+        height: Int? = nil,
+        width: Int? = nil,
+        steps: Int = 50,
+        guidance: Float = 4.0,
+        seed: UInt64? = nil,
+        upsamplePrompt: Bool = false,
+        checkpointInterval: Int? = nil,
+        onProgress: Flux2ProgressCallback? = nil,
+        onCheckpoint: Flux2CheckpointCallback? = nil
+    ) async throws -> Flux2GenerationResult {
+        let images = try imageData.enumerated().map { index, data in
+            guard let cgImage = Self.cgImage(from: data) else {
+                throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
+            }
+            return cgImage
+        }
+        return try await generateImageToImageWithResult(
+            prompt: prompt,
+            images: images,
+            interpretImagePaths: interpretImagePaths,
+            height: height,
+            width: width,
             steps: steps,
             guidance: guidance,
             seed: seed,
@@ -798,7 +871,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         switch model {
         case .dev:
-            if upsamplePrompt, case .imageToImage(let images, _) = mode {
+            if upsamplePrompt, case .imageToImage(let images) = mode {
                 // Use VLM to analyze reference images and enhance prompt
                 Flux2Debug.log("Using vision-based prompt upsampling for I2I with \(images.count) image(s)")
                 let enhancedPrompt = try await textEncoder!.upsamplePromptWithImages(enrichedPrompt, images: images)
@@ -815,7 +888,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         case .klein4B, .klein4BBase, .klein9B, .klein9BBase:
             // Klein I2I with upsampling: load Mistral VLM temporarily to see reference images
             // This matches the official flux2 implementation which loads Mistral for Klein I2I upsampling
-            if upsamplePrompt, case .imageToImage(let images, _) = mode {
+            if upsamplePrompt, case .imageToImage(let images) = mode {
                 Flux2Debug.log("Klein I2I with upsampling: using Mistral VLM to analyze reference images...")
 
                 // Step 1: Unload Qwen3 (already loaded by loadTextEncoder) to free memory for Mistral
@@ -895,9 +968,7 @@ public class Flux2Pipeline: @unchecked Sendable {
             )
             Flux2Debug.log("Generated patchified latents: \(patchifiedLatents.shape)")
 
-        case .imageToImage(let images, let strength):
-            _ = strength  // Note: Flux.2 doesn't use strength like SD - it uses conditioning mode
-
+        case .imageToImage(let images):
             // === FLUX.2 IMAGE-TO-IMAGE MODE ===
             // Flux.2 uses CONDITIONING mode for all I2I:
             // - Reference images are encoded and concatenated as context
@@ -1391,14 +1462,24 @@ public class Flux2Pipeline: @unchecked Sendable {
         return (latents: finalLatents, positionIds: positionIds)
     }
 
-    /// Preprocess image for VAE encoding
-    /// Resizes image to target dimensions using high-quality CoreGraphics interpolation
+    /// Create CGImage from raw image data (PNG/JPEG) using CGImageSource for pixel-exact decoding.
+    /// This avoids NSImage roundtrip which can introduce subpixel shifts via AppKit re-rendering.
+    public static func cgImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// Preprocess image for VAE encoding.
+    /// When no resize is needed, reads pixels directly from CGImage.dataProvider to
+    /// preserve exact pixel values without format conversion or anti-aliasing artifacts.
+    /// When a resize is needed, uses CGContext with high-quality interpolation, then
+    /// reads from the resized image's dataProvider.
     private func preprocessImageForVAE(_ image: CGImage, targetHeight: Int, targetWidth: Int) -> MLXArray {
         let sourceWidth = image.width
         let sourceHeight = image.height
 
         // Resize image using CoreGraphics if needed
-        let resizedImage: CGImage
+        let sourceImage: CGImage
         if sourceWidth != targetWidth || sourceHeight != targetHeight {
             Flux2Debug.log("Resizing image from \(sourceWidth)x\(sourceHeight) to \(targetWidth)x\(targetHeight)")
 
@@ -1413,7 +1494,7 @@ public class Flux2Pipeline: @unchecked Sendable {
                 bitsPerComponent: 8,
                 bytesPerRow: bytesPerRow,
                 space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
             ) else {
                 Flux2Debug.log("Failed to create resize context")
                 return MLXRandom.normal([1, 3, targetHeight, targetWidth])
@@ -1421,26 +1502,89 @@ public class Flux2Pipeline: @unchecked Sendable {
 
             // High quality interpolation
             context.interpolationQuality = .high
-
-            // Draw the image scaled to fit the target dimensions
             context.draw(image, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
 
-            guard let result = context.makeImage() else {
+            guard let resized = context.makeImage() else {
                 Flux2Debug.log("Failed to create resized image")
                 return MLXRandom.normal([1, 3, targetHeight, targetWidth])
             }
 
-            resizedImage = result
+            sourceImage = resized
         } else {
-            resizedImage = image
+            sourceImage = image
         }
 
-        // Now convert to MLXArray
-        let width = targetWidth
-        let height = targetHeight
+        // Read pixels directly from CGImage data provider (no CGContext re-rendering).
+        // This preserves exact pixel values without format conversion or anti-aliasing.
+        let width = sourceImage.width
+        let height = sourceImage.height
+        let bpp = sourceImage.bitsPerPixel / 8  // bytes per pixel (3 for RGB, 4 for RGBA)
+        let bpr = sourceImage.bytesPerRow
+
+        guard let dataProvider = sourceImage.dataProvider,
+              let pixelCFData = dataProvider.data,
+              CFDataGetLength(pixelCFData) >= height * bpr else {
+            // Fallback to CGContext if direct access fails (e.g. compressed or unusual format)
+            Flux2Debug.log("Direct pixel access failed, falling back to CGContext")
+            return preprocessImageForVAEViaCGContext(sourceImage, height: height, width: width)
+        }
+
+        let bytes = CFDataGetBytePtr(pixelCFData)!
+
+        // Determine channel layout from bitmap info
+        let alphaInfo = CGImageAlphaInfo(rawValue: sourceImage.bitmapInfo.rawValue & CGBitmapInfo.alphaInfoMask.rawValue)
+        let hasAlpha = bpp >= 4
+        let alphaFirst = alphaInfo == .premultipliedFirst || alphaInfo == .first || alphaInfo == .noneSkipFirst
+
+        // RGB offsets depend on alpha position
+        let rOffset: Int
+        let gOffset: Int
+        let bOffset: Int
+        if hasAlpha && alphaFirst {
+            // ARGB layout
+            rOffset = 1; gOffset = 2; bOffset = 3
+        } else {
+            // RGB or RGBA layout
+            rOffset = 0; gOffset = 1; bOffset = 2
+        }
+
+        // Convert to float array and normalize to [-1, 1]
+        var floatData = [Float](repeating: 0, count: height * width * 3)
+        for y in 0..<height {
+            let rowStart = y * bpr
+            for x in 0..<width {
+                let pixelStart = rowStart + x * bpp
+                let pixelIndex = y * width + x
+
+                var r = Float(bytes[pixelStart + rOffset])
+                var g = Float(bytes[pixelStart + gOffset])
+                var b = Float(bytes[pixelStart + bOffset])
+
+                // Un-premultiply alpha if needed
+                if hasAlpha && (alphaInfo == .premultipliedFirst || alphaInfo == .premultipliedLast) {
+                    let a = Float(bytes[pixelStart + (alphaFirst ? 0 : 3)])
+                    if a > 0 && a < 255 {
+                        let scale = 255.0 / a
+                        r = min(r * scale, 255.0)
+                        g = min(g * scale, 255.0)
+                        b = min(b * scale, 255.0)
+                    }
+                }
+
+                // Normalize to [-1, 1]
+                floatData[pixelIndex] = r / 127.5 - 1.0
+                floatData[height * width + pixelIndex] = g / 127.5 - 1.0
+                floatData[2 * height * width + pixelIndex] = b / 127.5 - 1.0
+            }
+        }
+
+        return MLXArray(floatData).reshaped([1, 3, height, width])
+    }
+
+    /// Fallback: read pixels via CGContext when direct data provider access is not possible.
+    private func preprocessImageForVAEViaCGContext(_ image: CGImage, height: Int, width: Int) -> MLXArray {
         let bytesPerPixel = 4
         let bytesPerRow = bytesPerPixel * width
-
         var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
 
         guard let context = CGContext(
@@ -1450,28 +1594,25 @@ public class Flux2Pipeline: @unchecked Sendable {
             bitsPerComponent: 8,
             bytesPerRow: bytesPerRow,
             space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
         ) else {
-            return MLXRandom.normal([1, 3, targetHeight, targetWidth])
+            return MLXRandom.normal([1, 3, height, width])
         }
 
-        context.draw(resizedImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        // Convert to float array and normalize to [-1, 1]
         var floatData = [Float](repeating: 0, count: height * width * 3)
         for y in 0..<height {
             for x in 0..<width {
                 let pixelIndex = y * width + x
                 let byteIndex = y * bytesPerRow + x * bytesPerPixel
 
-                // RGB channels, normalize to [-1, 1]
                 floatData[pixelIndex] = Float(pixelData[byteIndex]) / 127.5 - 1.0
                 floatData[height * width + pixelIndex] = Float(pixelData[byteIndex + 1]) / 127.5 - 1.0
                 floatData[2 * height * width + pixelIndex] = Float(pixelData[byteIndex + 2]) / 127.5 - 1.0
             }
         }
 
-        // Create MLXArray [1, 3, H, W]
         return MLXArray(floatData).reshaped([1, 3, height, width])
     }
 

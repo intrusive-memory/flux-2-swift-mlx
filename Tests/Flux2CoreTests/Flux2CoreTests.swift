@@ -4,6 +4,12 @@
 import XCTest
 @testable import Flux2Core
 import MLX
+import ImageIO
+import CoreGraphics
+
+#if canImport(AppKit)
+import AppKit
+#endif
 
 final class Flux2CoreTests: XCTestCase {
 
@@ -1655,5 +1661,199 @@ final class WeightConversionTests: XCTestCase {
             // Both should be inf or the same clamped value
             XCTAssertEqual(d, v, "Overflow handling mismatch at index \(i): direct=\(d), viaF32=\(v)")
         }
+    }
+
+    // MARK: - Image Roundtrip Tests (I2I spatial shift diagnostics)
+
+    /// Helper: create a CGImage with a known gradient pattern
+    private func createGradientCGImage(width: Int, height: Int) -> CGImage {
+        let bytesPerPixel = 3
+        let bytesPerRow = bytesPerPixel * width
+        var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let idx = y * bytesPerRow + x * bytesPerPixel
+                pixelData[idx] = UInt8(x * 255 / max(width - 1, 1))     // R = horizontal gradient
+                pixelData[idx + 1] = UInt8(y * 255 / max(height - 1, 1)) // G = vertical gradient
+                pixelData[idx + 2] = 128                                  // B = constant
+            }
+        }
+
+        let provider = CGDataProvider(data: Data(pixelData) as CFData)!
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 24,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )!
+    }
+
+    /// Helper: extract pixel RGB from CGImage at (x, y)
+    private func getPixel(from image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8)? {
+        guard let dataProvider = image.dataProvider,
+              let data = dataProvider.data else { return nil }
+        let bpp = image.bitsPerPixel / 8
+        let bpr = image.bytesPerRow
+        let ptr = CFDataGetBytePtr(data)!
+        let offset = y * bpr + x * bpp
+
+        // Determine RGB offsets from bitmap info
+        let alphaInfo = CGImageAlphaInfo(rawValue: image.bitmapInfo.rawValue & CGBitmapInfo.alphaInfoMask.rawValue)
+        let alphaFirst = alphaInfo == .premultipliedFirst || alphaInfo == .first || alphaInfo == .noneSkipFirst
+        let hasAlpha = bpp >= 4
+
+        let rOff = (hasAlpha && alphaFirst) ? 1 : 0
+        let gOff = (hasAlpha && alphaFirst) ? 2 : 1
+        let bOff = (hasAlpha && alphaFirst) ? 3 : 2
+
+        return (ptr[offset + rOff], ptr[offset + gOff], ptr[offset + bOff])
+    }
+
+    /// Helper: encode CGImage to PNG Data
+    private func pngData(from image: CGImage) -> Data? {
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return mutableData as Data
+    }
+
+    /// Test 1: CGImageSource roundtrip is pixel-exact
+    func testCGImageSourceRoundtripPixelExact() {
+        let width = 8
+        let height = 8
+        let original = createGradientCGImage(width: width, height: height)
+
+        // Encode to PNG
+        guard let data = pngData(from: original) else {
+            XCTFail("Failed to encode PNG")
+            return
+        }
+
+        // Decode via CGImageSource (the fix path)
+        guard let decoded = Flux2Pipeline.cgImage(from: data) else {
+            XCTFail("Failed to decode via CGImageSource")
+            return
+        }
+
+        // Verify dimensions
+        XCTAssertEqual(decoded.width, width, "Width mismatch")
+        XCTAssertEqual(decoded.height, height, "Height mismatch")
+
+        // Compare every pixel
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let decodedPixel = getPixel(from: decoded, x: x, y: y) else {
+                    XCTFail("Failed to read pixel at (\(x), \(y))")
+                    continue
+                }
+                XCTAssertEqual(origPixel.r, decodedPixel.r, "R mismatch at (\(x), \(y)): \(origPixel.r) vs \(decodedPixel.r)")
+                XCTAssertEqual(origPixel.g, decodedPixel.g, "G mismatch at (\(x), \(y)): \(origPixel.g) vs \(decodedPixel.g)")
+                XCTAssertEqual(origPixel.b, decodedPixel.b, "B mismatch at (\(x), \(y)): \(origPixel.b) vs \(decodedPixel.b)")
+            }
+        }
+    }
+
+    #if canImport(AppKit)
+    /// Test 2: Detect NSImage roundtrip artifacts
+    /// This test documents that NSImage cgImage(forProposedRect:) can change pixel format/values
+    func testNSImageRoundtripDetectsChanges() {
+        let width = 16
+        let height = 16
+        let original = createGradientCGImage(width: width, height: height)
+
+        // NSImage roundtrip (the problematic path)
+        let nsImage = NSImage(cgImage: original, size: NSSize(width: width, height: height))
+        guard let roundtripped = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            XCTFail("NSImage roundtrip failed")
+            return
+        }
+
+        // Check format changes
+        let formatChanged = roundtripped.bitsPerPixel != original.bitsPerPixel
+            || roundtripped.bytesPerRow != original.bytesPerRow
+            || roundtripped.alphaInfo != original.alphaInfo
+
+        if formatChanged {
+            // Document that NSImage changes format (expected behavior we're fixing)
+            print("[NSImage Roundtrip] Format changed: \(original.bitsPerPixel)bpp/\(original.alphaInfo.rawValue)alpha → \(roundtripped.bitsPerPixel)bpp/\(roundtripped.alphaInfo.rawValue)alpha")
+        }
+
+        // Dimensions should at least be preserved
+        XCTAssertEqual(roundtripped.width, width, "NSImage roundtrip changed width")
+        XCTAssertEqual(roundtripped.height, height, "NSImage roundtrip changed height")
+    }
+    #endif
+
+    /// Test 3: CGImageSource vs NSImage pixel comparison
+    /// Verifies CGImageSource produces pixel-exact results while NSImage may not
+    func testCGImageSourceVsNSImageComparison() {
+        let width = 16
+        let height = 16
+        let original = createGradientCGImage(width: width, height: height)
+
+        guard let data = pngData(from: original) else {
+            XCTFail("Failed to encode PNG")
+            return
+        }
+
+        // Path A: CGImageSource (pixel-exact)
+        guard let viaCGImageSource = Flux2Pipeline.cgImage(from: data) else {
+            XCTFail("CGImageSource decode failed")
+            return
+        }
+
+        // Verify CGImageSource path is pixel-exact with original
+        var cgImageSourceExact = true
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let sourcePixel = getPixel(from: viaCGImageSource, x: x, y: y) else {
+                    continue
+                }
+                if origPixel.r != sourcePixel.r || origPixel.g != sourcePixel.g || origPixel.b != sourcePixel.b {
+                    cgImageSourceExact = false
+                    break
+                }
+            }
+            if !cgImageSourceExact { break }
+        }
+
+        XCTAssertTrue(cgImageSourceExact, "CGImageSource path should be pixel-exact")
+
+        #if canImport(AppKit)
+        // Path B: NSImage (potentially lossy)
+        let nsImage = NSImage(data: data)!
+        let viaNSImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)!
+
+        // Count pixel differences
+        var diffCount = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let nsPixel = getPixel(from: viaNSImage, x: x, y: y) else {
+                    continue
+                }
+                if origPixel.r != nsPixel.r || origPixel.g != nsPixel.g || origPixel.b != nsPixel.b {
+                    diffCount += 1
+                }
+            }
+        }
+
+        if diffCount > 0 {
+            print("[NSImage vs CGImageSource] NSImage path has \(diffCount)/\(width * height) pixel differences")
+        }
+        #endif
     }
 }

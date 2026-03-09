@@ -15,24 +15,19 @@ public struct SchedulerOverrides: Sendable, Codable, Equatable {
     /// Recommended guidance scale
     public var guidance: Float?
 
-    /// Recommended strength for I2I
-    public var strength: Float?
-
     public init(
         customSigmas: [Float]? = nil,
         numSteps: Int? = nil,
-        guidance: Float? = nil,
-        strength: Float? = nil
+        guidance: Float? = nil
     ) {
         self.customSigmas = customSigmas
         self.numSteps = numSteps
         self.guidance = guidance
-        self.strength = strength
     }
 
     /// Check if any overrides are set
     public var hasOverrides: Bool {
-        customSigmas != nil || numSteps != nil || guidance != nil || strength != nil
+        customSigmas != nil || numSteps != nil || guidance != nil
     }
 }
 

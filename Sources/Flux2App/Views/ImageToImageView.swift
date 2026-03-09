@@ -37,11 +37,6 @@ struct ImageToImageView: View {
 
                     Divider()
 
-                    // I2I Parameters Section
-                    i2iParametersSection
-
-                    Divider()
-
                     // Standard Parameters Section
                     parametersSection
 
@@ -239,38 +234,7 @@ struct ImageToImageView: View {
         }
     }
 
-    // MARK: - I2I Parameters Section
-
-    @ViewBuilder
-    private var i2iParametersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Image-to-Image Settings", systemImage: "photo.on.rectangle")
-                .font(.headline)
-
-            // Strength slider
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Strength: \(String(format: "%.2f", viewModel.strength))")
-                        .font(.caption)
-                    Spacer()
-                    Text("Preserve")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("<-->")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("Transform")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: $viewModel.strength, in: 0.1...1.0, step: 0.05)
-            }
-
-            Text("Lower strength preserves more of the reference image structure. Higher strength allows more creative transformation.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
+    // MARK: - I2I Parameters Section (removed - strength is not used by Flux.2 conditioning mode)
 
     // MARK: - Parameters Section
 
@@ -614,9 +578,7 @@ struct ImageToImageView: View {
 
     private func useAsReference() {
         guard let cgImage = viewModel.generatedImage else { return }
-
-        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        viewModel.addReferenceImage(from: nsImage)
+        viewModel.addReferenceImage(cgImage: cgImage)
     }
 }
 
