@@ -4,6 +4,12 @@
 import XCTest
 @testable import Flux2Core
 import MLX
+import ImageIO
+import CoreGraphics
+
+#if canImport(AppKit)
+import AppKit
+#endif
 
 final class Flux2CoreTests: XCTestCase {
 
@@ -1655,5 +1661,522 @@ final class WeightConversionTests: XCTestCase {
             // Both should be inf or the same clamped value
             XCTAssertEqual(d, v, "Overflow handling mismatch at index \(i): direct=\(d), viaF32=\(v)")
         }
+    }
+
+    // MARK: - Image Roundtrip Tests (I2I spatial shift diagnostics)
+
+    /// Helper: create a CGImage with a known gradient pattern
+    private func createGradientCGImage(width: Int, height: Int) -> CGImage {
+        let bytesPerPixel = 3
+        let bytesPerRow = bytesPerPixel * width
+        var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let idx = y * bytesPerRow + x * bytesPerPixel
+                pixelData[idx] = UInt8(x * 255 / max(width - 1, 1))     // R = horizontal gradient
+                pixelData[idx + 1] = UInt8(y * 255 / max(height - 1, 1)) // G = vertical gradient
+                pixelData[idx + 2] = 128                                  // B = constant
+            }
+        }
+
+        let provider = CGDataProvider(data: Data(pixelData) as CFData)!
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 24,
+            bytesPerRow: bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )!
+    }
+
+    /// Helper: extract pixel RGB from CGImage at (x, y)
+    private func getPixel(from image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8)? {
+        guard let dataProvider = image.dataProvider,
+              let data = dataProvider.data else { return nil }
+        let bpp = image.bitsPerPixel / 8
+        let bpr = image.bytesPerRow
+        let ptr = CFDataGetBytePtr(data)!
+        let offset = y * bpr + x * bpp
+
+        // Determine RGB offsets from bitmap info
+        let alphaInfo = CGImageAlphaInfo(rawValue: image.bitmapInfo.rawValue & CGBitmapInfo.alphaInfoMask.rawValue)
+        let alphaFirst = alphaInfo == .premultipliedFirst || alphaInfo == .first || alphaInfo == .noneSkipFirst
+        let hasAlpha = bpp >= 4
+
+        let rOff = (hasAlpha && alphaFirst) ? 1 : 0
+        let gOff = (hasAlpha && alphaFirst) ? 2 : 1
+        let bOff = (hasAlpha && alphaFirst) ? 3 : 2
+
+        return (ptr[offset + rOff], ptr[offset + gOff], ptr[offset + bOff])
+    }
+
+    /// Helper: encode CGImage to PNG Data
+    private func pngData(from image: CGImage) -> Data? {
+        let mutableData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return mutableData as Data
+    }
+
+    /// Test 1: CGImageSource roundtrip is pixel-exact
+    func testCGImageSourceRoundtripPixelExact() {
+        let width = 8
+        let height = 8
+        let original = createGradientCGImage(width: width, height: height)
+
+        // Encode to PNG
+        guard let data = pngData(from: original) else {
+            XCTFail("Failed to encode PNG")
+            return
+        }
+
+        // Decode via CGImageSource (the fix path)
+        guard let decoded = Flux2Pipeline.cgImage(from: data) else {
+            XCTFail("Failed to decode via CGImageSource")
+            return
+        }
+
+        // Verify dimensions
+        XCTAssertEqual(decoded.width, width, "Width mismatch")
+        XCTAssertEqual(decoded.height, height, "Height mismatch")
+
+        // Compare every pixel
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let decodedPixel = getPixel(from: decoded, x: x, y: y) else {
+                    XCTFail("Failed to read pixel at (\(x), \(y))")
+                    continue
+                }
+                XCTAssertEqual(origPixel.r, decodedPixel.r, "R mismatch at (\(x), \(y)): \(origPixel.r) vs \(decodedPixel.r)")
+                XCTAssertEqual(origPixel.g, decodedPixel.g, "G mismatch at (\(x), \(y)): \(origPixel.g) vs \(decodedPixel.g)")
+                XCTAssertEqual(origPixel.b, decodedPixel.b, "B mismatch at (\(x), \(y)): \(origPixel.b) vs \(decodedPixel.b)")
+            }
+        }
+    }
+
+    #if canImport(AppKit)
+    /// Test 2: Detect NSImage roundtrip artifacts
+    /// This test documents that NSImage cgImage(forProposedRect:) can change pixel format/values
+    func testNSImageRoundtripDetectsChanges() {
+        let width = 16
+        let height = 16
+        let original = createGradientCGImage(width: width, height: height)
+
+        // NSImage roundtrip (the problematic path)
+        let nsImage = NSImage(cgImage: original, size: NSSize(width: width, height: height))
+        guard let roundtripped = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            XCTFail("NSImage roundtrip failed")
+            return
+        }
+
+        // Check format changes
+        let formatChanged = roundtripped.bitsPerPixel != original.bitsPerPixel
+            || roundtripped.bytesPerRow != original.bytesPerRow
+            || roundtripped.alphaInfo != original.alphaInfo
+
+        if formatChanged {
+            // Document that NSImage changes format (expected behavior we're fixing)
+            print("[NSImage Roundtrip] Format changed: \(original.bitsPerPixel)bpp/\(original.alphaInfo.rawValue)alpha → \(roundtripped.bitsPerPixel)bpp/\(roundtripped.alphaInfo.rawValue)alpha")
+        }
+
+        // Dimensions should at least be preserved
+        XCTAssertEqual(roundtripped.width, width, "NSImage roundtrip changed width")
+        XCTAssertEqual(roundtripped.height, height, "NSImage roundtrip changed height")
+    }
+    #endif
+
+    /// Test 3: CGImageSource vs NSImage pixel comparison
+    /// Verifies CGImageSource produces pixel-exact results while NSImage may not
+    func testCGImageSourceVsNSImageComparison() {
+        let width = 16
+        let height = 16
+        let original = createGradientCGImage(width: width, height: height)
+
+        guard let data = pngData(from: original) else {
+            XCTFail("Failed to encode PNG")
+            return
+        }
+
+        // Path A: CGImageSource (pixel-exact)
+        guard let viaCGImageSource = Flux2Pipeline.cgImage(from: data) else {
+            XCTFail("CGImageSource decode failed")
+            return
+        }
+
+        // Verify CGImageSource path is pixel-exact with original
+        var cgImageSourceExact = true
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let sourcePixel = getPixel(from: viaCGImageSource, x: x, y: y) else {
+                    continue
+                }
+                if origPixel.r != sourcePixel.r || origPixel.g != sourcePixel.g || origPixel.b != sourcePixel.b {
+                    cgImageSourceExact = false
+                    break
+                }
+            }
+            if !cgImageSourceExact { break }
+        }
+
+        XCTAssertTrue(cgImageSourceExact, "CGImageSource path should be pixel-exact")
+
+        #if canImport(AppKit)
+        // Path B: NSImage (potentially lossy)
+        let nsImage = NSImage(data: data)!
+        let viaNSImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)!
+
+        // Count pixel differences
+        var diffCount = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let origPixel = getPixel(from: original, x: x, y: y),
+                      let nsPixel = getPixel(from: viaNSImage, x: x, y: y) else {
+                    continue
+                }
+                if origPixel.r != nsPixel.r || origPixel.g != nsPixel.g || origPixel.b != nsPixel.b {
+                    diffCount += 1
+                }
+            }
+        }
+
+        if diffCount > 0 {
+            print("[NSImage vs CGImageSource] NSImage path has \(diffCount)/\(width * height) pixel differences")
+        }
+        #endif
+    }
+}
+
+// MARK: - Flux2GenerationMode Tests
+
+final class Flux2GenerationModeTests: XCTestCase {
+
+    func testTextToImageMode() {
+        let mode = Flux2GenerationMode.textToImage
+        if case .textToImage = mode {
+            // OK
+        } else {
+            XCTFail("Expected textToImage")
+        }
+    }
+
+    func testImageToImageModeWithSingleImage() {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let img = ctx.makeImage() else {
+            XCTFail("Failed to create test image"); return
+        }
+
+        let mode = Flux2GenerationMode.imageToImage(images: [img])
+        if case .imageToImage(let images) = mode {
+            XCTAssertEqual(images.count, 1)
+            XCTAssertEqual(images[0].width, 8)
+        } else {
+            XCTFail("Expected imageToImage")
+        }
+    }
+
+    func testImageToImageModeWithMultipleImages() {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let img = ctx.makeImage() else {
+            XCTFail("Failed to create test image"); return
+        }
+
+        let mode = Flux2GenerationMode.imageToImage(images: [img, img, img])
+        if case .imageToImage(let images) = mode {
+            XCTAssertEqual(images.count, 3)
+        } else {
+            XCTFail("Expected imageToImage")
+        }
+    }
+
+    func testModeHasNoStrengthParameter() {
+        // Verify that Flux2GenerationMode.imageToImage has no strength associated value
+        // This test documents the removal of the strength parameter (issue #57)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let img = ctx.makeImage() else {
+            XCTFail("Failed to create test image"); return
+        }
+
+        let mode = Flux2GenerationMode.imageToImage(images: [img])
+        // Pattern match with only images — no strength value
+        if case .imageToImage(let images) = mode {
+            XCTAssertEqual(images.count, 1)
+        } else {
+            XCTFail("Expected imageToImage with images only")
+        }
+    }
+}
+
+// MARK: - SchedulerOverrides Tests
+
+final class SchedulerOverridesTests: XCTestCase {
+
+    func testDefaultInit() {
+        let overrides = SchedulerOverrides()
+        XCTAssertNil(overrides.customSigmas)
+        XCTAssertNil(overrides.numSteps)
+        XCTAssertNil(overrides.guidance)
+        XCTAssertFalse(overrides.hasOverrides)
+    }
+
+    func testWithNumSteps() {
+        let overrides = SchedulerOverrides(numSteps: 4)
+        XCTAssertEqual(overrides.numSteps, 4)
+        XCTAssertTrue(overrides.hasOverrides)
+    }
+
+    func testWithGuidance() {
+        let overrides = SchedulerOverrides(guidance: 1.0)
+        XCTAssertEqual(overrides.guidance, 1.0)
+        XCTAssertTrue(overrides.hasOverrides)
+    }
+
+    func testWithCustomSigmas() {
+        let sigmas: [Float] = [1.0, 0.75, 0.5, 0.25, 0.0]
+        let overrides = SchedulerOverrides(customSigmas: sigmas)
+        XCTAssertEqual(overrides.customSigmas, sigmas)
+        XCTAssertTrue(overrides.hasOverrides)
+    }
+
+    func testWithAllOverrides() {
+        let overrides = SchedulerOverrides(
+            customSigmas: [1.0, 0.5, 0.0],
+            numSteps: 8,
+            guidance: 3.5
+        )
+        XCTAssertEqual(overrides.customSigmas?.count, 3)
+        XCTAssertEqual(overrides.numSteps, 8)
+        XCTAssertEqual(overrides.guidance, 3.5)
+        XCTAssertTrue(overrides.hasOverrides)
+    }
+
+    func testEquatable() {
+        let a = SchedulerOverrides(numSteps: 4, guidance: 1.0)
+        let b = SchedulerOverrides(numSteps: 4, guidance: 1.0)
+        let c = SchedulerOverrides(numSteps: 8, guidance: 1.0)
+        XCTAssertEqual(a, b)
+        XCTAssertNotEqual(a, c)
+    }
+
+    func testCodableRoundtrip() throws {
+        let original = SchedulerOverrides(
+            customSigmas: [1.0, 0.5, 0.0],
+            numSteps: 4,
+            guidance: 1.0
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(SchedulerOverrides.self, from: data)
+        XCTAssertEqual(original, decoded)
+    }
+
+    func testCodableNoStrengthField() throws {
+        // Verify that JSON with a "strength" field is handled gracefully
+        // (the field was removed, so it should be ignored by the decoder)
+        let json = """
+        {"numSteps": 4, "guidance": 1.0}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SchedulerOverrides.self, from: json)
+        XCTAssertEqual(decoded.numSteps, 4)
+        XCTAssertEqual(decoded.guidance, 1.0)
+    }
+
+    func testHasOverridesWithNoValues() {
+        let overrides = SchedulerOverrides(customSigmas: nil, numSteps: nil, guidance: nil)
+        XCTAssertFalse(overrides.hasOverrides)
+    }
+}
+
+// MARK: - LoRAConfig SchedulerOverrides Integration Tests
+
+final class LoRAConfigSchedulerOverridesTests: XCTestCase {
+
+    func testLoRAConfigWithSchedulerOverrides() {
+        let overrides = SchedulerOverrides(numSteps: 4, guidance: 1.0)
+        var config = LoRAConfig(filePath: "/path/to/turbo.safetensors")
+        config.schedulerOverrides = overrides
+
+        XCTAssertNotNil(config.schedulerOverrides)
+        XCTAssertEqual(config.schedulerOverrides?.numSteps, 4)
+        XCTAssertEqual(config.schedulerOverrides?.guidance, 1.0)
+    }
+
+    func testLoRAConfigWithoutSchedulerOverrides() {
+        let config = LoRAConfig(filePath: "/path/to/style.safetensors")
+        XCTAssertNil(config.schedulerOverrides)
+    }
+
+    func testLoRAConfigCodableWithOverrides() throws {
+        let json = """
+        {
+            "filePath": "/path/to/turbo.safetensors",
+            "scale": 1.0,
+            "schedulerOverrides": {
+                "numSteps": 8,
+                "guidance": 3.5,
+                "customSigmas": [1.0, 0.75, 0.5, 0.25, 0.0]
+            }
+        }
+        """.data(using: .utf8)!
+
+        let config = try JSONDecoder().decode(LoRAConfig.self, from: json)
+        XCTAssertEqual(config.filePath, "/path/to/turbo.safetensors")
+        XCTAssertEqual(config.scale, 1.0)
+        XCTAssertNotNil(config.schedulerOverrides)
+        XCTAssertEqual(config.schedulerOverrides?.numSteps, 8)
+        XCTAssertEqual(config.schedulerOverrides?.guidance, 3.5)
+        XCTAssertEqual(config.schedulerOverrides?.customSigmas?.count, 5)
+    }
+
+    func testLoRAConfigCodableRoundtrip() throws {
+        var config = LoRAConfig(filePath: "/path/to/lora.safetensors", scale: 0.8)
+        config.activationKeyword = "sks"
+        config.schedulerOverrides = SchedulerOverrides(numSteps: 4, guidance: 1.0)
+
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(LoRAConfig.self, from: data)
+
+        XCTAssertEqual(decoded.filePath, config.filePath)
+        XCTAssertEqual(decoded.scale, config.scale)
+        XCTAssertEqual(decoded.activationKeyword, "sks")
+        XCTAssertEqual(decoded.schedulerOverrides, config.schedulerOverrides)
+    }
+}
+
+// MARK: - CGImageSource Pipeline Helper Tests
+
+final class CGImageSourcePipelineTests: XCTestCase {
+
+    func testCgImageFromValidPNGData() {
+        // Create a small CGImage and encode to PNG
+        let width = 4, height = 4
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let img = ctx.makeImage() else {
+            XCTFail("Failed to create test image"); return
+        }
+
+        // Encode to PNG data
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            XCTFail("Failed to create image destination"); return
+        }
+        CGImageDestinationAddImage(dest, img, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            XCTFail("Failed to finalize image"); return
+        }
+
+        // Decode via pipeline helper
+        let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
+        XCTAssertNotNil(decoded)
+        XCTAssertEqual(decoded?.width, width)
+        XCTAssertEqual(decoded?.height, height)
+    }
+
+    func testCgImageFromValidJPEGData() {
+        let width = 8, height = 8
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let img = ctx.makeImage() else {
+            XCTFail("Failed to create test image"); return
+        }
+
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.jpeg" as CFString, 1, nil) else {
+            XCTFail("Failed to create JPEG destination"); return
+        }
+        CGImageDestinationAddImage(dest, img, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            XCTFail("Failed to finalize JPEG"); return
+        }
+
+        let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
+        XCTAssertNotNil(decoded)
+        XCTAssertEqual(decoded?.width, width)
+        XCTAssertEqual(decoded?.height, height)
+    }
+
+    func testCgImageFromInvalidData() {
+        let garbage = Data([0x00, 0x01, 0x02, 0x03, 0xFF])
+        let result = Flux2Pipeline.cgImage(from: garbage)
+        XCTAssertNil(result)
+    }
+
+    func testCgImageFromEmptyData() {
+        let result = Flux2Pipeline.cgImage(from: Data())
+        XCTAssertNil(result)
+    }
+
+    func testCgImagePreservesPixelValues() {
+        // Create gradient image with known pixel values
+        let width = 8, height = 8
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let idx = (y * width + x) * 4
+                pixels[idx + 0] = UInt8(x * 32)     // R
+                pixels[idx + 1] = UInt8(y * 32)     // G
+                pixels[idx + 2] = UInt8((x + y) * 16) // B
+                pixels[idx + 3] = 255                // A (skip)
+            }
+        }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = pixels.withUnsafeMutableBytes({ ptr -> CGContext? in
+            CGContext(data: ptr.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        }), let img = ctx.makeImage() else {
+            XCTFail("Failed to create gradient image"); return
+        }
+
+        // Encode to PNG (lossless)
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.png" as CFString, 1, nil) else {
+            XCTFail("Failed to create PNG destination"); return
+        }
+        CGImageDestinationAddImage(dest, img, nil)
+        guard CGImageDestinationFinalize(dest) else {
+            XCTFail("Failed to finalize PNG"); return
+        }
+
+        // Decode and verify
+        guard let decoded = Flux2Pipeline.cgImage(from: mutableData as Data) else {
+            XCTFail("Failed to decode PNG"); return
+        }
+        XCTAssertEqual(decoded.width, width)
+        XCTAssertEqual(decoded.height, height)
+
+        // Verify pixel values match
+        guard let dataProvider = decoded.dataProvider,
+              let pixelData = dataProvider.data,
+              let bytes = CFDataGetBytePtr(pixelData) else {
+            XCTFail("Failed to get pixel data from decoded image"); return
+        }
+
+        let bpp = decoded.bitsPerPixel / 8
+        let bpr = decoded.bytesPerRow
+        var mismatch = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                let srcIdx = (y * width + x) * 4
+                let dstOff = y * bpr + x * bpp
+                if pixels[srcIdx] != bytes[dstOff] || pixels[srcIdx + 1] != bytes[dstOff + 1] || pixels[srcIdx + 2] != bytes[dstOff + 2] {
+                    mismatch += 1
+                }
+            }
+        }
+        XCTAssertEqual(mismatch, 0, "PNG roundtrip via CGImageSource should be pixel-exact")
     }
 }

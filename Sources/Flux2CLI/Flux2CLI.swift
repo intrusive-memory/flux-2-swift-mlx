@@ -374,10 +374,7 @@ struct ImageToImage: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Number of effective denoising steps (default: 28 for Dev, 4 for Klein)")
     var steps: Int?
 
-    @Flag(name: .long, help: "Interpret --steps as total steps before strength reduction (legacy behavior)")
-    var totalSteps: Bool = false
-
-    @Option(name: .shortAndLong, help: "Guidance scale (default: 4.0 for Dev, 1.0 for Klein)")
+@Option(name: .shortAndLong, help: "Guidance scale (default: 4.0 for Dev, 1.0 for Klein)")
     var guidance: Float?
 
     @Option(name: .long, help: "Random seed for reproducibility")
@@ -388,9 +385,6 @@ struct ImageToImage: AsyncParsableCommand {
 
     @Option(name: .shortAndLong, help: "Output image height (default: from first reference image)")
     var height: Int?
-
-    @Option(name: .long, help: "Denoising strength (0.0-1.0). Lower = preserve more of original image")
-    var strength: Float = 0.8
 
     @Flag(name: .long, help: "Enhance prompt with visual details using Mistral before encoding")
     var upsamplePrompt: Bool = false
@@ -492,11 +486,6 @@ struct ImageToImage: AsyncParsableCommand {
             } else {
                 throw ValidationError("Maximum \(maxImages) reference images allowed for \(modelVariant.displayName)")
             }
-        }
-
-        // Validate strength
-        guard strength > 0.0 && strength <= 1.0 else {
-            throw ValidationError("Strength must be between 0.0 and 1.0")
         }
 
         // Configure profiling
@@ -634,7 +623,6 @@ struct ImageToImage: AsyncParsableCommand {
             steps: actualSteps,
             guidance: actualGuidance,
             seed: seed,
-            strength: strength,
             upsamplePrompt: upsamplePrompt,
             checkpointInterval: checkpoint,
             onProgress: { current, total in

@@ -7,6 +7,7 @@ import SwiftUI
 import Flux2Core
 import FluxTextEncoders
 import CoreGraphics
+import ImageIO
 import MLX
 
 #if canImport(AppKit)
@@ -42,7 +43,6 @@ class ImageGenerationViewModel: ObservableObject {
 
     // MARK: - I2I Parameters
     @Published var referenceImages: [ReferenceImage] = []
-    @Published var strength: Float = 0.8
     @Published var interpretImageURLs: [URL] = []  // VLM interpretation images
 
     // MARK: - State
@@ -111,16 +111,18 @@ class ImageGenerationViewModel: ObservableObject {
 
     // MARK: - Image Management
 
-    /// Add a reference image from URL
+    /// Add a reference image from URL using CGImageSource (pixel-exact, no NSImage re-rendering)
     func addReferenceImage(from url: URL) {
         guard referenceImages.count < selectedModel.maxReferenceImages else { return }
 
-        guard let nsImage = NSImage(contentsOf: url),
-              let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // Use CGImageSource for pixel-exact loading (avoids NSImage roundtrip shifts)
+        guard let data = try? Data(contentsOf: url),
+              let cgImage = Self.cgImageFromData(data) else {
             errorMessage = "Failed to load image from \(url.lastPathComponent)"
             return
         }
 
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         let refImage = ReferenceImage(
             id: UUID(),
             url: url,
@@ -131,14 +133,32 @@ class ImageGenerationViewModel: ObservableObject {
     }
 
     /// Add a reference image from NSImage (drag & drop)
+    /// Uses tiffRepresentation + CGImageSource to avoid cgImage(forProposedRect:) re-rendering
     func addReferenceImage(from nsImage: NSImage) {
         guard referenceImages.count < selectedModel.maxReferenceImages else { return }
 
-        guard let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // Convert via TIFF data + CGImageSource to avoid cgImage(forProposedRect:) shifts
+        guard let tiffData = nsImage.tiffRepresentation,
+              let cgImage = Self.cgImageFromData(tiffData) else {
             errorMessage = "Failed to process dropped image"
             return
         }
 
+        let refImage = ReferenceImage(
+            id: UUID(),
+            url: nil,
+            image: cgImage,
+            thumbnail: createThumbnail(from: nsImage)
+        )
+        referenceImages.append(refImage)
+    }
+
+    /// Add a reference image directly from a CGImage (no NSImage roundtrip)
+    /// Used by "Use as Reference" to avoid pixel shifts on iterative I2I cycles
+    func addReferenceImage(cgImage: CGImage) {
+        guard referenceImages.count < selectedModel.maxReferenceImages else { return }
+
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         let refImage = ReferenceImage(
             id: UUID(),
             url: nil,
@@ -156,6 +176,12 @@ class ImageGenerationViewModel: ObservableObject {
     /// Clear all reference images
     func clearReferenceImages() {
         referenceImages.removeAll()
+    }
+
+    /// Decode image data using CGImageSource for pixel-exact results
+    private static func cgImageFromData(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     private func createThumbnail(from image: NSImage) -> NSImage {
@@ -261,7 +287,6 @@ class ImageGenerationViewModel: ObservableObject {
                     steps: steps,
                     guidance: guidance,
                     seed: seedValue,
-                    strength: strength,
                     upsamplePrompt: upsamplePrompt,
                     checkpointInterval: showCheckpoints ? checkpointInterval : nil,
                     onProgress: { current, total in
