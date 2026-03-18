@@ -17,12 +17,12 @@ jobs:
         run: swift --version
 
       - name: Resolve dependencies
-        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift -clonedSourcePackagesDirPath .spm
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
 
       - name: Run FluxTextEncoders tests
         run: |
           xcodebuild test \
-            -scheme Flux2Swift \
+            -scheme Flux2Swift-Package \
             -destination 'platform=macOS' \
             -only-testing FluxTextEncodersTests \
             -clonedSourcePackagesDirPath .spm
@@ -30,7 +30,7 @@ jobs:
       - name: Run Flux2Core tests
         run: |
           xcodebuild test \
-            -scheme Flux2Swift \
+            -scheme Flux2Swift-Package \
             -destination 'platform=macOS' \
             -only-testing Flux2CoreTests \
             -clonedSourcePackagesDirPath .spm
