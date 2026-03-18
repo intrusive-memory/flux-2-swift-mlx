@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main, development]
+
+jobs:
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift -clonedSourcePackagesDirPath .spm
+
+      - name: Run FluxTextEncoders tests
+        run: |
+          xcodebuild test \
+            -scheme Flux2Swift \
+            -destination 'platform=macOS' \
+            -only-testing FluxTextEncodersTests \
+            -clonedSourcePackagesDirPath .spm
+
+      - name: Run Flux2Core tests
+        run: |
+          xcodebuild test \
+            -scheme Flux2Swift \
+            -destination 'platform=macOS' \
+            -only-testing Flux2CoreTests \
+            -clonedSourcePackagesDirPath .spm
