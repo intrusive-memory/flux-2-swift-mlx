@@ -27,7 +27,7 @@ import CoreGraphics
 public final class FluxTextEncoders: @unchecked Sendable {
     /// Shared singleton instance
     public static let shared = FluxTextEncoders()
-    public static let version = "2.4.0"
+    public static let version = "2.5.0"
 
     private var model: MistralForCausalLM?
     private var vlmModel: MistralVLM?
@@ -938,7 +938,7 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-    public static let version = "2.4.0"
+    public static let version = "2.5.0"
     public static let modelName = "Mistral Small 3.2"
     public static let modelVersion = "24B-Instruct-2506"
 }
