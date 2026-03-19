@@ -5,9 +5,12 @@ import Foundation
 import MLX
 import MLXNN
 import CoreGraphics
+import ImageIO
 
-#if os(macOS)
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// High-level helper for preparing LoRA training data
@@ -328,7 +331,6 @@ public final class LoRATrainingHelper: @unchecked Sendable {
 
     /// Resize a CGImage to specific dimensions
     private func resizeImage(_ image: CGImage, toWidth width: Int, height: Int) -> CGImage {
-        #if os(macOS)
         let context = CGContext(
             data: nil,
             width: width,
@@ -343,10 +345,6 @@ public final class LoRATrainingHelper: @unchecked Sendable {
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         return context.makeImage()!
-        #else
-        // iOS implementation would go here
-        fatalError("iOS not yet supported")
-        #endif
     }
 
     /// Convert CGImage to MLXArray in NCHW format
@@ -687,14 +685,10 @@ extension LoRATrainingHelper {
         var images: [TrainingImage] = []
 
         for (url, caption) in imageFiles {
-            #if os(macOS)
-            guard let nsImage = NSImage(contentsOf: url),
-                  let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw LoRATrainingHelperError.failedToLoadImage(url.lastPathComponent)
             }
-            #else
-            fatalError("iOS not yet supported")
-            #endif
 
             images.append(TrainingImage(
                 filename: url.lastPathComponent,

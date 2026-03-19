@@ -15,7 +15,10 @@ import Tokenizers
 
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
+import CoreGraphics
 
 // MARK: - Public API
 
@@ -24,7 +27,7 @@ import AppKit
 public final class FluxTextEncoders: @unchecked Sendable {
     /// Shared singleton instance
     public static let shared = FluxTextEncoders()
-    public static let version = "0.1.0"
+    public static let version = "2.5.0"
 
     private var model: MistralForCausalLM?
     private var vlmModel: MistralVLM?
@@ -347,7 +350,8 @@ public final class FluxTextEncoders: @unchecked Sendable {
         fflush(stdout)
     }
 
-    /// Analyze an image with a text prompt and optional system prompt
+    #if canImport(AppKit)
+    /// Analyze an image with a text prompt and optional system prompt (macOS convenience)
     /// - Parameters:
     ///   - image: NSImage to analyze
     ///   - prompt: Text prompt describing what to look for
@@ -357,6 +361,28 @@ public final class FluxTextEncoders: @unchecked Sendable {
     /// - Returns: Generated description/analysis
     public func analyzeImage(
         image: NSImage,
+        prompt: String,
+        systemPrompt: String? = nil,
+        parameters: GenerateParameters = .balanced,
+        onToken: ((String) -> Bool)? = nil
+    ) throws -> GenerationResult {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw FluxEncoderError.vlmNotLoaded
+        }
+        return try analyzeImage(image: cgImage, prompt: prompt, systemPrompt: systemPrompt, parameters: parameters, onToken: onToken)
+    }
+    #endif
+
+    /// Analyze an image with a text prompt and optional system prompt
+    /// - Parameters:
+    ///   - image: CGImage to analyze
+    ///   - prompt: Text prompt describing what to look for
+    ///   - systemPrompt: Optional system prompt (e.g., for FLUX.2 I2I upsampling)
+    ///   - parameters: Generation parameters
+    ///   - onToken: Callback for streaming tokens
+    /// - Returns: Generated description/analysis
+    public func analyzeImage(
+        image: CGImage,
         prompt: String,
         systemPrompt: String? = nil,
         parameters: GenerateParameters = .balanced,
@@ -704,15 +730,27 @@ public final class FluxTextEncoders: @unchecked Sendable {
         return kleinExtractor?.embeddingDimension
     }
 
+    #if canImport(AppKit)
+    /// Extract FLUX.2-compatible embeddings with image (macOS NSImage convenience)
+    public func extractFluxEmbeddingsWithImage(
+        image: NSImage,
+        prompt: String
+    ) throws -> MLXArray {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw FluxEncoderError.vlmNotLoaded
+        }
+        return try extractFluxEmbeddingsWithImage(image: cgImage, prompt: prompt)
+    }
+    #endif
+
     /// Extract FLUX.2-compatible embeddings with image (for Image-to-Image)
     /// This method produces embeddings that include both image and text features
     /// - Parameters:
-    ///   - image: NSImage to include in embeddings
+    ///   - image: CGImage to include in embeddings
     ///   - prompt: User prompt text (editing instruction)
     /// - Returns: Embeddings tensor with shape [1, seq, 15360] where seq depends on image size
-    #if canImport(AppKit)
     public func extractFluxEmbeddingsWithImage(
-        image: NSImage,
+        image: CGImage,
         prompt: String
     ) throws -> MLXArray {
         guard let vlm = vlmModel,
@@ -779,7 +817,6 @@ public final class FluxTextEncoders: @unchecked Sendable {
 
         return embeddings
     }
-    #endif
 
     /// Extract FLUX.2-compatible embeddings with image from path (for Image-to-Image)
     /// - Parameters:
@@ -790,16 +827,12 @@ public final class FluxTextEncoders: @unchecked Sendable {
         imagePath: String,
         prompt: String
     ) throws -> MLXArray {
-        #if canImport(AppKit)
         guard let processor = imageProcessor else {
             throw FluxEncoderError.vlmNotLoaded
         }
 
         let image = try processor.loadImage(from: imagePath)
         return try extractFluxEmbeddingsWithImage(image: image, prompt: prompt)
-        #else
-        throw FluxEncoderError.vlmNotLoaded
-        #endif
     }
 
     /// Export embeddings to file
@@ -905,7 +938,7 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-    public static let version = "0.1.0"
+    public static let version = "2.5.0"
     public static let modelName = "Mistral Small 3.2"
     public static let modelVersion = "24B-Instruct-2506"
 }

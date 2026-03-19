@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main, development]
+
+jobs:
+  test-macos:
+    name: Test on macOS
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
+
+      - name: Build all targets
+        run: |
+          xcodebuild build-for-testing \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=macOS,arch=arm64' \
+            -clonedSourcePackagesDirPath .spm
+
+      - name: Run FluxTextEncoders tests
+        run: |
+          xcodebuild test-without-building \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=macOS,arch=arm64' \
+            -clonedSourcePackagesDirPath .spm \
+            -only-testing FluxTextEncodersTests
+
+  test-ios:
+    name: Test on iOS Simulator
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
+
+      - name: Build for iOS testing
+        run: |
+          xcodebuild build-for-testing \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
+            -clonedSourcePackagesDirPath .spm
+
+      - name: Run FluxTextEncoders tests on iOS
+        run: |
+          xcodebuild test-without-building \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
+            -clonedSourcePackagesDirPath .spm \
+            -only-testing FluxTextEncodersTests

@@ -3,6 +3,7 @@
  * Image-to-Image generation interface for Flux.2
  */
 
+#if os(macOS)
 import SwiftUI
 import Flux2Core
 import FluxTextEncoders
@@ -683,3 +684,4 @@ struct InterpretImageThumbnail: View {
         .environmentObject(ModelManager())
         .frame(width: 1200, height: 900)
 }
+#endif

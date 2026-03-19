@@ -7,9 +7,13 @@ import Foundation
 import MLX
 import MLXNN
 import Accelerate
+import CoreGraphics
+import ImageIO
 
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// Configuration for image preprocessing
@@ -51,19 +55,21 @@ public class ImageProcessor {
         self.config = config
     }
 
-    /// Preprocess an image for the vision encoder
-    /// - Parameter image: Input NSImage
+    // MARK: - Cross-platform CGImage API
+
+    /// Preprocess a CGImage for the vision encoder
+    /// - Parameter image: Input CGImage
     /// - Returns: MLXArray with shape [1, H, W, 3] (NHWC format for MLX Conv2d)
-    public func preprocess(_ image: NSImage) throws -> MLXArray {
+    public func preprocess(_ image: CGImage) throws -> MLXArray {
         return try preprocess(image, maxSize: config.imageSize)
     }
 
-    /// Preprocess an image for the vision encoder with custom max size
+    /// Preprocess a CGImage for the vision encoder with custom max size
     /// - Parameters:
-    ///   - image: Input NSImage
+    ///   - image: Input CGImage
     ///   - maxSize: Maximum size for longest edge (overrides config.imageSize)
     /// - Returns: MLXArray with shape [1, H, W, 3] (NHWC format for MLX Conv2d)
-    public func preprocess(_ image: NSImage, maxSize: Int) throws -> MLXArray {
+    public func preprocess(_ image: CGImage, maxSize: Int) throws -> MLXArray {
         // Use autoreleasepool to free CoreGraphics memory immediately
         let (pixels, width, height): ([Float], Int, Int) = try autoreleasepool {
             // 1. Resize image maintaining aspect ratio
@@ -90,18 +96,54 @@ public class ImageProcessor {
         return pixelArray
     }
 
-    /// Resize image maintaining aspect ratio with longest edge <= target size
-    /// Uses pixel dimensions (not point dimensions) to handle Retina displays correctly
-    /// NOTE: Only downscales images larger than longestEdge, does NOT upscale smaller images
-    /// This matches the Python PixtralImageProcessor behavior
-    private func resizeImage(_ image: NSImage, longestEdge: Int) throws -> NSImage {
-        // Get actual pixel dimensions from CGImage, not NSImage.size (which is in points)
+    // MARK: - Platform-specific convenience methods
+
+    #if canImport(AppKit)
+    /// Preprocess an NSImage for the vision encoder (macOS convenience)
+    /// - Parameter image: Input NSImage
+    /// - Returns: MLXArray with shape [1, H, W, 3] (NHWC format for MLX Conv2d)
+    public func preprocess(_ image: NSImage) throws -> MLXArray {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw ImageProcessorError.invalidImage
         }
+        return try preprocess(cgImage, maxSize: config.imageSize)
+    }
 
-        let originalWidth = CGFloat(cgImage.width)
-        let originalHeight = CGFloat(cgImage.height)
+    /// Preprocess an NSImage for the vision encoder with custom max size (macOS convenience)
+    public func preprocess(_ image: NSImage, maxSize: Int) throws -> MLXArray {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            throw ImageProcessorError.invalidImage
+        }
+        return try preprocess(cgImage, maxSize: maxSize)
+    }
+    #elseif canImport(UIKit)
+    /// Preprocess a UIImage for the vision encoder (iOS convenience)
+    /// - Parameter image: Input UIImage
+    /// - Returns: MLXArray with shape [1, H, W, 3] (NHWC format for MLX Conv2d)
+    public func preprocess(_ image: UIImage) throws -> MLXArray {
+        guard let cgImage = image.cgImage else {
+            throw ImageProcessorError.invalidImage
+        }
+        return try preprocess(cgImage, maxSize: config.imageSize)
+    }
+
+    /// Preprocess a UIImage for the vision encoder with custom max size (iOS convenience)
+    public func preprocess(_ image: UIImage, maxSize: Int) throws -> MLXArray {
+        guard let cgImage = image.cgImage else {
+            throw ImageProcessorError.invalidImage
+        }
+        return try preprocess(cgImage, maxSize: maxSize)
+    }
+    #endif
+
+    // MARK: - Internal CGImage operations
+
+    /// Resize image maintaining aspect ratio with longest edge <= target size
+    /// NOTE: Only downscales images larger than longestEdge, does NOT upscale smaller images
+    /// This matches the Python PixtralImageProcessor behavior
+    private func resizeImage(_ image: CGImage, longestEdge: Int) throws -> CGImage {
+        let originalWidth = CGFloat(image.width)
+        let originalHeight = CGFloat(image.height)
 
         // Calculate ratio like Python: max(height/max_height, width/max_width)
         let ratio = max(originalHeight / CGFloat(longestEdge), originalWidth / CGFloat(longestEdge))
@@ -120,7 +162,6 @@ public class ImageProcessor {
         }
 
         // Ensure dimensions are divisible by patchSize (14) - matching Python's PixtralImageProcessor
-        // Note: The spatialMergeSize alignment is handled by the model's patch merger, not here
         let alignmentFactor = config.patchSize  // 14
         let alignedWidth = ((newWidth + alignmentFactor - 1) / alignmentFactor) * alignmentFactor
         let alignedHeight = ((newHeight + alignmentFactor - 1) / alignmentFactor) * alignmentFactor
@@ -131,8 +172,7 @@ public class ImageProcessor {
         let bytesPerPixel = 4
         let bytesPerRow = alignedWidth * bytesPerPixel
 
-        // Use the image's colorspace to avoid any color conversion
-        let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
 
         guard let context = CGContext(
             data: nil,
@@ -150,29 +190,22 @@ public class ImageProcessor {
         context.interpolationQuality = .high
 
         // Draw the original image scaled to the new size
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: alignedWidth, height: alignedHeight))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: alignedWidth, height: alignedHeight))
 
         // Create a new CGImage from the context
         guard let resizedCGImage = context.makeImage() else {
             throw ImageProcessorError.contextCreationFailed
         }
 
-        // Convert back to NSImage (with 1:1 point-to-pixel ratio)
-        let resizedImage = NSImage(cgImage: resizedCGImage, size: NSSize(width: alignedWidth, height: alignedHeight))
-
-        return resizedImage
+        return resizedCGImage
     }
 
-    /// Extract RGB pixel data from NSImage
+    /// Extract RGB pixel data from CGImage
     /// Uses the image's own colorspace to avoid color profile conversion (matches Python PIL)
     /// Optimized with vDSP for vectorized conversion
-    private func extractPixels(_ image: NSImage) throws -> (pixels: [Float], width: Int, height: Int) {
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw ImageProcessorError.invalidImage
-        }
-
-        let width = cgImage.width
-        let height = cgImage.height
+    private func extractPixels(_ image: CGImage) throws -> (pixels: [Float], width: Int, height: Int) {
+        let width = image.width
+        let height = image.height
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
         let totalBytes = height * bytesPerRow
@@ -182,7 +215,7 @@ public class ImageProcessor {
 
         // CRITICAL: Use image's own colorspace to avoid color profile conversion
         // This matches Python PIL behavior which reads raw pixel values
-        let colorSpace = cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
 
         guard let context = CGContext(
             data: &pixelData,
@@ -196,7 +229,7 @@ public class ImageProcessor {
             throw ImageProcessorError.contextCreationFailed
         }
 
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         // Convert RGBA UInt8 to RGB Float using vDSP (vectorized SIMD operations)
         var floatPixels = [Float](repeating: 0, count: pixelCount * 3)
@@ -223,13 +256,16 @@ public class ImageProcessor {
         return (floatPixels, width, height)
     }
 
-    /// Load image from file path
-    public func loadImage(from path: String) throws -> NSImage {
-        let url = URL(fileURLWithPath: path)
-        guard let image = NSImage(contentsOf: url) else {
+    // MARK: - Image loading
+
+    /// Load image from file path as CGImage (cross-platform via ImageIO)
+    public func loadImage(from path: String) throws -> CGImage {
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw ImageProcessorError.fileNotFound(path)
         }
-        return image
+        return cgImage
     }
 
     /// Preprocess image from file path

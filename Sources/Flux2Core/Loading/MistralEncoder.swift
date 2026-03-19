@@ -6,8 +6,11 @@ import MLX
 import MLXNN
 import FluxTextEncoders
 import CoreGraphics
-#if os(macOS)
+
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// Wrapper for MistralCore text encoding for Flux.2
@@ -99,7 +102,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
     /// - Returns: Enhanced prompt with image descriptions
     @MainActor
     public func upsamplePromptWithImages(_ prompt: String, images: [CGImage]) async throws -> String {
-        #if os(macOS)
         guard !images.isEmpty else {
             // Fall back to text-only upsampling if no images
             return try upsamplePrompt(prompt)
@@ -137,14 +139,11 @@ public class Flux2TextEncoder: @unchecked Sendable {
             let imageNumber = index + 1
             Flux2Debug.log("Analyzing image \(imageNumber)/\(images.count)...")
 
-            // Convert CGImage to NSImage for VLM
-            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-
-            // Analyze the image with VLM
+            // Analyze the image with VLM using cross-platform CGImage API
             let analysisPrompt = "Describe this image in detail. Focus on the main subject, colors, style, and any notable elements."
 
             let result = try FluxTextEncoders.shared.analyzeImage(
-                image: nsImage,
+                image: cgImage,
                 prompt: analysisPrompt,
                 parameters: GenerateParameters(
                     maxTokens: 200,
@@ -189,10 +188,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
         fflush(stdout)
 
         return finalPrompt
-        #else
-        // Fall back to text-only upsampling on non-macOS platforms
-        return try upsamplePrompt(prompt)
-        #endif
     }
 
     /// Describe images semantically using VLM for prompt injection (using file paths)
@@ -204,7 +199,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
     /// - Returns: Array of image descriptions
     @MainActor
     public func describeImagePathsForPrompt(_ paths: [String], context: String? = nil) async throws -> [String] {
-        #if os(macOS)
         guard !paths.isEmpty else {
             return []
         }
@@ -315,10 +309,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
 
         // Return the single enriched prompt (not per-image descriptions)
         return [finalPrompt]
-        #else
-        Flux2Debug.log("VLM interpretation not available on this platform")
-        return []
-        #endif
     }
 
     /// Describe images semantically using VLM for prompt injection (CGImage version - deprecated)
@@ -331,7 +321,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
     @available(*, deprecated, message: "Use describeImagePathsForPrompt instead for better image loading")
     @MainActor
     public func describeImagesForPrompt(_ images: [CGImage], context: String? = nil) async throws -> [String] {
-        #if os(macOS)
         guard !images.isEmpty else {
             return []
         }
@@ -366,12 +355,9 @@ public class Flux2TextEncoder: @unchecked Sendable {
             let imageNumber = index + 1
             Flux2Debug.log("Interpreting image \(imageNumber)/\(images.count)...")
 
-            // Convert CGImage to NSImage for VLM
-            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-
-            // Use I2I upsampling API as per Flux.2 reference
+            // Use cross-platform CGImage API for VLM analysis
             let result = try FluxTextEncoders.shared.analyzeImage(
-                image: nsImage,
+                image: cgImage,
                 prompt: context ?? "",
                 systemPrompt: FluxConfig.systemMessage(for: .upsamplingI2I),
                 parameters: .balanced
@@ -384,10 +370,6 @@ public class Flux2TextEncoder: @unchecked Sendable {
         }
 
         return descriptions
-        #else
-        Flux2Debug.log("VLM interpretation not available on this platform")
-        return []
-        #endif
     }
 
     // MARK: - Encoding

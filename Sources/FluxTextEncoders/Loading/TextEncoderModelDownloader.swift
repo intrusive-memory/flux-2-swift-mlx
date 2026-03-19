@@ -45,13 +45,19 @@ public class TextEncoderModelDownloader {
     }
 
     /// Legacy models directory (Mistral).
-    /// Uses customModelsDirectory if set, otherwise falls back to ~/.mistral/models
+    /// Uses customModelsDirectory if set, otherwise falls back to ~/.mistral/models (macOS)
+    /// or Application Support/mistral/models (iOS)
     public static var modelsDirectory: URL {
         if let custom = customModelsDirectory {
             return custom
         }
+        #if os(macOS)
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         return homeDir.appendingPathComponent(".mistral").appendingPathComponent("models")
+        #else
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("mistral").appendingPathComponent("models")
+        #endif
     }
 
     public init(hfToken: String? = nil) {
@@ -79,6 +85,8 @@ public class TextEncoderModelDownloader {
         }
 
         // Check legacy location: ~/.cache/huggingface/hub/models--{org}--{repo}/snapshots/...
+        // This path only exists on macOS
+        #if os(macOS)
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let hubCache = homeDir
             .appendingPathComponent(".cache")
@@ -99,6 +107,7 @@ public class TextEncoderModelDownloader {
         if FileManager.default.fileExists(atPath: configPath.path) {
             return modelPath
         }
+        #endif
 
         return nil
     }
@@ -359,7 +368,8 @@ public class TextEncoderModelDownloader {
             }
         }
 
-        // Check legacy location
+        // Check legacy location (macOS only - ~/.cache/huggingface/hub)
+        #if os(macOS)
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let hubCache = homeDir
             .appendingPathComponent(".cache")
@@ -369,21 +379,20 @@ public class TextEncoderModelDownloader {
         let modelFolder = "models--\(model.repoId.replacingOccurrences(of: "/", with: "--"))"
         let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent("snapshots")
 
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-              let latestSnapshot = contents.sorted().last else {
-            return nil
-        }
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
+           let latestSnapshot = contents.sorted().last {
+            let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
+            let configPath = modelPath.appendingPathComponent("config.json")
 
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path) {
-            // Verify safetensors files are complete
-            let verification = verifyShardedModel(at: modelPath)
-            if verification.complete {
-                return modelPath
+            if FileManager.default.fileExists(atPath: configPath.path) {
+                // Verify safetensors files are complete
+                let verification = verifyShardedModel(at: modelPath)
+                if verification.complete {
+                    return modelPath
+                }
             }
         }
+        #endif
 
         return nil
     }
@@ -412,7 +421,8 @@ public class TextEncoderModelDownloader {
             }
         }
 
-        // Check legacy location
+        // Check legacy location (macOS only - ~/.cache/huggingface/hub)
+        #if os(macOS)
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let hubCache = homeDir
             .appendingPathComponent(".cache")
@@ -422,21 +432,20 @@ public class TextEncoderModelDownloader {
         let modelFolder = "models--\(repoId.replacingOccurrences(of: "/", with: "--"))"
         let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent("snapshots")
 
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-              let latestSnapshot = contents.sorted().last else {
-            return nil
-        }
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
+           let latestSnapshot = contents.sorted().last {
+            let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
+            let configPath = modelPath.appendingPathComponent("config.json")
 
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path) {
-            // Verify safetensors files are complete
-            let verification = verifyShardedModel(at: modelPath)
-            if verification.complete {
-                return modelPath
+            if FileManager.default.fileExists(atPath: configPath.path) {
+                // Verify safetensors files are complete
+                let verification = verifyShardedModel(at: modelPath)
+                if verification.complete {
+                    return modelPath
+                }
             }
         }
+        #endif
 
         return nil
     }

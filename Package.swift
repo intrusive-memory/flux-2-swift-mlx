@@ -1,9 +1,9 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "Flux2Swift",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         // Libraries
         .library(name: "FluxTextEncoders", targets: ["FluxTextEncoders"]),
@@ -18,7 +18,7 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.30.2"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
-        .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
+        .package(url: "https://github.com/marcprux/universal", from: "5.3.0"),
     ],
     targets: [
         // MARK: - Libraries
@@ -29,6 +29,7 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "Hub", package: "swift-transformers"),
                 .product(name: "Transformers", package: "swift-transformers"),
             ]
         ),
@@ -41,6 +42,7 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
+                .product(name: "Hub", package: "swift-transformers"),
                 .product(name: "Transformers", package: "swift-transformers"),
             ]
         ),
@@ -57,7 +59,7 @@ let package = Package(
             dependencies: [
                 "Flux2Core",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Yams", package: "Yams"),
+                .product(name: "YAML", package: "universal"),
             ]
         ),
         // MARK: - Main Application

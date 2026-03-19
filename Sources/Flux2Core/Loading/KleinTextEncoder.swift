@@ -7,8 +7,10 @@ import MLXNN
 import FluxTextEncoders
 import CoreGraphics
 
-#if os(macOS)
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// Wrapper for Qwen3 text encoding for Flux.2 Klein models

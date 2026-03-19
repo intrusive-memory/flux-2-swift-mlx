@@ -7,8 +7,13 @@ import Foundation
 import MLXNN
 import MLXOptimizers
 import CoreGraphics
-import AppKit
 import ImageIO
+
+#if canImport(AppKit)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 import UniformTypeIdentifiers
 
 /// Minimal LoRA training configuration (Ostris-compatible defaults)
