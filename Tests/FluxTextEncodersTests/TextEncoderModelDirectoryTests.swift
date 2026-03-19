@@ -20,9 +20,15 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
     // MARK: - Default Directory
 
     func testDefaultModelsDirectoryIsMistralModels() {
+        #if os(macOS)
         let expected = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".mistral")
             .appendingPathComponent("models")
+        #else
+        let expected = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("mistral")
+            .appendingPathComponent("models")
+        #endif
         XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, expected)
     }
 
@@ -40,9 +46,15 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, custom)
 
         TextEncoderModelDownloader.customModelsDirectory = nil
+        #if os(macOS)
         let expected = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".mistral")
             .appendingPathComponent("models")
+        #else
+        let expected = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("mistral")
+            .appendingPathComponent("models")
+        #endif
         XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, expected)
     }
 
@@ -201,9 +213,15 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, dir2)
 
         TextEncoderModelDownloader.customModelsDirectory = nil
+        #if os(macOS)
         let defaultDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".mistral")
             .appendingPathComponent("models")
+        #else
+        let defaultDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("mistral")
+            .appendingPathComponent("models")
+        #endif
         XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, defaultDir)
     }
 

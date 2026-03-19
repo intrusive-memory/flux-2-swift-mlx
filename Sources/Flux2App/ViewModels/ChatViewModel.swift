@@ -3,6 +3,7 @@
  * View model for chat functionality
  */
 
+#if os(macOS)
 import SwiftUI
 import FluxTextEncoders
 
@@ -149,3 +150,4 @@ class ChatViewModel: ObservableObject {
         currentTokenCount = 0
     }
 }
+#endif

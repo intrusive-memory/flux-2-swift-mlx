@@ -3,6 +3,7 @@
  * ViewModel for Flux.2 image generation (T2I and I2I)
  */
 
+#if os(macOS)
 import SwiftUI
 import Flux2Core
 import FluxTextEncoders
@@ -452,3 +453,4 @@ struct ReferenceImage: Identifiable {
     let image: CGImage
     let thumbnail: NSImage
 }
+#endif

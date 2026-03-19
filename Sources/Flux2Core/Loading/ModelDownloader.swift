@@ -67,7 +67,8 @@ public class Flux2ModelDownloader: @unchecked Sendable {
             }
         }
 
-        // Check legacy HuggingFace cache
+        // Check legacy HuggingFace cache (macOS only - ~/.cache/huggingface/hub)
+        #if os(macOS)
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let hubCache = homeDir
             .appendingPathComponent(".cache")
@@ -77,23 +78,22 @@ public class Flux2ModelDownloader: @unchecked Sendable {
         let modelFolder = "models--\(repoId.replacingOccurrences(of: "/", with: "--"))"
         let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent("snapshots")
 
-        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-              let latestSnapshot = contents.sorted().last else {
-            return nil
-        }
+        if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
+           let latestSnapshot = contents.sorted().last {
+            let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
+            let configPath = modelPath.appendingPathComponent("config.json")
+            let modelIndexPath = modelPath.appendingPathComponent("model_index.json")
 
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-        let modelIndexPath = modelPath.appendingPathComponent("model_index.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path) ||
-           FileManager.default.fileExists(atPath: modelIndexPath.path) {
-            // Verify safetensors files are complete
-            let verification = verifyModel(at: modelPath)
-            if verification.complete {
-                return modelPath
+            if FileManager.default.fileExists(atPath: configPath.path) ||
+               FileManager.default.fileExists(atPath: modelIndexPath.path) {
+                // Verify safetensors files are complete
+                let verification = verifyModel(at: modelPath)
+                if verification.complete {
+                    return modelPath
+                }
             }
         }
+        #endif
 
         return nil
     }

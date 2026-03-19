@@ -3,6 +3,7 @@
  * SwiftUI Application for FLUX.2 (Text Encoders + Image Generation)
  */
 
+#if os(macOS)
 import SwiftUI
 import AppKit
 import FluxTextEncoders
@@ -60,3 +61,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 }
+#else
+// Flux2App is macOS-only
+@main
+struct Flux2App {
+    static func main() {}
+}
+#endif

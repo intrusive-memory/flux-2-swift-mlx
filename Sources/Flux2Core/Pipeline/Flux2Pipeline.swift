@@ -10,6 +10,8 @@ import ImageIO
 
 #if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 /// Generation mode for Flux.2

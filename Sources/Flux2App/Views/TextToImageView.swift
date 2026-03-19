@@ -3,6 +3,7 @@
  * Text-to-Image generation interface for Flux.2
  */
 
+#if os(macOS)
 import SwiftUI
 import Flux2Core
 import FluxTextEncoders
@@ -471,3 +472,4 @@ struct TextToImageView: View {
         .environmentObject(ModelManager())
         .frame(width: 1200, height: 800)
 }
+#endif

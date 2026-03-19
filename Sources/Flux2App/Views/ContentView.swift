@@ -3,6 +3,7 @@
  * Main content view for Mistral App
  */
 
+#if os(macOS)
 import SwiftUI
 import FluxTextEncoders
 import Flux2Core
@@ -2626,3 +2627,4 @@ struct SettingsView: View {
     ContentView()
         .environmentObject(ModelManager())
 }
+#endif

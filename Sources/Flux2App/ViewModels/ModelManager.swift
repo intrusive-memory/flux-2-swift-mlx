@@ -3,6 +3,7 @@
  * Manages model loading, downloading, and state
  */
 
+#if os(macOS)
 import SwiftUI
 import FluxTextEncoders
 import Flux2Core
@@ -626,3 +627,4 @@ enum ModelManagerError: LocalizedError {
         }
     }
 }
+#endif
