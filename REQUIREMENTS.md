@@ -222,6 +222,19 @@ Pipeline code accesses these components exclusively through `AcervoManager.share
 
 **Registration timing**: Components are registered at import time via Swift static `let` initialization, following the same pattern as pixart-swift-mlx. Swift guarantees thread-safety and exactly-once execution.
 
+**HuggingFace repo conventions**: Model weights are hosted under the `intrusive-memory` HuggingFace organization. Existing weights may already be available from prior releases.
+
+| Component | HuggingFace Repo | Status |
+|---|---|---|
+| FLUX Klein 4B DiT (int4) | `intrusive-memory/flux2-klein-4b-dit-int4-mlx` | TBD |
+| FLUX Klein 9B DiT (qint8) | `intrusive-memory/flux2-klein-9b-dit-qint8-mlx` | TBD |
+| Qwen3-4B | `intrusive-memory/qwen3-4b-encoder-mlx` | TBD |
+| Qwen3-8B | `intrusive-memory/qwen3-8b-encoder-mlx` | TBD |
+| Mistral 7B | `intrusive-memory/mistral-7b-encoder-mlx` | TBD |
+| FLUX VAE (fp16) | `intrusive-memory/flux2-vae-fp16-mlx` | TBD |
+
+These repo names are provisional. Final names are determined during weight conversion and recorded in the `ComponentDescriptor` entries. Some components may already exist in the `mlx-community` HuggingFace organization — if so, the descriptor should reference the existing repo rather than creating a duplicate.
+
 ---
 
 ## F8. Migration Path
