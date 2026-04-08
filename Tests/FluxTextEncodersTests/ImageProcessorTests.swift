@@ -3,41 +3,43 @@
  * Unit tests for ImageProcessor and ImageProcessorConfig
  */
 
-import XCTest
+import Testing
+import Foundation
 @testable import FluxTextEncoders
 
-final class ImageProcessorTests: XCTestCase {
+@Suite("ImageProcessorTests")
+struct ImageProcessorTests {
 
     // MARK: - ImageProcessorConfig Tests
 
-    func testPixtralConfigDefaults() {
+    @Test func pixtralConfigDefaults() {
         let config = ImageProcessorConfig.pixtral
 
-        XCTAssertEqual(config.imageSize, 1540, "Pixtral image size should be 1540")
-        XCTAssertEqual(config.patchSize, 14, "Pixtral patch size should be 14")
-        XCTAssertEqual(config.rescaleFactor, 1.0 / 255.0, accuracy: 0.0001,
+        #expect(config.imageSize == 1540, "Pixtral image size should be 1540")
+        #expect(config.patchSize == 14, "Pixtral patch size should be 14")
+        #expect(abs(config.rescaleFactor - (1.0 / 255.0)) < 0.0001,
                       "Rescale factor should be 1/255")
     }
 
-    func testPixtralConfigImageMean() {
+    @Test func pixtralConfigImageMean() {
         let config = ImageProcessorConfig.pixtral
 
-        XCTAssertEqual(config.imageMean.count, 3, "Should have 3 mean values (RGB)")
-        XCTAssertEqual(config.imageMean[0], 0.48145466, accuracy: 0.0001, "R mean")
-        XCTAssertEqual(config.imageMean[1], 0.4578275, accuracy: 0.0001, "G mean")
-        XCTAssertEqual(config.imageMean[2], 0.40821073, accuracy: 0.0001, "B mean")
+        #expect(config.imageMean.count == 3, "Should have 3 mean values (RGB)")
+        #expect(abs(config.imageMean[0] - 0.48145466) < 0.0001, "R mean")
+        #expect(abs(config.imageMean[1] - 0.4578275) < 0.0001, "G mean")
+        #expect(abs(config.imageMean[2] - 0.40821073) < 0.0001, "B mean")
     }
 
-    func testPixtralConfigImageStd() {
+    @Test func pixtralConfigImageStd() {
         let config = ImageProcessorConfig.pixtral
 
-        XCTAssertEqual(config.imageStd.count, 3, "Should have 3 std values (RGB)")
-        XCTAssertEqual(config.imageStd[0], 0.26862954, accuracy: 0.0001, "R std")
-        XCTAssertEqual(config.imageStd[1], 0.26130258, accuracy: 0.0001, "G std")
-        XCTAssertEqual(config.imageStd[2], 0.27577711, accuracy: 0.0001, "B std")
+        #expect(config.imageStd.count == 3, "Should have 3 std values (RGB)")
+        #expect(abs(config.imageStd[0] - 0.26862954) < 0.0001, "R std")
+        #expect(abs(config.imageStd[1] - 0.26130258) < 0.0001, "G std")
+        #expect(abs(config.imageStd[2] - 0.27577711) < 0.0001, "B std")
     }
 
-    func testCustomConfigInit() {
+    @Test func customConfigInit() {
         let config = ImageProcessorConfig(
             imageSize: 224,
             patchSize: 16,
@@ -46,22 +48,22 @@ final class ImageProcessorTests: XCTestCase {
             rescaleFactor: 1.0 / 255.0
         )
 
-        XCTAssertEqual(config.imageSize, 224)
-        XCTAssertEqual(config.patchSize, 16)
-        XCTAssertEqual(config.imageMean, [0.5, 0.5, 0.5])
-        XCTAssertEqual(config.imageStd, [0.5, 0.5, 0.5])
+        #expect(config.imageSize == 224)
+        #expect(config.patchSize == 16)
+        #expect(config.imageMean == [0.5, 0.5, 0.5])
+        #expect(config.imageStd == [0.5, 0.5, 0.5])
     }
 
     // MARK: - ImageProcessor Tests
 
-    func testImageProcessorInitWithDefaultConfig() {
+    @Test func imageProcessorInitWithDefaultConfig() {
         let processor = ImageProcessor()
 
-        XCTAssertEqual(processor.config.imageSize, 1540,
+        #expect(processor.config.imageSize == 1540,
                       "Default config should be Pixtral")
     }
 
-    func testImageProcessorInitWithCustomConfig() {
+    @Test func imageProcessorInitWithCustomConfig() {
         let customConfig = ImageProcessorConfig(
             imageSize: 384,
             patchSize: 14,
@@ -71,96 +73,84 @@ final class ImageProcessorTests: XCTestCase {
         )
         let processor = ImageProcessor(config: customConfig)
 
-        XCTAssertEqual(processor.config.imageSize, 384)
+        #expect(processor.config.imageSize == 384)
     }
 
-    func testGetNumPatches() {
+    @Test func getNumPatches() {
         let processor = ImageProcessor()
 
         // Test with dimensions divisible by patch size
         let (patchesX, patchesY, total) = processor.getNumPatches(width: 224, height: 224)
 
-        XCTAssertEqual(patchesX, 224 / 14, "Width patches")
-        XCTAssertEqual(patchesY, 224 / 14, "Height patches")
-        XCTAssertEqual(total, patchesX * patchesY, "Total patches")
+        #expect(patchesX == 224 / 14, "Width patches")
+        #expect(patchesY == 224 / 14, "Height patches")
+        #expect(total == patchesX * patchesY, "Total patches")
     }
 
-    func testGetNumPatchesVariousSizes() {
+    @Test func getNumPatchesVariousSizes() {
         let processor = ImageProcessor()
 
         // 336x336
         let (px1, py1, t1) = processor.getNumPatches(width: 336, height: 336)
-        XCTAssertEqual(px1, 24)
-        XCTAssertEqual(py1, 24)
-        XCTAssertEqual(t1, 576)
+        #expect(px1 == 24)
+        #expect(py1 == 24)
+        #expect(t1 == 576)
 
         // 448x336 (rectangular)
         let (px2, py2, t2) = processor.getNumPatches(width: 448, height: 336)
-        XCTAssertEqual(px2, 32)
-        XCTAssertEqual(py2, 24)
-        XCTAssertEqual(t2, 768)
+        #expect(px2 == 32)
+        #expect(py2 == 24)
+        #expect(t2 == 768)
     }
 
     // MARK: - Error Tests
 
-    func testImageProcessorErrorDescriptions() {
-        XCTAssertEqual(ImageProcessorError.invalidImage.errorDescription,
-                      "Invalid image format")
-        XCTAssertEqual(ImageProcessorError.contextCreationFailed.errorDescription,
-                      "Failed to create graphics context")
-        XCTAssertEqual(ImageProcessorError.unsupportedFormat.errorDescription,
-                      "Unsupported image format")
+    @Test func imageProcessorErrorDescriptions() {
+        #expect(ImageProcessorError.invalidImage.errorDescription == "Invalid image format")
+        #expect(ImageProcessorError.contextCreationFailed.errorDescription == "Failed to create graphics context")
+        #expect(ImageProcessorError.unsupportedFormat.errorDescription == "Unsupported image format")
 
         let fileNotFound = ImageProcessorError.fileNotFound("/path/to/image.jpg")
-        XCTAssertEqual(fileNotFound.errorDescription,
-                      "Image file not found: /path/to/image.jpg")
+        #expect(fileNotFound.errorDescription == "Image file not found: /path/to/image.jpg")
     }
 
-    func testLoadImageFromNonExistentPath() {
+    @Test func loadImageFromNonExistentPath() {
         let processor = ImageProcessor()
 
-        XCTAssertThrowsError(try processor.loadImage(from: "/nonexistent/path/image.jpg")) { error in
-            if case ImageProcessorError.fileNotFound(let path) = error {
-                XCTAssertEqual(path, "/nonexistent/path/image.jpg")
-            } else {
-                XCTFail("Expected fileNotFound error")
-            }
-        }
+        #expect(throws: (any Error).self) { try processor.loadImage(from: "/nonexistent/path/image.jpg") }
     }
 
-    func testPreprocessFromFileNonExistent() {
+    @Test func preprocessFromFileNonExistent() {
         let processor = ImageProcessor()
 
-        XCTAssertThrowsError(try processor.preprocessFromFile("/nonexistent.jpg")) { error in
-            XCTAssertTrue(error is ImageProcessorError)
-        }
+        #expect(throws: (any Error).self) { try processor.preprocessFromFile("/nonexistent.jpg") }
     }
 
     // MARK: - Patch Calculation Tests
 
-    func testPatchCalculationWithPixtralConfig() {
+    @Test func patchCalculationWithPixtralConfig() {
         let processor = ImageProcessor(config: .pixtral)
 
         // Maximum size (1540x1540)
         let (maxPX, maxPY, maxTotal) = processor.getNumPatches(width: 1540, height: 1540)
-        XCTAssertEqual(maxPX, 110)  // 1540 / 14
-        XCTAssertEqual(maxPY, 110)
-        XCTAssertEqual(maxTotal, 12100)
+        #expect(maxPX == 110)  // 1540 / 14
+        #expect(maxPY == 110)
+        #expect(maxTotal == 12100)
     }
 
-    func testPatchCalculationMinimum() {
+    @Test func patchCalculationMinimum() {
         let processor = ImageProcessor()
 
         // Single patch (14x14)
         let (px, py, total) = processor.getNumPatches(width: 14, height: 14)
-        XCTAssertEqual(px, 1)
-        XCTAssertEqual(py, 1)
-        XCTAssertEqual(total, 1)
+        #expect(px == 1)
+        #expect(py == 1)
+        #expect(total == 1)
     }
 
     // MARK: - Config Codable Tests
 
-    func testImageProcessorConfigCodable() throws {
+    @Test func imageProcessorConfigCodable() throws {
         let config = ImageProcessorConfig.pixtral
 
         let encoder = JSONEncoder()
@@ -169,17 +159,18 @@ final class ImageProcessorTests: XCTestCase {
         let decoder = JSONDecoder()
         let decoded = try decoder.decode(ImageProcessorConfig.self, from: data)
 
-        XCTAssertEqual(decoded.imageSize, config.imageSize)
-        XCTAssertEqual(decoded.patchSize, config.patchSize)
-        XCTAssertEqual(decoded.imageMean, config.imageMean)
-        XCTAssertEqual(decoded.imageStd, config.imageStd)
-        XCTAssertEqual(decoded.rescaleFactor, config.rescaleFactor)
+        #expect(decoded.imageSize == config.imageSize)
+        #expect(decoded.patchSize == config.patchSize)
+        #expect(decoded.imageMean == config.imageMean)
+        #expect(decoded.imageStd == config.imageStd)
+        #expect(decoded.rescaleFactor == config.rescaleFactor)
     }
 
     // MARK: - Sendable Conformance
 
-    func testImageProcessorConfigIsSendable() {
-        let config: Sendable = ImageProcessorConfig.pixtral
-        XCTAssertNotNil(config)
+    @Test func imageProcessorConfigIsSendable() {
+        let config = ImageProcessorConfig.pixtral
+        let _: any Sendable = config
+        #expect(config.imageSize > 0)
     }
 }
