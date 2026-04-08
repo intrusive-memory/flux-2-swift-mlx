@@ -67,14 +67,20 @@ let package = Package(
             name: "Flux2App",
             dependencies: ["FluxTextEncoders", "Flux2Core"]
         ),
+        // MARK: - Test Helpers (regular target so test targets can depend on it)
+        .target(
+            name: "TestHelpers",
+            dependencies: ["Flux2Core", "FluxTextEncoders"],
+            path: "Tests/TestHelpers"
+        ),
         // MARK: - Tests
         .testTarget(
             name: "FluxTextEncodersTests",
-            dependencies: ["FluxTextEncoders"]
+            dependencies: ["FluxTextEncoders", "TestHelpers"]
         ),
         .testTarget(
             name: "Flux2CoreTests",
-            dependencies: ["Flux2Core"]
+            dependencies: ["Flux2Core", "TestHelpers"]
         ),
     ]
 )
