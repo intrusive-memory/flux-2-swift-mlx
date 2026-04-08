@@ -5,64 +5,40 @@ on:
     branches: [main, development]
 
 jobs:
-  test-macos:
-    name: Test on macOS
+  "Test FluxTextEncoders (macOS)":
+    name: "Test FluxTextEncoders (macOS)"
     runs-on: macos-26
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Show Swift version
-        run: swift --version
-
+      - uses: actions/checkout@v4
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
-
-      - name: Build all targets
+      - name: Test FluxTextEncoders
         run: |
-          xcodebuild build-for-testing \
+          xcodebuild test \
             -scheme Flux2Swift-Package \
             -destination 'platform=macOS,arch=arm64' \
-            -clonedSourcePackagesDirPath .spm
-
-      - name: Run FluxTextEncoders tests
-        run: |
-          xcodebuild test-without-building \
-            -scheme Flux2Swift-Package \
-            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
             -only-testing FluxTextEncodersTests
 
-  test-ios:
-    name: Test on iOS Simulator
+  "Test Flux2Core — Config Only (macOS)":
+    name: "Test Flux2Core — Config Only (macOS)"
     runs-on: macos-26
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Show Swift version
-        run: swift --version
-
+      - uses: actions/checkout@v4
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
-
-      - name: Build for iOS testing
+      - name: Test Flux2Core
         run: |
-          xcodebuild build-for-testing \
+          xcodebuild test \
             -scheme Flux2Swift-Package \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
-            -clonedSourcePackagesDirPath .spm
-
-      - name: Run FluxTextEncoders tests on iOS
-        run: |
-          xcodebuild test-without-building \
-            -scheme Flux2Swift-Package \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
-            -only-testing FluxTextEncodersTests
+            -only-testing Flux2CoreTests

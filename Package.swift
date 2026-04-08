@@ -82,5 +82,10 @@ let package = Package(
             name: "Flux2CoreTests",
             dependencies: ["Flux2Core", "TestHelpers"]
         ),
+        .testTarget(
+            name: "Flux2GPUTests",
+            dependencies: ["Flux2Core", "FluxTextEncoders", "TestHelpers"],
+            path: "Tests/Flux2GPUTests"
+        ),
     ]
 )
