@@ -7,36 +7,38 @@
  * directly via Xcode or in an environment with full Metal support.
  */
 
-import XCTest
+import Foundation
+import Testing
 @testable import FluxTextEncoders
 
 /// Basic profiler tests that don't require MLX Metal initialization
-final class ProfilerBasicTests: XCTestCase {
+@Suite("ProfilerBasicTests")
+struct ProfilerBasicTests {
 
     // MARK: - Basic Tests (Non-MLX)
 
-    func testDeviceInfoArchitecture() {
+    @Test func deviceInfoArchitecture() {
         // Test that we can get device architecture without MLX
         #if arch(arm64)
-        XCTAssertTrue(true, "Running on ARM64 architecture")
+        #expect(true, "Running on ARM64 architecture")
         #else
-        XCTAssertTrue(true, "Running on x86_64 architecture")
+        #expect(true, "Running on x86_64 architecture")
         #endif
     }
 
-    func testSystemMemorySize() {
+    @Test func systemMemorySize() {
         // Test that we can get system memory without MLX
         let memorySize = ProcessInfo.processInfo.physicalMemory
-        XCTAssertGreaterThan(memorySize, 0, "System should have memory")
+        #expect(memorySize > 0, "System should have memory")
     }
 
-    func testTimeMeasurement() {
+    @Test func timeMeasurement() {
         // Test basic time measurement (no MLX needed)
         let start = Date()
         Thread.sleep(forTimeInterval: 0.01)
         let elapsed = Date().timeIntervalSince(start)
 
-        XCTAssertGreaterThanOrEqual(elapsed, 0.01, "Should measure at least 10ms")
+        #expect(elapsed >= 0.01, "Should measure at least 10ms")
     }
 }
 
