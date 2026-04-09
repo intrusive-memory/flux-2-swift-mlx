@@ -5,7 +5,7 @@ on:
     branches: [main, development]
 
 jobs:
-  "Test FluxTextEncoders (macOS)":
+  test-fte-macos:
     name: "Test FluxTextEncoders (macOS)"
     runs-on: macos-26
     steps:
@@ -24,7 +24,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm \
             -only-testing FluxTextEncodersTests
 
-  "Test Flux2Core — Config Only (macOS)":
+  test-f2c-macos:
     name: "Test Flux2Core — Config Only (macOS)"
     runs-on: macos-26
     steps:
