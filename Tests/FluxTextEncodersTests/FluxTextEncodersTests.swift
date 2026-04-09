@@ -13,11 +13,11 @@ struct FluxTextEncodersTests {
 
     @Test func version() {
         #expect(!FluxTextEncoders.version.isEmpty, "Version should not be empty")
-        #expect(FluxTextEncoders.version == "0.1.0", "Version should be 0.1.0")
+        #expect(FluxTextEncoders.version == "2.6.0", "Version should be 2.6.0")
     }
 
     @Test func mistralVersionInfo() {
-        #expect(MistralVersion.version == "0.1.0")
+        #expect(MistralVersion.version == "2.6.0")
         #expect(MistralVersion.modelName == "Mistral Small 3.2")
         #expect(MistralVersion.modelVersion == "24B-Instruct-2506")
     }
