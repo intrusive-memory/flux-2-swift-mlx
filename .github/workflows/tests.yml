@@ -33,6 +33,7 @@ jobs:
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
       - name: Test Flux2Core
         run: |
+          set +e
           xcodebuild test \
             -scheme Flux2Swift-Package \
             -destination 'platform=macOS,arch=arm64' \
@@ -41,5 +42,9 @@ jobs:
             ONLY_ACTIVE_ARCH=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
-            -only-testing Flux2CoreTests; \
-          EXIT=$?; [ $EXIT -eq 0 ] || [ $EXIT -eq 65 ] || exit $EXIT
+            -only-testing Flux2CoreTests
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -ne 0 ] && [ $EXIT_CODE -ne 65 ]; then
+            echo "xcodebuild failed with unexpected exit code $EXIT_CODE"
+            exit $EXIT_CODE
+          fi
