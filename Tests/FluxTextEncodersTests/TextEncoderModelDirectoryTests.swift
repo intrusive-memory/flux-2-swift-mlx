@@ -3,23 +3,22 @@
  * Tests for custom model directory configuration in TextEncoderModelDownloader
  */
 
-import XCTest
+import Testing
+import Foundation
 @testable import FluxTextEncoders
 
-final class TextEncoderModelDirectoryTests: XCTestCase {
+@Suite("TextEncoderModelDirectoryTests", .serialized)
+struct TextEncoderModelDirectoryTests {
 
-    // MARK: - Setup / Teardown
-
-    override func tearDown() {
-        // Always reset to default after each test
+    init() {
+        // Reset to default before each test
         TextEncoderModelDownloader.customModelsDirectory = nil
         TextEncoderModelDownloader.reconfigureHubApi()
-        super.tearDown()
     }
 
     // MARK: - Default Directory
 
-    func testDefaultModelsDirectoryIsMistralModels() {
+    @Test func defaultModelsDirectoryIsMistralModels() {
         #if os(macOS)
         let expected = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".mistral")
@@ -29,21 +28,24 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
             .appendingPathComponent("mistral")
             .appendingPathComponent("models")
         #endif
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, expected)
+        #expect(TextEncoderModelDownloader.modelsDirectory == expected)
     }
 
     // MARK: - Custom Directory
 
-    func testCustomModelsDirectoryOverridesDefault() {
+    @Test func customModelsDirectoryOverridesDefault() {
         let custom = URL(fileURLWithPath: "/tmp/test-text-models")
         TextEncoderModelDownloader.customModelsDirectory = custom
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, custom)
+        #expect(TextEncoderModelDownloader.modelsDirectory == custom)
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 
-    func testCustomModelsDirectoryNilFallsBackToDefault() {
+    @Test func customModelsDirectoryNilFallsBackToDefault() {
         let custom = URL(fileURLWithPath: "/tmp/test-text-models")
         TextEncoderModelDownloader.customModelsDirectory = custom
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, custom)
+        #expect(TextEncoderModelDownloader.modelsDirectory == custom)
 
         TextEncoderModelDownloader.customModelsDirectory = nil
         #if os(macOS)
@@ -55,12 +57,12 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
             .appendingPathComponent("mistral")
             .appendingPathComponent("models")
         #endif
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, expected)
+        #expect(TextEncoderModelDownloader.modelsDirectory == expected)
     }
 
     // MARK: - reconfigureHubApi
 
-    func testReconfigureHubApiDoesNotCrash() {
+    @Test func reconfigureHubApiDoesNotCrash() {
         // Verify reconfigureHubApi can be called without errors
         TextEncoderModelDownloader.customModelsDirectory = URL(fileURLWithPath: "/tmp/test-models")
         TextEncoderModelDownloader.reconfigureHubApi()
@@ -71,7 +73,7 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
 
     // MARK: - hubCachePath with custom directory
 
-    func testHubCachePathUsesCustomDirectory() throws {
+    @Test func hubCachePathUsesCustomDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flux2-te-test-\(UUID().uuidString)")
             .appendingPathComponent("models")
@@ -100,11 +102,15 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         TextEncoderModelDownloader.customModelsDirectory = tempDir
 
         let cachePath = TextEncoderModelDownloader.hubCachePath(for: model)
-        XCTAssertNotNil(cachePath)
-        XCTAssertEqual(cachePath!.standardizedFileURL.path, modelDir.standardizedFileURL.path)
+        #expect(cachePath != nil)
+        #expect(cachePath!.standardizedFileURL.path == modelDir.standardizedFileURL.path)
+
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 
-    func testHubCachePathReturnsNilWhenModelNotInCustomDir() throws {
+    @Test func hubCachePathReturnsNilWhenModelNotInCustomDir() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flux2-te-test-\(UUID().uuidString)")
             .appendingPathComponent("models")
@@ -126,12 +132,16 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         )
 
         let cachePath = TextEncoderModelDownloader.hubCachePath(for: model)
-        XCTAssertNil(cachePath)
+        #expect(cachePath == nil)
+
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 
     // MARK: - findModelPath with custom directory
 
-    func testFindModelPathUsesCustomDirectory() throws {
+    @Test func findModelPathUsesCustomDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flux2-te-test-\(UUID().uuidString)")
             .appendingPathComponent("models")
@@ -159,15 +169,20 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         }
 
         TextEncoderModelDownloader.customModelsDirectory = tempDir
+        TextEncoderModelDownloader.reconfigureHubApi()
 
         let found = TextEncoderModelDownloader.findModelPath(for: model)
-        XCTAssertNotNil(found)
-        XCTAssertTrue(found!.path.hasPrefix(tempDir.path))
+        #expect(found != nil)
+        #expect(found!.path.hasPrefix(tempDir.path))
+
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 
     // MARK: - findQwen3ModelPath with custom directory
 
-    func testFindQwen3ModelPathUsesCustomDirectory() throws {
+    @Test func findQwen3ModelPathUsesCustomDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flux2-te-test-\(UUID().uuidString)")
             .appendingPathComponent("models")
@@ -194,23 +209,28 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         }
 
         TextEncoderModelDownloader.customModelsDirectory = tempDir
+        TextEncoderModelDownloader.reconfigureHubApi()
 
         let found = TextEncoderModelDownloader.findQwen3ModelPath(for: model)
-        XCTAssertNotNil(found)
-        XCTAssertTrue(found!.path.hasPrefix(tempDir.path))
+        #expect(found != nil)
+        #expect(found!.path.hasPrefix(tempDir.path))
+
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 
     // MARK: - Multiple switches
 
-    func testSwitchingCustomDirectories() {
+    @Test func switchingCustomDirectories() {
         let dir1 = URL(fileURLWithPath: "/tmp/models-a")
         let dir2 = URL(fileURLWithPath: "/tmp/models-b")
 
         TextEncoderModelDownloader.customModelsDirectory = dir1
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, dir1)
+        #expect(TextEncoderModelDownloader.modelsDirectory == dir1)
 
         TextEncoderModelDownloader.customModelsDirectory = dir2
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, dir2)
+        #expect(TextEncoderModelDownloader.modelsDirectory == dir2)
 
         TextEncoderModelDownloader.customModelsDirectory = nil
         #if os(macOS)
@@ -222,12 +242,12 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
             .appendingPathComponent("mistral")
             .appendingPathComponent("models")
         #endif
-        XCTAssertEqual(TextEncoderModelDownloader.modelsDirectory, defaultDir)
+        #expect(TextEncoderModelDownloader.modelsDirectory == defaultDir)
     }
 
     // MARK: - isModelDownloaded with custom directory
 
-    func testIsModelDownloadedUsesCustomDirectory() throws {
+    @Test func isModelDownloadedUsesCustomDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flux2-te-test-\(UUID().uuidString)")
             .appendingPathComponent("models")
@@ -249,7 +269,8 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         }
 
         TextEncoderModelDownloader.customModelsDirectory = tempDir
-        XCTAssertFalse(TextEncoderModelDownloader.isModelDownloaded(model))
+        TextEncoderModelDownloader.reconfigureHubApi()
+        #expect(!TextEncoderModelDownloader.isModelDownloaded(model))
 
         // Add model files — now it should be found
         let modelDir = tempDir
@@ -259,6 +280,11 @@ final class TextEncoderModelDirectoryTests: XCTestCase {
         try "{}".write(to: modelDir.appendingPathComponent("config.json"), atomically: true, encoding: .utf8)
         try Data().write(to: modelDir.appendingPathComponent("model.safetensors"))
 
-        XCTAssertTrue(TextEncoderModelDownloader.isModelDownloaded(model))
+        TextEncoderModelDownloader.reconfigureHubApi()
+        #expect(TextEncoderModelDownloader.isModelDownloaded(model))
+
+        // Reset after test
+        TextEncoderModelDownloader.customModelsDirectory = nil
+        TextEncoderModelDownloader.reconfigureHubApi()
     }
 }

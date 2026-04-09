@@ -3,200 +3,195 @@
  * Main unit tests for FluxTextEncoders library
  */
 
-import XCTest
+import Testing
 @testable import FluxTextEncoders
 
-final class FluxTextEncodersTests: XCTestCase {
+@Suite("FluxTextEncodersTests")
+struct FluxTextEncodersTests {
 
     // MARK: - Version Tests
 
-    func testVersion() {
-        XCTAssertFalse(FluxTextEncoders.version.isEmpty, "Version should not be empty")
-        XCTAssertEqual(FluxTextEncoders.version, "2.6.0", "Version should be 2.6.0")
+    @Test func version() {
+        #expect(!FluxTextEncoders.version.isEmpty, "Version should not be empty")
+        #expect(FluxTextEncoders.version == "2.6.0", "Version should be 2.6.0")
     }
 
-    func testMistralVersionInfo() {
-        XCTAssertEqual(MistralVersion.version, "2.6.0")
-        XCTAssertEqual(MistralVersion.modelName, "Mistral Small 3.2")
-        XCTAssertEqual(MistralVersion.modelVersion, "24B-Instruct-2506")
+    @Test func mistralVersionInfo() {
+        #expect(MistralVersion.version == "2.6.0")
+        #expect(MistralVersion.modelName == "Mistral Small 3.2")
+        #expect(MistralVersion.modelVersion == "24B-Instruct-2506")
     }
 
     // MARK: - Singleton Tests
 
-    func testFluxTextEncodersSharedInstance() {
+    @Test func fluxTextEncodersSharedInstance() {
         let core1 = FluxTextEncoders.shared
         let core2 = FluxTextEncoders.shared
-        XCTAssertTrue(core1 === core2, "Shared instance should be singleton")
+        #expect(core1 === core2, "Shared instance should be singleton")
     }
 
     // MARK: - Model State Tests
 
-    func testIsModelLoadedInitiallyFalse() {
+    @Test func isModelLoadedInitiallyFalse() {
         // Note: In a real test environment, you'd create a fresh instance
         // For singleton, this test verifies the property exists
         let core = FluxTextEncoders.shared
         _ = core.isModelLoaded  // Should not crash
     }
 
-    func testIsVLMLoadedInitiallyFalse() {
+    @Test func isVLMLoadedInitiallyFalse() {
         let core = FluxTextEncoders.shared
         _ = core.isVLMLoaded  // Should not crash
     }
 
     // MARK: - Error Tests
 
-    func testFluxEncoderErrorDescriptions() {
-        XCTAssertEqual(FluxEncoderError.modelNotLoaded.errorDescription,
-                      "Model not loaded. Call loadModel() first.")
+    @Test func fluxEncoderErrorDescriptions() {
+        #expect(FluxEncoderError.modelNotLoaded.errorDescription == "Model not loaded. Call loadModel() first.")
 
-        XCTAssertEqual(FluxEncoderError.vlmNotLoaded.errorDescription,
-                      "VLM not loaded. Call loadVLMModel() first for vision capabilities.")
+        #expect(FluxEncoderError.vlmNotLoaded.errorDescription == "VLM not loaded. Call loadVLMModel() first for vision capabilities.")
 
         let invalidInput = FluxEncoderError.invalidInput("test message")
-        XCTAssertEqual(invalidInput.errorDescription, "Invalid input: test message")
+        #expect(invalidInput.errorDescription == "Invalid input: test message")
 
         let genFailed = FluxEncoderError.generationFailed("gen error")
-        XCTAssertEqual(genFailed.errorDescription, "Generation failed: gen error")
+        #expect(genFailed.errorDescription == "Generation failed: gen error")
     }
 
     // MARK: - Generate Without Model Tests
 
-    func testGenerateThrowsWhenModelNotLoaded() {
+    @Test func generateThrowsWhenModelNotLoaded() {
         // Create a fresh core that definitely doesn't have a model loaded
         // For singleton, we test that the error is properly defined
-        XCTAssertNotNil(FluxEncoderError.modelNotLoaded.errorDescription)
+        #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
     }
 
-    func testChatThrowsWhenModelNotLoaded() {
-        XCTAssertNotNil(FluxEncoderError.modelNotLoaded.errorDescription)
+    @Test func chatThrowsWhenModelNotLoaded() {
+        #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
     }
 
     // MARK: - Embeddings Without Model Tests
 
-    func testExtractEmbeddingsThrowsWhenModelNotLoaded() {
-        XCTAssertNotNil(FluxEncoderError.modelNotLoaded.errorDescription)
+    @Test func extractEmbeddingsThrowsWhenModelNotLoaded() {
+        #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
     }
 
     // MARK: - Vision Without Model Tests
 
-    func testAnalyzeImageThrowsWhenVLMNotLoaded() {
-        XCTAssertNotNil(FluxEncoderError.vlmNotLoaded.errorDescription)
+    @Test func analyzeImageThrowsWhenVLMNotLoaded() {
+        #expect(FluxEncoderError.vlmNotLoaded.errorDescription != nil)
     }
 
     // MARK: - Tokenization Tests (Basic)
 
-    func testTokenizer() throws {
+    @Test func tokenizer() throws {
         let tokenizer = TekkenTokenizer()
         let text = "Hello world"
         let tokens = tokenizer.encode(text)
-        XCTAssertFalse(tokens.isEmpty, "Tokenization should produce tokens")
+        #expect(!tokens.isEmpty, "Tokenization should produce tokens")
     }
 
-    func testHiddenStatesConfig() throws {
+    @Test func hiddenStatesConfig() throws {
         let config = HiddenStatesConfig.mfluxDefault
-        XCTAssertEqual(config.layerIndices, [10, 20, 30])
-        XCTAssertTrue(config.concatenate)
+        #expect(config.layerIndices == [10, 20, 30])
+        #expect(config.concatenate)
     }
 
-    @MainActor
-    func testTextEncoderModelRegistry() throws {
+    @Test @MainActor func textEncoderModelRegistry() throws {
         let models = TextEncoderModelRegistry.shared.allModels()
-        XCTAssertGreaterThanOrEqual(models.count, 3, "Should have at least 3 model variants")
+        #expect(models.count >= 3, "Should have at least 3 model variants")
 
         let defaultModel = TextEncoderModelRegistry.shared.defaultModel()
-        XCTAssertEqual(defaultModel.variant, .mlx8bit)
+        #expect(defaultModel.variant == .mlx8bit)
     }
 
-    func testGenerateParameters() throws {
+    @Test func generateParameters() throws {
         let params = GenerateParameters.balanced
-        XCTAssertEqual(params.maxTokens, 2048)
-        XCTAssertEqual(params.temperature, 0.7)
-        XCTAssertEqual(params.topP, 0.9)
+        #expect(params.maxTokens == 2048)
+        #expect(params.temperature == 0.7)
+        #expect(params.topP == 0.9)
     }
 
     // MARK: - FLUX Config Tests
 
-    func testFluxConfigValues() {
-        XCTAssertEqual(FluxConfig.maxSequenceLength, 512)
-        XCTAssertEqual(FluxConfig.hiddenStateLayers, [10, 20, 30])
-        XCTAssertFalse(FluxConfig.systemMessage.isEmpty,
-                      "System message should not be empty")
+    @Test func fluxConfigValues() {
+        #expect(FluxConfig.maxSequenceLength == 512)
+        #expect(FluxConfig.hiddenStateLayers == [10, 20, 30])
+        #expect(!FluxConfig.systemMessage.isEmpty, "System message should not be empty")
     }
 
-    func testFluxConfigSystemMessage() {
+    @Test func fluxConfigSystemMessage() {
         let systemMessage = FluxConfig.systemMessage
-        XCTAssertTrue(systemMessage.contains("image"),
-                     "System message should mention images")
+        #expect(systemMessage.contains("image"), "System message should mention images")
     }
 
     // MARK: - Export Format Tests
 
-    func testExportFormatCases() {
+    @Test func exportFormatCases() {
         let binary = ExportFormat.binary
         let numpy = ExportFormat.numpy
         let json = ExportFormat.json
 
         // Just verify they exist and are distinct
-        XCTAssertNotEqual(String(describing: binary), String(describing: numpy))
-        XCTAssertNotEqual(String(describing: binary), String(describing: json))
+        #expect(String(describing: binary) != String(describing: numpy))
+        #expect(String(describing: binary) != String(describing: json))
     }
 }
 
 // MARK: - Integration Tests (Without Model Loading)
 
-final class FluxTextEncodersIntegrationTests: XCTestCase {
+@Suite("FluxTextEncodersIntegrationTests")
+struct FluxTextEncodersIntegrationTests {
 
     /// Test that configurations work together correctly
-    func testConfigurationIntegration() {
+    @Test func configurationIntegration() {
         let textConfig = MistralTextConfig.mistralSmall32
         let hiddenStatesConfig = HiddenStatesConfig.mfluxDefault
 
         // Verify layer indices are valid for the model
         let maxLayer = textConfig.numHiddenLayers
         for layerIdx in hiddenStatesConfig.layerIndices {
-            XCTAssertLessThan(layerIdx, maxLayer,
-                            "Layer index \(layerIdx) should be less than num layers \(maxLayer)")
+            #expect(layerIdx < maxLayer, "Layer index \(layerIdx) should be less than num layers \(maxLayer)")
         }
     }
 
     /// Test that FLUX embeddings configuration matches expected dimensions
-    func testFluxEmbeddingsDimensions() {
+    @Test func fluxEmbeddingsDimensions() {
         let config = MistralTextConfig.mistralSmall32
         let hiddenStatesConfig = HiddenStatesConfig.mfluxDefault
 
         // FLUX expects 3 layers * hidden_size = 15360
         let expectedDim = hiddenStatesConfig.layerIndices.count * config.hiddenSize
-        XCTAssertEqual(expectedDim, 15360,
-                      "FLUX embeddings should produce 15360 dimensions")
+        #expect(expectedDim == 15360, "FLUX embeddings should produce 15360 dimensions")
     }
 
     /// Test tokenizer with various input types
-    func testTokenizerVariousInputs() {
+    @Test func tokenizerVariousInputs() {
         let tokenizer = TekkenTokenizer()
 
         // ASCII
         let asciiTokens = tokenizer.encode("Hello")
-        XCTAssertFalse(asciiTokens.isEmpty)
+        #expect(!asciiTokens.isEmpty)
 
         // Unicode
         let unicodeTokens = tokenizer.encode("世界")
-        XCTAssertFalse(unicodeTokens.isEmpty)
+        #expect(!unicodeTokens.isEmpty)
 
         // Mixed
         let mixedTokens = tokenizer.encode("Hello 世界!")
-        XCTAssertFalse(mixedTokens.isEmpty)
+        #expect(!mixedTokens.isEmpty)
 
         // Numbers
         let numberTokens = tokenizer.encode("12345")
-        XCTAssertFalse(numberTokens.isEmpty)
+        #expect(!numberTokens.isEmpty)
 
         // Special chars
         let specialTokens = tokenizer.encode("@#$%^&*()")
-        XCTAssertFalse(specialTokens.isEmpty)
+        #expect(!specialTokens.isEmpty)
     }
 
     /// Test chat template produces valid structure
-    func testChatTemplateStructure() {
+    @Test func chatTemplateStructure() {
         let tokenizer = TekkenTokenizer()
 
         let messages: [[String: String]] = [
@@ -209,17 +204,16 @@ final class FluxTextEncodersIntegrationTests: XCTestCase {
         let prompt = tokenizer.applyChatTemplate(messages: messages)
 
         // Should be non-empty
-        XCTAssertFalse(prompt.isEmpty)
+        #expect(!prompt.isEmpty)
 
         // Should contain all content
-        XCTAssertTrue(prompt.contains("helpful") || prompt.contains("You are helpful"))
-        XCTAssertTrue(prompt.contains("Hello"))
-        XCTAssertTrue(prompt.contains("Hi there!"))
-        XCTAssertTrue(prompt.contains("How are you?"))
+        #expect(prompt.contains("helpful") || prompt.contains("You are helpful"))
+        #expect(prompt.contains("Hello"))
+        #expect(prompt.contains("Hi there!"))
+        #expect(prompt.contains("How are you?"))
     }
 
-    @MainActor
-    func testTextEncoderModelRegistryHasAllExpectedVariants() {
+    @Test @MainActor func textEncoderModelRegistryHasAllExpectedVariants() {
         let registry = TextEncoderModelRegistry.shared
         let models = registry.allModels()
 
@@ -227,7 +221,7 @@ final class FluxTextEncodersIntegrationTests: XCTestCase {
         let has8bit = models.contains { $0.variant == .mlx8bit }
         let has4bit = models.contains { $0.variant == .mlx4bit }
 
-        XCTAssertTrue(has8bit, "Should have 8-bit model")
-        XCTAssertTrue(has4bit, "Should have 4-bit model")
+        #expect(has8bit, "Should have 8-bit model")
+        #expect(has4bit, "Should have 4-bit model")
     }
 }

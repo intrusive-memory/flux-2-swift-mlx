@@ -3,54 +3,55 @@
  * Unit tests for TextEncoderModelRegistry and ModelVariant
  */
 
-import XCTest
+import Testing
 @testable import FluxTextEncoders
 
+@Suite("TextEncoderModelRegistryTests")
 @MainActor
-final class TextEncoderModelRegistryTests: XCTestCase {
+struct TextEncoderModelRegistryTests {
 
     // MARK: - ModelVariant Tests
 
-    func testModelVariantRawValues() {
-        XCTAssertEqual(ModelVariant.bf16.rawValue, "bf16")
-        XCTAssertEqual(ModelVariant.mlx8bit.rawValue, "8bit")
-        XCTAssertEqual(ModelVariant.mlx6bit.rawValue, "6bit")
-        XCTAssertEqual(ModelVariant.mlx4bit.rawValue, "4bit")
+    @Test @MainActor func modelVariantRawValues() {
+        #expect(ModelVariant.bf16.rawValue == "bf16")
+        #expect(ModelVariant.mlx8bit.rawValue == "8bit")
+        #expect(ModelVariant.mlx6bit.rawValue == "6bit")
+        #expect(ModelVariant.mlx4bit.rawValue == "4bit")
     }
 
-    func testModelVariantDisplayNames() {
-        XCTAssertEqual(ModelVariant.bf16.displayName, "Full Precision (BF16)")
-        XCTAssertEqual(ModelVariant.mlx8bit.displayName, "8-bit Quantized")
-        XCTAssertEqual(ModelVariant.mlx6bit.displayName, "6-bit Quantized")
-        XCTAssertEqual(ModelVariant.mlx4bit.displayName, "4-bit Quantized")
+    @Test @MainActor func modelVariantDisplayNames() {
+        #expect(ModelVariant.bf16.displayName == "Full Precision (BF16)")
+        #expect(ModelVariant.mlx8bit.displayName == "8-bit Quantized")
+        #expect(ModelVariant.mlx6bit.displayName == "6-bit Quantized")
+        #expect(ModelVariant.mlx4bit.displayName == "4-bit Quantized")
     }
 
-    func testModelVariantShortNames() {
-        XCTAssertEqual(ModelVariant.bf16.shortName, "BF16")
-        XCTAssertEqual(ModelVariant.mlx8bit.shortName, "8-bit")
-        XCTAssertEqual(ModelVariant.mlx6bit.shortName, "6-bit")
-        XCTAssertEqual(ModelVariant.mlx4bit.shortName, "4-bit")
+    @Test @MainActor func modelVariantShortNames() {
+        #expect(ModelVariant.bf16.shortName == "BF16")
+        #expect(ModelVariant.mlx8bit.shortName == "8-bit")
+        #expect(ModelVariant.mlx6bit.shortName == "6-bit")
+        #expect(ModelVariant.mlx4bit.shortName == "4-bit")
     }
 
-    func testModelVariantEstimatedSizes() {
-        XCTAssertEqual(ModelVariant.bf16.estimatedSize, "~48GB")
-        XCTAssertEqual(ModelVariant.mlx8bit.estimatedSize, "~25GB")
-        XCTAssertEqual(ModelVariant.mlx6bit.estimatedSize, "~19GB")
-        XCTAssertEqual(ModelVariant.mlx4bit.estimatedSize, "~14GB")
+    @Test @MainActor func modelVariantEstimatedSizes() {
+        #expect(ModelVariant.bf16.estimatedSize == "~48GB")
+        #expect(ModelVariant.mlx8bit.estimatedSize == "~25GB")
+        #expect(ModelVariant.mlx6bit.estimatedSize == "~19GB")
+        #expect(ModelVariant.mlx4bit.estimatedSize == "~14GB")
     }
 
-    func testModelVariantCaseIterable() {
+    @Test @MainActor func modelVariantCaseIterable() {
         let allCases = ModelVariant.allCases
-        XCTAssertEqual(allCases.count, 4, "Should have 4 model variants")
-        XCTAssertTrue(allCases.contains(.bf16))
-        XCTAssertTrue(allCases.contains(.mlx8bit))
-        XCTAssertTrue(allCases.contains(.mlx6bit))
-        XCTAssertTrue(allCases.contains(.mlx4bit))
+        #expect(allCases.count == 4, "Should have 4 model variants")
+        #expect(allCases.contains(.bf16))
+        #expect(allCases.contains(.mlx8bit))
+        #expect(allCases.contains(.mlx6bit))
+        #expect(allCases.contains(.mlx4bit))
     }
 
     // MARK: - ModelInfo Tests
 
-    func testModelInfoInit() {
+    @Test @MainActor func modelInfoInit() {
         let model = ModelInfo(
             id: "test-model",
             repoId: "org/test-model",
@@ -60,76 +61,76 @@ final class TextEncoderModelRegistryTests: XCTestCase {
             parameters: "24B"
         )
 
-        XCTAssertEqual(model.id, "test-model")
-        XCTAssertEqual(model.repoId, "org/test-model")
-        XCTAssertEqual(model.name, "Test Model")
-        XCTAssertEqual(model.description, "A test model")
-        XCTAssertEqual(model.variant, .mlx8bit)
-        XCTAssertEqual(model.parameters, "24B")
+        #expect(model.id == "test-model")
+        #expect(model.repoId == "org/test-model")
+        #expect(model.name == "Test Model")
+        #expect(model.description == "A test model")
+        #expect(model.variant == .mlx8bit)
+        #expect(model.parameters == "24B")
     }
 
     // MARK: - TextEncoderModelRegistry Tests
 
-    func testTextEncoderModelRegistrySharedInstance() {
+    @Test @MainActor func textEncoderModelRegistrySharedInstance() {
         let registry1 = TextEncoderModelRegistry.shared
         let registry2 = TextEncoderModelRegistry.shared
-        XCTAssertTrue(registry1 === registry2, "Shared instance should be singleton")
+        #expect(registry1 === registry2, "Shared instance should be singleton")
     }
 
-    func testTextEncoderModelRegistryAllModels() {
+    @Test @MainActor func textEncoderModelRegistryAllModels() {
         let models = TextEncoderModelRegistry.shared.allModels()
 
-        XCTAssertGreaterThanOrEqual(models.count, 3,
+        #expect(models.count >= 3,
                                     "Should have at least 3 models (8bit, 6bit, 4bit)")
     }
 
-    func testTextEncoderModelRegistryContainsExpectedVariants() {
+    @Test @MainActor func textEncoderModelRegistryContainsExpectedVariants() {
         let models = TextEncoderModelRegistry.shared.allModels()
         let variants = models.map { $0.variant }
 
-        XCTAssertTrue(variants.contains(.mlx8bit), "Should have 8-bit model")
-        XCTAssertTrue(variants.contains(.mlx4bit), "Should have 4-bit model")
+        #expect(variants.contains(.mlx8bit), "Should have 8-bit model")
+        #expect(variants.contains(.mlx4bit), "Should have 4-bit model")
     }
 
-    func testTextEncoderModelRegistryDefaultModel() {
+    @Test @MainActor func textEncoderModelRegistryDefaultModel() {
         let defaultModel = TextEncoderModelRegistry.shared.defaultModel()
 
-        XCTAssertEqual(defaultModel.variant, .mlx8bit,
+        #expect(defaultModel.variant == .mlx8bit,
                       "Default model should be 8-bit")
-        XCTAssertFalse(defaultModel.id.isEmpty, "Default model should have ID")
-        XCTAssertFalse(defaultModel.repoId.isEmpty, "Default model should have repo ID")
+        #expect(!defaultModel.id.isEmpty, "Default model should have ID")
+        #expect(!defaultModel.repoId.isEmpty, "Default model should have repo ID")
     }
 
-    func testTextEncoderModelRegistryFindByVariant() {
+    @Test @MainActor func textEncoderModelRegistryFindByVariant() {
         let model8bit = TextEncoderModelRegistry.shared.model(withVariant: .mlx8bit)
         let model4bit = TextEncoderModelRegistry.shared.model(withVariant: .mlx4bit)
 
-        XCTAssertNotNil(model8bit, "Should find 8-bit model")
-        XCTAssertNotNil(model4bit, "Should find 4-bit model")
+        #expect(model8bit != nil, "Should find 8-bit model")
+        #expect(model4bit != nil, "Should find 4-bit model")
 
-        XCTAssertEqual(model8bit?.variant, .mlx8bit)
-        XCTAssertEqual(model4bit?.variant, .mlx4bit)
+        #expect(model8bit?.variant == .mlx8bit)
+        #expect(model4bit?.variant == .mlx4bit)
     }
 
-    func testTextEncoderModelRegistryFindById() {
+    @Test @MainActor func textEncoderModelRegistryFindById() {
         let models = TextEncoderModelRegistry.shared.allModels()
         guard let firstModel = models.first else {
-            XCTFail("Should have at least one model")
+            Issue.record("Should have at least one model")
             return
         }
 
         let foundModel = TextEncoderModelRegistry.shared.model(withId: firstModel.id)
 
-        XCTAssertNotNil(foundModel, "Should find model by ID")
-        XCTAssertEqual(foundModel?.id, firstModel.id)
+        #expect(foundModel != nil, "Should find model by ID")
+        #expect(foundModel?.id == firstModel.id)
     }
 
-    func testTextEncoderModelRegistryFindByIdNotFound() {
+    @Test @MainActor func textEncoderModelRegistryFindByIdNotFound() {
         let model = TextEncoderModelRegistry.shared.model(withId: "non-existent-model-id")
-        XCTAssertNil(model, "Should return nil for non-existent ID")
+        #expect(model == nil, "Should return nil for non-existent ID")
     }
 
-    func testTextEncoderModelRegistryFindByVariantNotFound() {
+    @Test @MainActor func textEncoderModelRegistryFindByVariantNotFound() {
         // All variants should exist, but test the lookup mechanism
         let model = TextEncoderModelRegistry.shared.model(withVariant: .bf16)
         // bf16 may or may not be registered depending on implementation
@@ -139,50 +140,51 @@ final class TextEncoderModelRegistryTests: XCTestCase {
 
     // MARK: - Model Metadata Tests
 
-    func testRegisteredModelsHaveValidMetadata() {
+    @Test @MainActor func registeredModelsHaveValidMetadata() {
         let models = TextEncoderModelRegistry.shared.allModels()
 
         for model in models {
-            XCTAssertFalse(model.id.isEmpty, "Model ID should not be empty")
-            XCTAssertFalse(model.repoId.isEmpty, "Repo ID should not be empty")
-            XCTAssertFalse(model.name.isEmpty, "Name should not be empty")
-            XCTAssertFalse(model.description.isEmpty, "Description should not be empty")
-            XCTAssertEqual(model.parameters, "24B", "Parameters should be 24B")
+            #expect(!model.id.isEmpty, "Model ID should not be empty")
+            #expect(!model.repoId.isEmpty, "Repo ID should not be empty")
+            #expect(!model.name.isEmpty, "Name should not be empty")
+            #expect(!model.description.isEmpty, "Description should not be empty")
+            #expect(model.parameters == "24B", "Parameters should be 24B")
         }
     }
 
-    func testRegisteredModelsHaveHuggingFaceRepos() {
+    @Test @MainActor func registeredModelsHaveHuggingFaceRepos() {
         let models = TextEncoderModelRegistry.shared.allModels()
 
         for model in models {
             // Repo IDs should follow HuggingFace format: org/repo
-            XCTAssertTrue(model.repoId.contains("/"),
+            #expect(model.repoId.contains("/"),
                          "Repo ID '\(model.repoId)' should be in HuggingFace format")
         }
     }
 
     // MARK: - Tekken JSON URL Test
 
-    func testTekkenJsonURLIsValid() {
+    @Test @MainActor func tekkenJsonURLIsValid() {
         let url = TextEncoderModelRegistry.tekkenJsonURL
 
-        XCTAssertTrue(url.hasPrefix("https://"),
+        #expect(url.hasPrefix("https://"),
                      "Tekken JSON URL should use HTTPS")
-        XCTAssertTrue(url.contains("huggingface.co"),
+        #expect(url.contains("huggingface.co"),
                      "Tekken JSON URL should be on HuggingFace")
-        XCTAssertTrue(url.contains("tekken.json"),
+        #expect(url.contains("tekken.json"),
                      "URL should point to tekken.json")
     }
 
     // MARK: - Sendable Conformance
 
-    func testModelVariantIsSendable() {
-        let variant: Sendable = ModelVariant.mlx8bit
-        XCTAssertNotNil(variant)
+    @Test @MainActor func modelVariantIsSendable() {
+        let variant = ModelVariant.mlx8bit
+        let _: any Sendable = variant
+        #expect(variant.rawValue == "8bit")
     }
 
-    func testModelInfoIsSendable() {
-        let model: Sendable = ModelInfo(
+    @Test @MainActor func modelInfoIsSendable() {
+        let model = ModelInfo(
             id: "test",
             repoId: "test/test",
             name: "Test",
@@ -190,112 +192,113 @@ final class TextEncoderModelRegistryTests: XCTestCase {
             variant: .mlx8bit,
             parameters: "24B"
         )
-        XCTAssertNotNil(model)
+        let _: any Sendable = model
+        #expect(model.id == "test")
     }
 
     // MARK: - Gated Status Tests
 
-    func testModelVariantIsGated() {
+    @Test @MainActor func modelVariantIsGated() {
         // bf16 from mistralai is gated
-        XCTAssertTrue(ModelVariant.bf16.isGated)
+        #expect(ModelVariant.bf16.isGated)
 
         // Quantized versions from lmstudio-community are NOT gated
-        XCTAssertFalse(ModelVariant.mlx8bit.isGated)
-        XCTAssertFalse(ModelVariant.mlx6bit.isGated)
-        XCTAssertFalse(ModelVariant.mlx4bit.isGated)
+        #expect(!ModelVariant.mlx8bit.isGated)
+        #expect(!ModelVariant.mlx6bit.isGated)
+        #expect(!ModelVariant.mlx4bit.isGated)
     }
 
-    func testModelInfoIsGated() {
+    @Test @MainActor func modelInfoIsGated() {
         let models = TextEncoderModelRegistry.shared.allModels()
 
         // Check bf16 model is gated
         if let bf16Model = models.first(where: { $0.variant == .bf16 }) {
-            XCTAssertTrue(bf16Model.isGated)
+            #expect(bf16Model.isGated)
         }
 
         // Check quantized models are NOT gated
         if let mlx8bit = models.first(where: { $0.variant == .mlx8bit }) {
-            XCTAssertFalse(mlx8bit.isGated)
+            #expect(!mlx8bit.isGated)
         }
     }
 
-    func testQwen3VariantIsGated() {
+    @Test @MainActor func qwen3VariantIsGated() {
         // All Qwen3 models from lmstudio-community are NOT gated
-        XCTAssertFalse(Qwen3Variant.qwen3_4B_8bit.isGated)
-        XCTAssertFalse(Qwen3Variant.qwen3_4B_4bit.isGated)
-        XCTAssertFalse(Qwen3Variant.qwen3_8B_8bit.isGated)
-        XCTAssertFalse(Qwen3Variant.qwen3_8B_4bit.isGated)
+        #expect(!Qwen3Variant.qwen3_4B_8bit.isGated)
+        #expect(!Qwen3Variant.qwen3_4B_4bit.isGated)
+        #expect(!Qwen3Variant.qwen3_8B_8bit.isGated)
+        #expect(!Qwen3Variant.qwen3_8B_4bit.isGated)
     }
 
     // MARK: - HuggingFace URL Tests
 
-    func testModelVariantHuggingFaceURL() {
+    @Test @MainActor func modelVariantHuggingFaceURL() {
         for variant in ModelVariant.allCases {
-            XCTAssertTrue(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
-            XCTAssertTrue(variant.huggingFaceURL.contains(variant.repoId))
+            #expect(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
+            #expect(variant.huggingFaceURL.contains(variant.repoId))
         }
     }
 
-    func testModelInfoHuggingFaceURL() {
+    @Test @MainActor func modelInfoHuggingFaceURL() {
         let models = TextEncoderModelRegistry.shared.allModels()
 
         for model in models {
-            XCTAssertTrue(model.huggingFaceURL.starts(with: "https://huggingface.co/"))
-            XCTAssertTrue(model.huggingFaceURL.contains(model.repoId))
+            #expect(model.huggingFaceURL.starts(with: "https://huggingface.co/"))
+            #expect(model.huggingFaceURL.contains(model.repoId))
         }
     }
 
-    func testQwen3VariantHuggingFaceURL() {
+    @Test @MainActor func qwen3VariantHuggingFaceURL() {
         for variant in Qwen3Variant.allCases {
-            XCTAssertTrue(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
-            XCTAssertTrue(variant.huggingFaceURL.contains(variant.repoId))
+            #expect(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
+            #expect(variant.huggingFaceURL.contains(variant.repoId))
         }
     }
 
-    func testModelVariantRepoIdValues() {
+    @Test @MainActor func modelVariantRepoIdValues() {
         // bf16 should be from mistralai
-        XCTAssertTrue(ModelVariant.bf16.repoId.contains("mistralai"))
+        #expect(ModelVariant.bf16.repoId.contains("mistralai"))
 
         // Quantized should be from lmstudio-community
-        XCTAssertTrue(ModelVariant.mlx8bit.repoId.contains("lmstudio-community"))
-        XCTAssertTrue(ModelVariant.mlx6bit.repoId.contains("lmstudio-community"))
-        XCTAssertTrue(ModelVariant.mlx4bit.repoId.contains("lmstudio-community"))
+        #expect(ModelVariant.mlx8bit.repoId.contains("lmstudio-community"))
+        #expect(ModelVariant.mlx6bit.repoId.contains("lmstudio-community"))
+        #expect(ModelVariant.mlx4bit.repoId.contains("lmstudio-community"))
     }
 
-    func testQwen3VariantRepoIdValues() {
+    @Test @MainActor func qwen3VariantRepoIdValues() {
         // All Qwen3 should be from lmstudio-community
         for variant in Qwen3Variant.allCases {
-            XCTAssertTrue(variant.repoId.contains("lmstudio-community"))
+            #expect(variant.repoId.contains("lmstudio-community"))
         }
     }
 
-    func testModelVariantEstimatedSizeGB() {
-        XCTAssertEqual(ModelVariant.bf16.estimatedSizeGB, 48)
-        XCTAssertEqual(ModelVariant.mlx8bit.estimatedSizeGB, 25)
-        XCTAssertEqual(ModelVariant.mlx6bit.estimatedSizeGB, 19)
-        XCTAssertEqual(ModelVariant.mlx4bit.estimatedSizeGB, 14)
+    @Test @MainActor func modelVariantEstimatedSizeGB() {
+        #expect(ModelVariant.bf16.estimatedSizeGB == 48)
+        #expect(ModelVariant.mlx8bit.estimatedSizeGB == 25)
+        #expect(ModelVariant.mlx6bit.estimatedSizeGB == 19)
+        #expect(ModelVariant.mlx4bit.estimatedSizeGB == 14)
     }
 
-    func testQwen3VariantEstimatedSizeGB() {
-        XCTAssertEqual(Qwen3Variant.qwen3_4B_8bit.estimatedSizeGB, 4)
-        XCTAssertEqual(Qwen3Variant.qwen3_4B_4bit.estimatedSizeGB, 2)
-        XCTAssertEqual(Qwen3Variant.qwen3_8B_8bit.estimatedSizeGB, 8)
-        XCTAssertEqual(Qwen3Variant.qwen3_8B_4bit.estimatedSizeGB, 4)
+    @Test @MainActor func qwen3VariantEstimatedSizeGB() {
+        #expect(Qwen3Variant.qwen3_4B_8bit.estimatedSizeGB == 4)
+        #expect(Qwen3Variant.qwen3_4B_4bit.estimatedSizeGB == 2)
+        #expect(Qwen3Variant.qwen3_8B_8bit.estimatedSizeGB == 8)
+        #expect(Qwen3Variant.qwen3_8B_4bit.estimatedSizeGB == 4)
     }
 
     // MARK: - License Tests
 
-    func testModelVariantLicense() {
+    @Test @MainActor func modelVariantLicense() {
         for variant in ModelVariant.allCases {
-            XCTAssertTrue(variant.license.contains("Apache"))
-            XCTAssertTrue(variant.isCommercialUseAllowed)
+            #expect(variant.license.contains("Apache"))
+            #expect(variant.isCommercialUseAllowed)
         }
     }
 
-    func testQwen3VariantLicense() {
+    @Test @MainActor func qwen3VariantLicense() {
         for variant in Qwen3Variant.allCases {
-            XCTAssertTrue(variant.license.contains("Apache"))
-            XCTAssertTrue(variant.isCommercialUseAllowed)
+            #expect(variant.license.contains("Apache"))
+            #expect(variant.isCommercialUseAllowed)
         }
     }
 }

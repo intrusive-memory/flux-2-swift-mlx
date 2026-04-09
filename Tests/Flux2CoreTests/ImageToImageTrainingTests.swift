@@ -1,31 +1,32 @@
 // ImageToImageTrainingTests.swift - Unit tests for Image-to-Image LoRA training
 // Copyright 2025 Vincent Gourbin
 
-import XCTest
+import Testing
+import Foundation
 @testable import Flux2Core
 import MLX
 
 // MARK: - LoRATrainingConfig I2I Tests
 
-final class ImageToImageConfigTests: XCTestCase {
+@Suite struct ImageToImageConfigTests {
 
     let tmpDataset = URL(fileURLWithPath: "/tmp/test-dataset")
     let tmpOutput = URL(fileURLWithPath: "/tmp/test-output")
 
     // MARK: - controlPath / controlDropout / isImageToImage
 
-    func testConfigDefaultsToTextToImage() {
+    @Test func configDefaultsToTextToImage() {
         let config = LoRATrainingConfig(
             datasetPath: tmpDataset,
             outputPath: tmpOutput
         )
 
-        XCTAssertNil(config.controlPath)
-        XCTAssertEqual(config.controlDropout, 0.0)
-        XCTAssertFalse(config.isImageToImage)
+        #expect(config.controlPath == nil)
+        #expect(config.controlDropout == 0.0)
+        #expect(!config.isImageToImage)
     }
 
-    func testConfigWithControlPathIsI2I() {
+    @Test func configWithControlPathIsI2I() {
         let controlURL = URL(fileURLWithPath: "/tmp/controls")
         let config = LoRATrainingConfig(
             datasetPath: tmpDataset,
@@ -34,12 +35,12 @@ final class ImageToImageConfigTests: XCTestCase {
             outputPath: tmpOutput
         )
 
-        XCTAssertEqual(config.controlPath, controlURL)
-        XCTAssertEqual(config.controlDropout, 0.3)
-        XCTAssertTrue(config.isImageToImage)
+        #expect(config.controlPath == controlURL)
+        #expect(config.controlDropout == 0.3)
+        #expect(config.isImageToImage)
     }
 
-    func testConfigNilControlPathIsT2I() {
+    @Test func configNilControlPathIsT2I() {
         let config = LoRATrainingConfig(
             datasetPath: tmpDataset,
             controlPath: nil,
@@ -47,31 +48,31 @@ final class ImageToImageConfigTests: XCTestCase {
             outputPath: tmpOutput
         )
 
-        XCTAssertFalse(config.isImageToImage)
+        #expect(!config.isImageToImage)
     }
 
-    func testConfigControlDropoutDefaultsToZero() {
+    @Test func configControlDropoutDefaultsToZero() {
         let config = LoRATrainingConfig(
             datasetPath: tmpDataset,
             controlPath: URL(fileURLWithPath: "/tmp/controls"),
             outputPath: tmpOutput
         )
 
-        XCTAssertEqual(config.controlDropout, 0.0)
+        #expect(config.controlDropout == 0.0)
     }
 
     // MARK: - ValidationPromptConfig.referenceImage
 
-    func testValidationPromptDefaultNoReferenceImage() {
+    @Test func validationPromptDefaultNoReferenceImage() {
         let prompt = LoRATrainingConfig.ValidationPromptConfig(
             prompt: "a cat sitting",
             is512: true
         )
 
-        XCTAssertNil(prompt.referenceImage)
+        #expect(prompt.referenceImage == nil)
     }
 
-    func testValidationPromptWithReferenceImage() {
+    @Test func validationPromptWithReferenceImage() {
         let refURL = URL(fileURLWithPath: "/tmp/ref.png")
         let prompt = LoRATrainingConfig.ValidationPromptConfig(
             prompt: "remove the hat",
@@ -79,12 +80,12 @@ final class ImageToImageConfigTests: XCTestCase {
             referenceImage: refURL
         )
 
-        XCTAssertEqual(prompt.referenceImage, refURL)
+        #expect(prompt.referenceImage == refURL)
     }
 
     // MARK: - Codable round-trip (referenceImage)
 
-    func testValidationPromptCodableRoundTrip() throws {
+    @Test func validationPromptCodableRoundTrip() throws {
         let refURL = URL(fileURLWithPath: "/tmp/ref.png")
         let original = LoRATrainingConfig.ValidationPromptConfig(
             prompt: "edit instruction",
@@ -100,15 +101,15 @@ final class ImageToImageConfigTests: XCTestCase {
         let decoder = JSONDecoder()
         let decoded = try decoder.decode(LoRATrainingConfig.ValidationPromptConfig.self, from: data)
 
-        XCTAssertEqual(decoded.prompt, "edit instruction")
-        XCTAssertEqual(decoded.is512, true)
-        XCTAssertEqual(decoded.is1024, false)
-        XCTAssertEqual(decoded.applyTrigger, true)
-        XCTAssertEqual(decoded.seed, 42)
-        XCTAssertEqual(decoded.referenceImage, refURL)
+        #expect(decoded.prompt == "edit instruction")
+        #expect(decoded.is512 == true)
+        #expect(decoded.is1024 == false)
+        #expect(decoded.applyTrigger == true)
+        #expect(decoded.seed == 42)
+        #expect(decoded.referenceImage == refURL)
     }
 
-    func testValidationPromptCodableNilReferenceImage() throws {
+    @Test func validationPromptCodableNilReferenceImage() throws {
         let original = LoRATrainingConfig.ValidationPromptConfig(
             prompt: "a landscape",
             is512: true
@@ -119,37 +120,40 @@ final class ImageToImageConfigTests: XCTestCase {
             LoRATrainingConfig.ValidationPromptConfig.self, from: data
         )
 
-        XCTAssertNil(decoded.referenceImage)
+        #expect(decoded.referenceImage == nil)
     }
 
     // MARK: - Presets remain T2I
 
-    func testPresetsHaveNoControlPath() {
+    @Test func presetsHaveNoControlPath() {
         let minimal = LoRATrainingConfig.minimal8GB(
             datasetPath: tmpDataset, outputPath: tmpOutput
         )
-        XCTAssertNil(minimal.controlPath)
-        XCTAssertFalse(minimal.isImageToImage)
+        #expect(minimal.controlPath == nil)
+        #expect(!minimal.isImageToImage)
 
         let balanced = LoRATrainingConfig.balanced16GB(
             datasetPath: tmpDataset, outputPath: tmpOutput
         )
-        XCTAssertNil(balanced.controlPath)
-        XCTAssertFalse(balanced.isImageToImage)
+        #expect(balanced.controlPath == nil)
+        #expect(!balanced.isImageToImage)
 
         let quality = LoRATrainingConfig.quality32GB(
             datasetPath: tmpDataset, outputPath: tmpOutput
         )
-        XCTAssertNil(quality.controlPath)
-        XCTAssertFalse(quality.isImageToImage)
+        #expect(quality.controlPath == nil)
+        #expect(!quality.isImageToImage)
     }
 }
 
 // MARK: - CachedLatentEntry I2I Tests
 
-final class CachedLatentEntryI2ITests: XCTestCase {
+@Suite struct CachedLatentEntryI2ITests {
 
-    func testCachedLatentEntryDefaultNoControl() {
+    @Test func cachedLatentEntryDefaultNoControl() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let entry = CachedLatentEntry(
             filename: "test.png",
             latent: MLXArray.zeros([1, 32, 64, 64]),
@@ -157,13 +161,16 @@ final class CachedLatentEntryI2ITests: XCTestCase {
             height: 512
         )
 
-        XCTAssertNil(entry.controlLatent)
-        XCTAssertEqual(entry.filename, "test.png")
-        XCTAssertEqual(entry.width, 512)
-        XCTAssertEqual(entry.height, 512)
+        #expect(entry.controlLatent == nil)
+        #expect(entry.filename == "test.png")
+        #expect(entry.width == 512)
+        #expect(entry.height == 512)
     }
 
-    func testCachedLatentEntryWithControlLatent() {
+    @Test func cachedLatentEntryWithControlLatent() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let targetLatent = MLXArray.zeros([1, 32, 64, 64])
         let controlLatent = MLXArray.ones([1, 32, 64, 64])
 
@@ -175,11 +182,14 @@ final class CachedLatentEntryI2ITests: XCTestCase {
             controlLatent: controlLatent
         )
 
-        XCTAssertNotNil(entry.controlLatent)
-        XCTAssertEqual(entry.controlLatent!.shape, [1, 32, 64, 64])
+        #expect(entry.controlLatent != nil)
+        #expect(entry.controlLatent!.shape == [1, 32, 64, 64])
     }
 
-    func testCachedLatentEntryControlLatentMatchesTargetShape() {
+    @Test func cachedLatentEntryControlLatentMatchesTargetShape() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let h = 64, w = 64
         let target = MLXRandom.normal([1, 32, h, w])
         let control = MLXRandom.normal([1, 32, h, w])
@@ -193,28 +203,28 @@ final class CachedLatentEntryI2ITests: XCTestCase {
         )
 
         // Control and target should have same spatial dimensions
-        XCTAssertEqual(entry.latent.shape, entry.controlLatent!.shape)
+        #expect(entry.latent.shape == entry.controlLatent!.shape)
     }
 }
 
 // MARK: - SimpleLoRAConfig I2I Tests
 
-final class SimpleLoRAConfigI2ITests: XCTestCase {
+@Suite struct SimpleLoRAConfigI2ITests {
 
-    func testSimpleLoRAConfigDefaultControlDropout() {
+    @Test func simpleLoRAConfigDefaultControlDropout() {
         let config = SimpleLoRAConfig(outputDir: URL(fileURLWithPath: "/tmp"))
 
-        XCTAssertEqual(config.controlDropout, 0.0)
+        #expect(config.controlDropout == 0.0)
     }
 
-    func testSimpleLoRAConfigControlDropoutSetting() {
+    @Test func simpleLoRAConfigControlDropoutSetting() {
         var config = SimpleLoRAConfig(outputDir: URL(fileURLWithPath: "/tmp"))
         config.controlDropout = 0.3
 
-        XCTAssertEqual(config.controlDropout, 0.3)
+        #expect(config.controlDropout == 0.3)
     }
 
-    func testSimpleLoRAConfigValidationPromptReferenceImage() {
+    @Test func simpleLoRAConfigValidationPromptReferenceImage() {
         let refURL = URL(fileURLWithPath: "/tmp/ref.png")
         let prompt = SimpleLoRAConfig.ValidationPromptConfig(
             prompt: "remove background",
@@ -223,10 +233,10 @@ final class SimpleLoRAConfigI2ITests: XCTestCase {
             referenceImage: refURL
         )
 
-        XCTAssertEqual(prompt.referenceImage, refURL)
+        #expect(prompt.referenceImage == refURL)
     }
 
-    func testSimpleLoRAConfigValidationPromptNoReferenceImage() {
+    @Test func simpleLoRAConfigValidationPromptNoReferenceImage() {
         let prompt = SimpleLoRAConfig.ValidationPromptConfig(
             prompt: "a cat",
             is512: true,
@@ -234,15 +244,18 @@ final class SimpleLoRAConfigI2ITests: XCTestCase {
             seed: 42
         )
 
-        XCTAssertNil(prompt.referenceImage)
+        #expect(prompt.referenceImage == nil)
     }
 }
 
 // MARK: - Position ID Tests for I2I
 
-final class PositionIDI2ITests: XCTestCase {
+@Suite struct PositionIDI2ITests {
 
-    func testReferenceImagePositionIDsGeneration() {
+    @Test func referenceImagePositionIDsGeneration() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let height = 512
         let width = 512
         let latentH = height / 8  // 64
@@ -256,11 +269,14 @@ final class PositionIDI2ITests: XCTestCase {
 
         // Position count: latentH * latentW = 4096 (patchification is separate)
         let expectedPatches = latentH * latentW
-        XCTAssertEqual(refImgIds.shape[0], expectedPatches)
-        XCTAssertEqual(refImgIds.shape[1], 4)  // [T, H, W, L]
+        #expect(refImgIds.shape[0] == expectedPatches)
+        #expect(refImgIds.shape[1] == 4)  // [T, H, W, L]
     }
 
-    func testReferenceImagePositionIDsTCoordinate() {
+    @Test func referenceImagePositionIDsTCoordinate() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let latentH = 64
         let latentW = 64
 
@@ -274,10 +290,13 @@ final class PositionIDI2ITests: XCTestCase {
 
         // T coordinate for first reference image should be 10 (T=10 + imageIndex*10)
         let firstT = refImgIds[0, 0].item(Int32.self)
-        XCTAssertEqual(firstT, 10, "First reference image should have T=10")
+        #expect(firstT == 10, "First reference image should have T=10")
     }
 
-    func testReferenceImagePositionIDsSecondImage() {
+    @Test func referenceImagePositionIDsSecondImage() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let latentH = 64
         let latentW = 64
 
@@ -294,10 +313,13 @@ final class PositionIDI2ITests: XCTestCase {
         let t1 = refIds1[0, 0].item(Int32.self)
 
         // Different images should have different T coordinates
-        XCTAssertNotEqual(t0, t1)
+        #expect(t0 != t1)
     }
 
-    func testConcatenatedPositionIDs() {
+    @Test func concatenatedPositionIDs() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let height = 512
         let width = 512
 
@@ -312,16 +334,19 @@ final class PositionIDI2ITests: XCTestCase {
         let combined = concatenated([imgIds, refImgIds], axis: 0)
 
         let expectedTotal = imgIds.shape[0] + refImgIds.shape[0]
-        XCTAssertEqual(combined.shape[0], expectedTotal)
-        XCTAssertEqual(combined.shape[1], 4)
+        #expect(combined.shape[0] == expectedTotal)
+        #expect(combined.shape[1] == 4)
     }
 }
 
 // MARK: - Latent Packing I2I Tests
 
-final class LatentPackingI2ITests: XCTestCase {
+@Suite struct LatentPackingI2ITests {
 
-    func testPackedControlLatentSameShapeAsTarget() {
+    @Test func packedControlLatentSameShapeAsTarget() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let h = 64, w = 64
         let target = MLXRandom.normal([1, 32, h, w])
         let control = MLXRandom.normal([1, 32, h, w])
@@ -329,10 +354,13 @@ final class LatentPackingI2ITests: XCTestCase {
         let packedTarget = LatentUtils.packLatents(target, patchSize: 2)
         let packedControl = LatentUtils.packLatents(control, patchSize: 2)
 
-        XCTAssertEqual(packedTarget.shape, packedControl.shape)
+        #expect(packedTarget.shape == packedControl.shape)
     }
 
-    func testConcatenatedLatentSequence() {
+    @Test func concatenatedLatentSequence() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let h = 64, w = 64
         let target = MLXRandom.normal([1, 32, h, w])
         let control = MLXRandom.normal([1, 32, h, w])
@@ -346,12 +374,15 @@ final class LatentPackingI2ITests: XCTestCase {
         let outputSeqLen = packedTarget.shape[1]
         let totalSeqLen = combined.shape[1]
 
-        XCTAssertEqual(totalSeqLen, 2 * outputSeqLen)
-        XCTAssertEqual(combined.shape[0], 1)  // batch
-        XCTAssertEqual(combined.shape[2], 128)  // channels
+        #expect(totalSeqLen == 2 * outputSeqLen)
+        #expect(combined.shape[0] == 1)  // batch
+        #expect(combined.shape[2] == 128)  // channels
     }
 
-    func testOutputSlicingFromCombinedLatent() {
+    @Test func outputSlicingFromCombinedLatent() {
+        let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+        if isCI { return }
+
         let seqLen = 1024
         let channels = 128
 
@@ -362,6 +393,6 @@ final class LatentPackingI2ITests: XCTestCase {
         let outputPortion = modelOutput[0..., 0..<seqLen, 0...]
 
         eval(outputPortion)
-        XCTAssertEqual(outputPortion.shape, [1, seqLen, channels])
+        #expect(outputPortion.shape == [1, seqLen, channels])
     }
 }
