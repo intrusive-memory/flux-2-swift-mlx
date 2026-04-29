@@ -9,7 +9,7 @@ jobs:
     name: "Test FluxTextEncoders (macOS)"
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
       - name: Test FluxTextEncoders
@@ -28,7 +28,7 @@ jobs:
     name: "Test Flux2Core — Config Only (macOS)"
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
       - name: Test Flux2Core
