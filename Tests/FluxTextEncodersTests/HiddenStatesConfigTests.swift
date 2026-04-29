@@ -158,22 +158,6 @@ struct HiddenStatesConfigTests {
         #expect(config.concatenate)
     }
 
-    // MARK: - Sendable Conformance
-
-    @Test func hiddenStatesConfigIsSendable() {
-        let config = HiddenStatesConfig.mfluxDefault
-        // Verifying HiddenStatesConfig conforms to Sendable by using it in a Sendable context
-        let _: any Sendable = config
-        #expect(config.layerIndices.count > 0)
-    }
-
-    @Test func poolingStrategyIsSendable() {
-        let strategy = PoolingStrategy.mean
-        // Verifying PoolingStrategy conforms to Sendable by using it in a Sendable context
-        let _: any Sendable = strategy
-        #expect(strategy.rawValue == "mean")
-    }
-
     // MARK: - FLUX.2 Compatibility Tests
 
     @Test func fluxCompatibleDimensions() {

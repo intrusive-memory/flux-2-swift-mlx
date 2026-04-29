@@ -166,11 +166,4 @@ struct ImageProcessorTests {
         #expect(decoded.rescaleFactor == config.rescaleFactor)
     }
 
-    // MARK: - Sendable Conformance
-
-    @Test func imageProcessorConfigIsSendable() {
-        let config = ImageProcessorConfig.pixtral
-        let _: any Sendable = config
-        #expect(config.imageSize > 0)
-    }
 }

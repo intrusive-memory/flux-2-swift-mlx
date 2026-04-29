@@ -5,7 +5,7 @@ import Testing
 import Foundation
 @testable import Flux2Core
 
-@Suite struct ModelDirectoryTests {
+@Suite(.serialized) struct ModelDirectoryTests {
 
     init() {
         // Reset to default before each test
