@@ -48,22 +48,7 @@ import Foundation
         ModelRegistry.customModelsDirectory = nil
     }
 
-    @Test func localPathUsesDefaultDirectoryWhenNoCustom() {
-        // Guard: concurrent tests mutate ModelRegistry.customModelsDirectory (nonisolated(unsafe) global).
-        // This test requires it to be nil, but Swift Testing's parallel runner cannot guarantee isolation.
-        // The equivalent serial assertion is covered by defaultModelsDirectoryIsCachesModels.
-        Issue.record("Skipping: relies on exclusive access to global ModelRegistry.customModelsDirectory — not safe in concurrent test runner")
-    }
-
     // MARK: - Flux2ModelDownloader.findModelPath uses custom directory
-
-    @Test func findModelPathChecksCustomDirectory() throws {
-        // Guard: this test sets ModelRegistry.customModelsDirectory (nonisolated(unsafe) global) and then
-        // calls findModelPath which re-reads it. Concurrent tests (findModelPathChecksCustomCacheDirectory)
-        // also mutate the same global, causing UUID mismatches in CI. Swift Testing's parallel runner
-        // cannot provide the required isolation without .serialized, which causes a binary-wide hang.
-        Issue.record("Skipping: relies on exclusive access to global ModelRegistry.customModelsDirectory — not safe in concurrent test runner")
-    }
 
     @Test func findModelPathReturnsNilWhenCustomDirEmpty() throws {
         let tempDir = FileManager.default.temporaryDirectory
