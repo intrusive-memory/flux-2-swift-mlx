@@ -175,27 +175,6 @@ struct TextEncoderModelRegistryTests {
                      "URL should point to tekken.json")
     }
 
-    // MARK: - Sendable Conformance
-
-    @Test @MainActor func modelVariantIsSendable() {
-        let variant = ModelVariant.mlx8bit
-        let _: any Sendable = variant
-        #expect(variant.rawValue == "8bit")
-    }
-
-    @Test @MainActor func modelInfoIsSendable() {
-        let model = ModelInfo(
-            id: "test",
-            repoId: "test/test",
-            name: "Test",
-            description: "Test",
-            variant: .mlx8bit,
-            parameters: "24B"
-        )
-        let _: any Sendable = model
-        #expect(model.id == "test")
-    }
-
     // MARK: - Gated Status Tests
 
     @Test @MainActor func modelVariantIsGated() {

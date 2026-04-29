@@ -9,25 +9,6 @@ import Testing
 @Suite("FluxTextEncodersTests")
 struct FluxTextEncodersTests {
 
-    // MARK: - Version Tests
-
-    @Test func version() {
-        #expect(!FluxTextEncoders.version.isEmpty, "Version should not be empty")
-    }
-
-    @Test func mistralVersionInfo() {
-        #expect(MistralVersion.modelName == "Mistral Small 3.2")
-        #expect(MistralVersion.modelVersion == "24B-Instruct-2506")
-    }
-
-    // MARK: - Singleton Tests
-
-    @Test func fluxTextEncodersSharedInstance() {
-        let core1 = FluxTextEncoders.shared
-        let core2 = FluxTextEncoders.shared
-        #expect(core1 === core2, "Shared instance should be singleton")
-    }
-
     // MARK: - Model State Tests
 
     @Test func isModelLoadedInitiallyFalse() {

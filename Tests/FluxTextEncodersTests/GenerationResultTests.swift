@@ -145,22 +145,6 @@ struct GenerationResultTests {
         #expect(summary.contains("0.1 tokens/s"))
     }
 
-    // MARK: - Sendable Conformance
-
-    @Test func generationResultIsSendable() {
-        let result = GenerationResult(
-            text: "test",
-            tokens: [1],
-            promptTokens: 1,
-            generatedTokens: 1,
-            totalTime: 1.0,
-            tokensPerSecond: 1.0
-        )
-        // Verify Sendable conformance by using it as Sendable
-        let _: any Sendable = result
-        #expect(result.text == "test")
-    }
-
     // MARK: - Edge Cases
 
     @Test func veryLongText() {

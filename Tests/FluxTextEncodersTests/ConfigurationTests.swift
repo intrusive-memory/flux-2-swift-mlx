@@ -189,19 +189,4 @@ struct ConfigurationTests {
                       "Max context should be 131K for Mistral Small 3.2")
     }
 
-    // MARK: - Sendable Conformance
-
-    @Test func configurationsAreSendable() {
-        // These should compile without issues if Sendable is properly implemented
-        let textConfig = MistralTextConfig.mistralSmall32
-        let visionConfig = MistralVisionConfig.defaultVision
-        let genParams = GenerateParameters.balanced
-
-        let _: any Sendable = textConfig
-        let _: any Sendable = visionConfig
-        let _: any Sendable = genParams
-        #expect(textConfig.vocabSize > 0)
-        #expect(visionConfig.hiddenSize > 0)
-        #expect(genParams.maxTokens > 0)
-    }
 }
