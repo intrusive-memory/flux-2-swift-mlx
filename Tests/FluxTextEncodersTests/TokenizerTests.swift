@@ -4,183 +4,190 @@
  */
 
 import Testing
+
 @testable import FluxTextEncoders
 
 @Suite("TokenizerTests")
 struct TokenizerTests {
 
-    let tokenizer: TekkenTokenizer
+  let tokenizer: TekkenTokenizer
 
-    init() {
-        // Use default tokenizer (no model path)
-        tokenizer = TekkenTokenizer()
+  init() {
+    // Use default tokenizer (no model path)
+    tokenizer = TekkenTokenizer()
+  }
+
+  // MARK: - Basic Encoding Tests
+
+  @Test func encodeEmptyString() {
+    let tokens = tokenizer.encode("")
+    #expect(tokens.isEmpty, "Empty string should produce empty token array")
+  }
+
+  @Test func encodeSimpleText() {
+    let tokens = tokenizer.encode("Hello")
+    #expect(!tokens.isEmpty, "Non-empty string should produce tokens")
+  }
+
+  @Test func encodeWithSpecialTokens() {
+    let tokensWithoutSpecial = tokenizer.encode("Hello", addSpecialTokens: false)
+    let tokensWithSpecial = tokenizer.encode("Hello", addSpecialTokens: true)
+
+    // With special tokens should have BOS at start and EOS at end
+    #expect(
+      tokensWithSpecial.count > tokensWithoutSpecial.count,
+      "Adding special tokens should increase token count")
+
+    // First token should be BOS
+    if !tokensWithSpecial.isEmpty {
+      #expect(
+        tokensWithSpecial.first == tokenizer.bosToken,
+        "First token with special tokens should be BOS")
     }
 
-    // MARK: - Basic Encoding Tests
-
-    @Test func encodeEmptyString() {
-        let tokens = tokenizer.encode("")
-        #expect(tokens.isEmpty, "Empty string should produce empty token array")
+    // Last token should be EOS
+    if !tokensWithSpecial.isEmpty {
+      #expect(
+        tokensWithSpecial.last == tokenizer.eosToken,
+        "Last token with special tokens should be EOS")
     }
+  }
 
-    @Test func encodeSimpleText() {
-        let tokens = tokenizer.encode("Hello")
-        #expect(!tokens.isEmpty, "Non-empty string should produce tokens")
-    }
+  // MARK: - Special Token Properties
 
-    @Test func encodeWithSpecialTokens() {
-        let tokensWithoutSpecial = tokenizer.encode("Hello", addSpecialTokens: false)
-        let tokensWithSpecial = tokenizer.encode("Hello", addSpecialTokens: true)
+  @Test func specialTokenProperties() {
+    // BOS token should be 1 by default
+    #expect(tokenizer.bosToken == 1, "BOS token should be 1")
 
-        // With special tokens should have BOS at start and EOS at end
-        #expect(tokensWithSpecial.count > tokensWithoutSpecial.count,
-                            "Adding special tokens should increase token count")
+    // EOS token should be 2 by default
+    #expect(tokenizer.eosToken == 2, "EOS token should be 2")
 
-        // First token should be BOS
-        if !tokensWithSpecial.isEmpty {
-            #expect(tokensWithSpecial.first == tokenizer.bosToken,
-                          "First token with special tokens should be BOS")
-        }
+    // PAD token should be 11 by default
+    #expect(tokenizer.padToken == 11, "PAD token should be 11")
+  }
 
-        // Last token should be EOS
-        if !tokensWithSpecial.isEmpty {
-            #expect(tokensWithSpecial.last == tokenizer.eosToken,
-                          "Last token with special tokens should be EOS")
-        }
-    }
+  @Test func vocabSize() {
+    let vocabSize = tokenizer.vocabSize
+    #expect(vocabSize > 0, "Vocab size should be positive")
+  }
 
-    // MARK: - Special Token Properties
+  // MARK: - Chat Template Tests
 
-    @Test func specialTokenProperties() {
-        // BOS token should be 1 by default
-        #expect(tokenizer.bosToken == 1, "BOS token should be 1")
+  @Test func applyChatTemplateSimple() {
+    let messages: [[String: String]] = [
+      ["role": "user", "content": "Hello"]
+    ]
 
-        // EOS token should be 2 by default
-        #expect(tokenizer.eosToken == 2, "EOS token should be 2")
+    let prompt = tokenizer.applyChatTemplate(messages: messages)
 
-        // PAD token should be 11 by default
-        #expect(tokenizer.padToken == 11, "PAD token should be 11")
-    }
+    // Should contain the user message
+    #expect(prompt.contains("Hello"), "Chat template should contain user message")
 
-    @Test func vocabSize() {
-        let vocabSize = tokenizer.vocabSize
-        #expect(vocabSize > 0, "Vocab size should be positive")
-    }
+    // Should contain instruction markers
+    #expect(
+      prompt.contains("[INST]") || prompt.contains("user"),
+      "Chat template should contain instruction markers")
+  }
 
-    // MARK: - Chat Template Tests
+  @Test func applyChatTemplateWithSystem() {
+    let messages: [[String: String]] = [
+      ["role": "system", "content": "You are helpful"],
+      ["role": "user", "content": "Hi"],
+    ]
 
-    @Test func applyChatTemplateSimple() {
-        let messages: [[String: String]] = [
-            ["role": "user", "content": "Hello"]
-        ]
+    let prompt = tokenizer.applyChatTemplate(messages: messages)
 
-        let prompt = tokenizer.applyChatTemplate(messages: messages)
+    // Should contain both system and user content
+    #expect(
+      prompt.contains("You are helpful") || prompt.contains("helpful"),
+      "Chat template should contain system message")
+    #expect(prompt.contains("Hi"), "Chat template should contain user message")
+  }
 
-        // Should contain the user message
-        #expect(prompt.contains("Hello"), "Chat template should contain user message")
+  @Test func applyChatTemplateMultiTurn() {
+    let messages: [[String: String]] = [
+      ["role": "user", "content": "Hello"],
+      ["role": "assistant", "content": "Hi there!"],
+      ["role": "user", "content": "How are you?"],
+    ]
 
-        // Should contain instruction markers
-        #expect(prompt.contains("[INST]") || prompt.contains("user"),
-                     "Chat template should contain instruction markers")
-    }
+    let prompt = tokenizer.applyChatTemplate(messages: messages)
 
-    @Test func applyChatTemplateWithSystem() {
-        let messages: [[String: String]] = [
-            ["role": "system", "content": "You are helpful"],
-            ["role": "user", "content": "Hi"]
-        ]
+    // Should contain all messages
+    #expect(prompt.contains("Hello"), "Should contain first user message")
+    #expect(prompt.contains("Hi there!"), "Should contain assistant message")
+    #expect(prompt.contains("How are you?"), "Should contain second user message")
+  }
 
-        let prompt = tokenizer.applyChatTemplate(messages: messages)
+  @Test func encodeChatMessagesProducesTokens() {
+    let messages: [[String: String]] = [
+      ["role": "user", "content": "Hello world"]
+    ]
 
-        // Should contain both system and user content
-        #expect(prompt.contains("You are helpful") || prompt.contains("helpful"),
-                     "Chat template should contain system message")
-        #expect(prompt.contains("Hi"), "Chat template should contain user message")
-    }
+    let tokens = tokenizer.encodeChatMessages(messages: messages)
 
-    @Test func applyChatTemplateMultiTurn() {
-        let messages: [[String: String]] = [
-            ["role": "user", "content": "Hello"],
-            ["role": "assistant", "content": "Hi there!"],
-            ["role": "user", "content": "How are you?"]
-        ]
+    #expect(!tokens.isEmpty, "Chat messages should produce tokens")
 
-        let prompt = tokenizer.applyChatTemplate(messages: messages)
+    // First token should be BOS
+    #expect(
+      tokens.first == tokenizer.bosToken,
+      "First token should be BOS")
+  }
 
-        // Should contain all messages
-        #expect(prompt.contains("Hello"), "Should contain first user message")
-        #expect(prompt.contains("Hi there!"), "Should contain assistant message")
-        #expect(prompt.contains("How are you?"), "Should contain second user message")
-    }
+  // MARK: - Decoding Tests
 
-    @Test func encodeChatMessagesProducesTokens() {
-        let messages: [[String: String]] = [
-            ["role": "user", "content": "Hello world"]
-        ]
+  @Test func decodeEmptyArray() {
+    let text = tokenizer.decode([])
+    #expect(text.isEmpty, "Empty token array should decode to empty string")
+  }
 
-        let tokens = tokenizer.encodeChatMessages(messages: messages)
+  @Test func decodeSkipsSpecialTokensByDefault() {
+    // Decode with special token IDs
+    let tokens = [tokenizer.bosToken, tokenizer.eosToken]
+    let text = tokenizer.decode(tokens, skipSpecialTokens: true)
 
-        #expect(!tokens.isEmpty, "Chat messages should produce tokens")
+    // Should not contain special token strings
+    #expect(!text.contains("<s>"), "Should skip BOS token")
+    #expect(!text.contains("</s>"), "Should skip EOS token")
+  }
 
-        // First token should be BOS
-        #expect(tokens.first == tokenizer.bosToken,
-                      "First token should be BOS")
-    }
+  @Test func batchDecode() {
+    let tokenLists = [
+      [tokenizer.bosToken],
+      [tokenizer.eosToken],
+    ]
 
-    // MARK: - Decoding Tests
+    let decoded = tokenizer.batchDecode(tokenLists)
 
-    @Test func decodeEmptyArray() {
-        let text = tokenizer.decode([])
-        #expect(text.isEmpty, "Empty token array should decode to empty string")
-    }
+    #expect(decoded.count == 2, "Batch decode should return same number of strings")
+  }
 
-    @Test func decodeSkipsSpecialTokensByDefault() {
-        // Decode with special token IDs
-        let tokens = [tokenizer.bosToken, tokenizer.eosToken]
-        let text = tokenizer.decode(tokens, skipSpecialTokens: true)
+  // MARK: - Edge Cases
 
-        // Should not contain special token strings
-        #expect(!text.contains("<s>"), "Should skip BOS token")
-        #expect(!text.contains("</s>"), "Should skip EOS token")
-    }
+  @Test func encodeUnicodeText() {
+    let tokens = tokenizer.encode("Hello 世界 🌍")
+    // Should not crash and should produce some tokens
+    #expect(!tokens.isEmpty, "Unicode text should produce tokens")
+  }
 
-    @Test func batchDecode() {
-        let tokenLists = [
-            [tokenizer.bosToken],
-            [tokenizer.eosToken]
-        ]
+  @Test func encodeLongText() {
+    let longText = String(repeating: "Hello world. ", count: 100)
+    let tokens = tokenizer.encode(longText)
 
-        let decoded = tokenizer.batchDecode(tokenLists)
+    #expect(!tokens.isEmpty, "Long text should produce tokens")
+    #expect(tokens.count > 10, "Long text should produce many tokens")
+  }
 
-        #expect(decoded.count == 2, "Batch decode should return same number of strings")
-    }
+  @Test func encodeSpecialCharacters() {
+    let specialText = "Hello\nWorld\tTab\"Quote'Single"
+    let tokens = tokenizer.encode(specialText)
 
-    // MARK: - Edge Cases
+    #expect(!tokens.isEmpty, "Text with special characters should produce tokens")
+  }
 
-    @Test func encodeUnicodeText() {
-        let tokens = tokenizer.encode("Hello 世界 🌍")
-        // Should not crash and should produce some tokens
-        #expect(!tokens.isEmpty, "Unicode text should produce tokens")
-    }
-
-    @Test func encodeLongText() {
-        let longText = String(repeating: "Hello world. ", count: 100)
-        let tokens = tokenizer.encode(longText)
-
-        #expect(!tokens.isEmpty, "Long text should produce tokens")
-        #expect(tokens.count > 10, "Long text should produce many tokens")
-    }
-
-    @Test func encodeSpecialCharacters() {
-        let specialText = "Hello\nWorld\tTab\"Quote'Single"
-        let tokens = tokenizer.encode(specialText)
-
-        #expect(!tokens.isEmpty, "Text with special characters should produce tokens")
-    }
-
-    // MARK: - MLXArray Support
-    // Note: Tests that require Metal/MLX GPU access are not included here.
-    // They would need to be run in an environment with full MLX support.
-    // The tokenizer's MLXArray functionality can be tested via integration tests
-    // or directly in Xcode with proper Metal environment.
+  // MARK: - MLXArray Support
+  // Note: Tests that require Metal/MLX GPU access are not included here.
+  // They would need to be run in an environment with full MLX support.
+  // The tokenizer's MLXArray functionality can be tested via integration tests
+  // or directly in Xcode with proper Metal environment.
 }

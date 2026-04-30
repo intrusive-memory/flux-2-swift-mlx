@@ -38,50 +38,49 @@ import Foundation
 
 /// LoRA Training Module Version
 public enum Training {
-    public static let version = "2.7.0"
+  public static let version = "2.7.0"
 
-    /// Supported features
-    public static let features: [String] = [
-        // Core Training
-        "LoRA training for Flux.2 models",
-        "Support for Klein 4B and Klein 9B models",
-        "Ostris-compatible training (no EMA)",
-        "Differential Output Preservation (DOP)",
-        "Gradient accumulation",
-        "Bell-shaped loss weighting",
-        "Content/Style/Balanced timestep sampling",
-        "Multi-resolution bucketing",
-        "Latent and text embedding caching",
-        // Training Control
-        "Checkpoint resume with optimizer state",
-        "Pause/Resume with automatic checkpoint",
-        "File-based cross-process control (.pause, .stop files)",
-        "High-level TrainingSession API for app integration",
-        "TrainingObserver protocol for UI updates"
-    ]
+  /// Supported features
+  public static let features: [String] = [
+    // Core Training
+    "LoRA training for Flux.2 models",
+    "Support for Klein 4B and Klein 9B models",
+    "Ostris-compatible training (no EMA)",
+    "Differential Output Preservation (DOP)",
+    "Gradient accumulation",
+    "Bell-shaped loss weighting",
+    "Content/Style/Balanced timestep sampling",
+    "Multi-resolution bucketing",
+    "Latent and text embedding caching",
+    // Training Control
+    "Checkpoint resume with optimizer state",
+    "Pause/Resume with automatic checkpoint",
+    "File-based cross-process control (.pause, .stop files)",
+    "High-level TrainingSession API for app integration",
+    "TrainingObserver protocol for UI updates",
+  ]
 
-    /// Minimum recommended memory by model and quantization
-    public static func recommendedMemoryGB(
-        for model: Flux2Model,
-        quantization: TrainingQuantization
-    ) -> Int {
-        switch (model, quantization) {
-        case (.klein4B, .nf4): return 8
-        case (.klein4B, .int4): return 8
-        case (.klein4B, .int8): return 12
-        case (.klein4B, .bf16): return 16
-        case (.klein4BBase, _): return 16  // Base only exists in bf16
-        case (.klein9B, .nf4): return 12
-        case (.klein9B, .int4): return 12
-        case (.klein9B, .int8): return 16
-        case (.klein9B, .bf16): return 24
-        case (.klein9BBase, _): return 24  // Base only exists in bf16
-        case (.klein9BKV, _): return 24  // Same architecture as klein-9b
-        case (.dev, .nf4): return 18
-        case (.dev, .int4): return 18
-        case (.dev, .int8): return 24
-        case (.dev, .bf16): return 48
-        }
+  /// Minimum recommended memory by model and quantization
+  public static func recommendedMemoryGB(
+    for model: Flux2Model,
+    quantization: TrainingQuantization
+  ) -> Int {
+    switch (model, quantization) {
+    case (.klein4B, .nf4): return 8
+    case (.klein4B, .int4): return 8
+    case (.klein4B, .int8): return 12
+    case (.klein4B, .bf16): return 16
+    case (.klein4BBase, _): return 16  // Base only exists in bf16
+    case (.klein9B, .nf4): return 12
+    case (.klein9B, .int4): return 12
+    case (.klein9B, .int8): return 16
+    case (.klein9B, .bf16): return 24
+    case (.klein9BBase, _): return 24  // Base only exists in bf16
+    case (.klein9BKV, _): return 24  // Same architecture as klein-9b
+    case (.dev, .nf4): return 18
+    case (.dev, .int4): return 18
+    case (.dev, .int8): return 24
+    case (.dev, .bf16): return 48
     }
+  }
 }
-
