@@ -39,6 +39,8 @@ Confirmed import sites (4 files for `Tokenizers`, 1 for `Hub`):
 
 ## R4 — Tests
 
+Tests must conform to [`TESTING_REQUIREMENTS.md`](../../TESTING_REQUIREMENTS.md) (repo root) — tier placement, framework (Swift Testing), CI gating, and timeout policy.
+
 - **R4.1** `Tests/FluxTextEncodersTests/TokenizerTests.swift` — apply `decode(tokens:)` → `decode(tokenIds:)` rename; verify all assertions still pass.
 - **R4.2** `Tests/FluxTextEncodersTests/TextEncoderModelDirectoryTests.swift`, `FluxTextEncodersTests.swift`, `Flux2CoreTests.swift` — re-run after the manifest swap; `swift-hf-api` semantics may differ for offline / cache-only paths.
 - **R4.3** Add a focused tokenizer parity test: load the same `tekken.json` / `tokenizer.json` under both old and new packages and assert `encode`/`decode` round-trip equality on a fixture set **before deleting the old dep** to catch any divergence. Drop the test once migration is committed.

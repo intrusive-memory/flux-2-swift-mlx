@@ -279,8 +279,8 @@ These are decided. The refine passes do not re-litigate them.
 5. After fixtures are generated, delete the generator (it depends on old-package APIs that won't compile after Sortie 7).
 
 **Exit criteria**:
-- [ ] `Tests/Fixtures/TokenizerParity/*.json` exists with one file per (tokenizer × prompt)
-- [ ] Generator removed; no remaining references to old-package-specific APIs in test code
+- [ ] `Tests/Fixtures/TokenizerParity/*.json` exists with one file per (tokenizer × prompt) — verify via `ls Tests/Fixtures/TokenizerParity/*.json | wc -l` matches expected count
+- [ ] Generator file under `Tests/Fixtures/Generators/` deleted — verify via `find Tests/Fixtures/Generators -type f 2>/dev/null` returns empty (or directory does not exist)
 - [ ] Project still builds against the old package (`swift_package_build` succeeds)
 
 ---
@@ -340,7 +340,7 @@ These are decided. The refine passes do not re-litigate them.
 
 **Exit criteria**:
 - [ ] `grep -rn 'decode(tokens:' Sources Tests` returns no matches
-- [ ] `grep -rn 'tokenizer\.decode(\\w' Sources Tests` (positional first-arg form) returns no matches in `Sources/FluxTextEncoders/` or `Tests/`
+- [ ] `grep -rEn 'tokenizer\.decode\([a-zA-Z_]' Sources Tests` (positional first-arg form, BSD-grep portable) returns no matches in `Sources/FluxTextEncoders/` or `Tests/`
 - [ ] `grep -rn 'from(modelFolder:' Sources Tests` returns no matches
 - [ ] `grep -rn 'applyChatTemplate(messages:' Sources Tests | grep -v 'addGenerationPrompt'` returns no matches
 - [ ] `swift_package_build` succeeds for `FluxTextEncoders` and `Flux2Core` library targets (test/CLI/App MAY still fail due to downloaders)
@@ -372,8 +372,8 @@ These are decided. The refine passes do not re-litigate them.
 
 **Exit criteria**:
 - [ ] `grep -n 'import Hub' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
-- [ ] `grep -n 'huggingface' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches (case-insensitive)
-- [ ] `grep -n 'hubApi\|HubApi\|snapshot(from:' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
+- [ ] `grep -in 'huggingface' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
+- [ ] `grep -nE 'hubApi|HubApi|snapshot\(from:' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
 - [ ] `swift_package_build` succeeds for `FluxTextEncoders` (full target including the `FluxEncodersCLI` and `Flux2App` consumers, if they compile after this sortie)
 - [ ] Commit message: `R2.5; TextEncoderModelDownloader → SwiftAcervo`
 
@@ -410,8 +410,8 @@ These are decided. The refine passes do not re-litigate them.
 6. `swift_package_build` must succeed for ALL remaining targets in `Package.swift` (libraries + the `Flux2App` target + test targets; CLIs were deleted in Sortie 5).
 
 **Exit criteria**:
-- [ ] `grep -rn 'huggingface\.co' Sources/` returns no matches (case-insensitive) — every runtime HF URL is gone from `Sources/`
-- [ ] `grep -rn 'huggingface\.co/api' Sources/` returns no matches
+- [ ] `grep -rin 'huggingface\.co' Sources/` returns no matches — every runtime HF URL is gone from `Sources/`
+- [ ] `grep -rin 'huggingface\.co/api' Sources/` returns no matches
 - [ ] `grep -rn 'fetchFileList' Sources/` returns no matches
 - [ ] `swift_package_build` succeeds for ALL targets
 - [ ] Commit message: `Flux2Core/ModelDownloader → SwiftAcervo; remove hand-rolled HF API client`
@@ -439,8 +439,8 @@ These are decided. The refine passes do not re-litigate them.
    - Per-model attribution table mapping each Acervo-provisioned model to its HuggingFace origin and license.
 
 **Exit criteria**:
-- [ ] `grep -rn 'huggingface' Sources/` returns matches ONLY in code comments documenting model origin (no runtime URLs, no `huggingFaceURL` accessors)
-- [ ] `grep -rn 'huggingFaceURL\|huggingFaceRepo\|huggingFaceSubfolder' Sources/` returns no matches (renamed)
+- [ ] `grep -rin 'huggingface' Sources/ | grep -vE '^\s*//|^\s*\*|/\*|\*/' ` returns no matches — every remaining `huggingface` mention in `Sources/` lives on a comment line (line starts with `//`, ` *`, or contains `/*`/`*/`)
+- [ ] `grep -rnE 'huggingFaceURL|huggingFaceRepo|huggingFaceSubfolder' Sources/` returns no matches (renamed)
 - [ ] README.md contains the `## Acknowledgments` section with the dep list, the HuggingFace credit line, and the per-model attribution table
 - [ ] `swift_package_build` succeeds for all targets
 - [ ] Commit message: `Strip HF runtime strings; README acknowledgments`
@@ -506,7 +506,7 @@ These are decided. The refine passes do not re-litigate them.
 
 ## Parallelism Structure
 
-**Critical path** (length 12 sorties on the longest chain): S1 → S2 → S3 → S4 → S7 → S8 → S9 → S10 → S11 → S12 → S13. S5 (cleanup) and S6 (fixtures) sit before S7 but neither depends on WU1, so they can begin as soon as the operator starts the mission — they do not extend wall-clock beyond WU1.
+**Critical path** (length 11 sorties on the longest chain): S1 → S2 → S3 → S4 → S7 → S8 → S9 → S10 → S11 → S12 → S13. S5 (cleanup) and S6 (fixtures) sit before S7 but neither depends on WU1, so they can begin as soon as the operator starts the mission — they do not extend wall-clock beyond WU1.
 
 **Parallel execution groups**:
 
@@ -551,7 +551,7 @@ These items have documented fallbacks and do NOT block execution start. Each is 
 | Work units | 2 |
 | Total sorties | 13 (4 in WU1, 9 in WU2) |
 | Dependency structure | Layered: WU1 (CDN provisioning) → WU2 post-swap (S7+). WU2 pre-swap sorties (S5 cleanup, S6 fixtures) are independent of WU1 and can run alongside it. |
-| Critical path length | 12 sorties (S1→S2→S3→S4→S7→S8→S9→S10→S11→S12→S13; S5+S6 overlap with WU1) |
+| Critical path length | 11 sorties (S1→S2→S3→S4→S7→S8→S9→S10→S11→S12→S13; S5+S6 overlap with WU1) |
 | Maximum simultaneous sorties | 2 (one WU1 sortie + one of {S5, S6}) |
 | Models to mirror to CDN | 11 (~137 GB) |
 | Variants kept in registry but not provisioned | 5 (1 text-encoder BF16 + 4 transformer variants) |
