@@ -1,0 +1,30 @@
+{
+  "decoded_text" : "",
+  "encoded_token_ids" : [
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1004,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000,
+    1000
+  ],
+  "prompt" : "[SYSTEM_PROMPT]You are a helpful assistant.[\/SYSTEM_PROMPT][INST]Describe this photo.[\/INST]"
+}
