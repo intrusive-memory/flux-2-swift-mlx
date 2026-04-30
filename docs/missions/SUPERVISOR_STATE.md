@@ -14,11 +14,11 @@
 
 Before dispatching ANY sortie, the supervisor must verify the SwiftAcervo fix has landed. Steps:
 
-1. **Confirm `acervo` version has been bumped past 0.8.3**:
+1. **Confirm `acervo` version is at least 0.8.4** (the planned fix release):
    ```sh
    acervo --version
    ```
-   - If output is still `0.8.3`: the fix has NOT been released yet. STOP. Report to operator: "SwiftAcervo fix not yet released (`acervo --version` is still 0.8.3). Mission remains PAUSED."
+   - If output is `0.8.3` or older: the fix has NOT been released yet. STOP. Report to operator: "SwiftAcervo 0.8.4 not yet released (`acervo --version` reads `<observed>`). Mission remains PAUSED."
    - If output is `0.8.4` or higher: the version has been bumped. Proceed to step 2.
 
 2. **Sanity-check the fix is functionally present** by re-running the failed Sortie 5 invocation as a probe (this is fast — local staging is preserved, so `acervo` should detect the cached download and skip re-fetching):
@@ -169,6 +169,7 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | WU1 | 5 | Model: sonnet | Score 9 (mechanical ship). First non-lmstudio ship — `acervo ship` invocation may NOT need `--no-verify`; per recon, "verify per-sortie" for non-lmstudio repos. Plan also says transformer repo has no tokenizer artifacts. |
 | 2026-04-30 | WU1 | 5 | BLOCKED — confirmed `acervo` 0.8.3 bug with nested-layout HF repos | Both `acervo ship` and `acervo ship --no-verify` failed at CHECK 4 because the generated `manifest.json` writes basename-only paths for files actually living in `tokenizer/`, `text_encoder/`, `vae/` subdirs. Manifest contains 3× `"path": "config.json"` and 2× `"path": "diffusion_pytorch_model.safetensors"` (one per subdir + root). Files on disk are CORRECT (full nested layout); only the manifest is wrong. Bug is upstream in `acervo`. Local staging preserved at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/`. Confirmed `--no-verify` IS required for non-lmstudio aydin99 (CHECK 1 failed without it). Throughput observed ~17 MiB/s during download — confirms revised throughput estimate; Sorties 2+3's ~2.2 MiB/s was anomalous. **Surface to operator with three options: (A) fix acervo, (B) skip nested-repo ships and ship 6/8/9/10 first, (C) hand-crafted manifest workaround. Awaiting decision before further WU1 dispatches.** |
 | 2026-04-30 | — | — | OPERATOR DECISION: option A (fix `acervo` upstream first) | Operator dispatched a separate agent in `../SwiftAcervo` (development branch) to fix the manifest generator. TODO captured in `/Users/stovak/Projects/SwiftAcervo/TODO.md` (P0 = manifest path bug, P1 = `--no-verify` clarity for non-LFS repos). Mission state set to PAUSED with explicit Resume Protocol gating any further dispatch on (1) `acervo --version` > `0.8.3` and (2) probe manifest containing subdir-prefixed paths. Local staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` preserved so retry can use `acervo manifest` + `acervo upload` instead of full re-download. |
+| 2026-04-30 | — | — | EXECUTION_PLAN.md SwiftAcervo dep version bumped 0.8.3 → 0.8.4 | Per operator direction. The fix-release version is 0.8.4. Five references updated (lines 25, 38, 431, 671, 702). Resume Protocol step 1 tightened from `> 0.8.3` to `>= 0.8.4` for clarity. **Note**: this is one of the few places the supervisor edits EXECUTION_PLAN.md during execution (normally forbidden); doing so under explicit operator direction. No semantic change to the plan — just locks the floor version to the fix release. |
 
 ## Overall Status
 

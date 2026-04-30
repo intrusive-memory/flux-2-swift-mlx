@@ -22,7 +22,7 @@ iteration: 1
 Convert Flux2Swift from a HuggingFace-coupled package to a HuggingFace-free package backed by the user-operated Cloudflare R2 CDN via SwiftAcervo. Three concurrent transformations:
 
 1. **Tokenization**: `huggingface/swift-transformers` (products `Hub` + `Transformers`) → `DePasqualeOrg/swift-tokenizers` 0.4.2 (product `Tokenizers`).
-2. **Model loading**: HuggingFace Hub (via `HubApi.snapshot(from:matching:)` and a hand-rolled `huggingface.co/api/...` client) → `SwiftAcervo` 0.8.3+ (`Acervo.ensureAvailable(_:files:progress:)` against R2 CDN bucket `intrusive-memory-models`).
+2. **Model loading**: HuggingFace Hub (via `HubApi.snapshot(from:matching:)` and a hand-rolled `huggingface.co/api/...` client) → `SwiftAcervo` 0.8.4+ (`Acervo.ensureAvailable(_:files:progress:)` against R2 CDN bucket `intrusive-memory-models`).
 3. **HF surface elimination**: every `huggingface.co` URL, every `huggingFaceRepo`/`huggingFaceURL` accessor, the direct `URLSession` fetch of `tekken.json` from huggingface.co — all removed from runtime code paths. HuggingFace remains acknowledged ONLY in (a) the app's About / opensource-dependency credits surface, and (b) code comments that reference origin/license attribution.
 
 Source requirements: `docs/missions/tokenizer-migration.md` (original scope) + this plan's expansion.
@@ -35,7 +35,7 @@ These are decided. The refine passes do not re-litigate them.
 |---|---|
 | swift-tokenizers pin | `from: "0.4.2"` (latest as of 2026-04-24) |
 | swift-hf-api | **Not introduced.** Acervo replaces all HF runtime calls. |
-| SwiftAcervo dep style | `.package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.3")` (up to next major, 1.0). |
+| SwiftAcervo dep style | `.package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.4")` (up to next major, 1.0). |
 | Unused Flux2Core `Hub`/`Transformers` deps in Package.swift | **Deleted, not renamed.** |
 | CDN scope | **Reduced from 16 to 11 mirrored repos** (~300 GB → ~137 GB). Cut: `FLUX.2-dev` (BF16), `FLUX.2-klein-base-4B`, `FLUX.2-klein-base-9B`, `FLUX.2-klein-9b-kv`. **`mistralai/Mistral-Small-3.2-24B-Instruct-2506` dropped entirely** — the lmstudio-community MLX quants ship `tekken.json` themselves (verified across 4-bit, 6-bit, 8-bit), making the upstream Mistral repo redundant. The `ensureTekkenJson(at:)` fallback in `TextEncoderModelDownloader.swift:252-283` was defensive code that never fired in practice. |
 | Cut variants in `ModelRegistry` | **Kept in the enum** to preserve API stability, but `download(...)` for `TransformerVariant.bf16`, `TransformerVariant.klein4B_base_bf16`, `TransformerVariant.klein9B_base_bf16`, `TransformerVariant.klein9B_kv_bf16`, **and** text-encoder `ModelVariant.bf16` throws a `notProvisionedOnCDN` error with a clear message naming the variant and explaining it will be re-enabled in a follow-up CDN mission. UI iteration over `allCases` can use a new `isProvisionedOnCDN` property to gray them out. |
@@ -428,7 +428,7 @@ Each ship sortie shares this structure. Fields that vary per repo (model ID, siz
 **Tasks**:
 1. In `Package.swift`, line 20: replace `.package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6")` with two entries:
    - `.package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", from: "0.4.2")`
-   - `.package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.3")`
+   - `.package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.4")`
 2. Update `FluxTextEncoders` target deps (`Package.swift:32-33`):
    - Delete `.product(name: "Hub", package: "swift-transformers")`
    - Replace `.product(name: "Transformers", package: "swift-transformers")` → `.product(name: "Tokenizers", package: "swift-tokenizers")`
@@ -668,7 +668,7 @@ These items have documented fallbacks and do NOT block execution start. Each is 
 
 | Sortie | Issue Type | Description | Resolution Plan |
 |---|---|---|---|
-| WU2 Sortie 18 (task 1) | Open question | Does Acervo's manifest verification cover what the legacy `verifyShardedModel(at:)` checks (per-shard SHA + `.safetensors.index.json` presence + total byte count)? | Read `SwiftAcervo` 0.8.3+ source. If covered, drop `verifyShardedModel(at:)`. If partial, keep it and call it after `Acervo.ensureAvailable`. Decision goes in the sortie's commit message. |
+| WU2 Sortie 18 (task 1) | Open question | Does Acervo's manifest verification cover what the legacy `verifyShardedModel(at:)` checks (per-shard SHA + `.safetensors.index.json` presence + total byte count)? | Read `SwiftAcervo` 0.8.4+ source. If covered, drop `verifyShardedModel(at:)`. If partial, keep it and call it after `Acervo.ensureAvailable`. Decision goes in the sortie's commit message. |
 | WU2 Sortie 20 (task 3) | Vague criterion | "verify its license" for `SwiftAcervo`, `universal`/YAML | Auto-resolved at sortie start: `cat .build/checkouts/SwiftAcervo/LICENSE` (and equivalent for the YAML dep). Record the license name in the README acknowledgments table. Not a research task — mechanical lookup. |
 
 **Vague criteria scan**: clean — every exit criterion in the plan is grep- or build-verifiable.
@@ -699,7 +699,7 @@ These items have documented fallbacks and do NOT block execution start. Each is 
 | **R4.3** | Tokenizer parity test (added + dropped within mission) | Sortie 15 captures fixtures from OLD package, Sortie 21 asserts equality, Sortie 22 deletes. |
 | **R5.1** | No data file changes | Out of scope; verified by inspection — `tokenizer.json`, `tekken.json`, `tokenizer_config.json`, safetensors layouts unchanged. |
 | **R6.1** | XcodeBuildMCP `swift_package_build`/`_test` locally; GitHub Actions green | Throughout WU2 (no `swift build` / `swift test`); CI gate at Sortie 22. |
-| **R6.2** | Minimum platforms compatibility | Verified in Sortie 16 build (SwiftAcervo 0.8.3+ supports `macOS(.v26)` / `iOS(.v26)`; failure here aborts the sortie). |
+| **R6.2** | Minimum platforms compatibility | Verified in Sortie 16 build (SwiftAcervo 0.8.4+ supports `macOS(.v26)` / `iOS(.v26)`; failure here aborts the sortie). |
 | **R7** | Risks: `swift-hf-api` parity, `decode` rename, trait selection, dirty ModelDownloader | Pre-flight Risk Notes addresses each. `swift-hf-api` parity moot per locked decision (not introduced). `decode` rename addressed in Sortie 17 with grep verification in exit criteria. Trait selection: default Swift (locked). Dirty ModelDownloader: pre-flight note instructs not to start until marching-relay merged or rebased. |
 
 **Additional scope coverage** (beyond the original tokenizer-migration.md):
