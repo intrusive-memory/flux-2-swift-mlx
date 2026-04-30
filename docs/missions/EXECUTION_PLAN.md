@@ -37,10 +37,11 @@ These are decided. The refine passes do not re-litigate them.
 | `huggingFaceURL` display strings | **Removed from runtime code.** HuggingFace credit lives in README only. Code comments may attribute origin/license but emit no URLs. |
 | Backward-compat read of `~/.cache/huggingface/...` | **None.** Hard cut to Acervo paths only. Pre-existing HF caches will be ignored; users re-download from the Acervo CDN. |
 | Backend trait for swift-tokenizers | Default `Swift` (no Rust XCFramework). |
-| About / credits surface | **README only for this mission.** The app's GUI About panel work is deferred to a separate workstream. Sortie 11 adds a `## Acknowledgments` section to the project README crediting HuggingFace as the origin of mirrored model weights and noting Intrusive Memory's R2 redistribution. |
-| `acervo ship` subfolder support | **Confirmed: `acervo` treats the path as a normalized string and accepts paths multiple directories deep.** WU1 S2 ships `VincentGOURBIN/flux_qint_8bit` as `acervo ship VincentGOURBIN/flux_qint_8bit flux-2-dev/transformer/qint8/`. No runtime filter needed. |
-| Package shape | **Library-only.** Both `Sources/Flux2CLI/` and `Sources/FluxEncodersCLI/` are deleted in Sortie 5. The package's executable products go away; only `Flux2Core` and `FluxTextEncoders` libraries remain. End-to-end CLI exercise is delegated to the sibling `../SwiftVinetas` repo. |
-| `customModelsDirectory` | **Removed entirely in Sortie 5.** Sandboxed apps cannot use a custom storage directory (container-bound), so the override was misleading API. Storage location is `Acervo.sharedModelsDirectory` post-migration; no override hook is exposed. The two test files that exclusively covered this surface (`Tests/FluxTextEncodersTests/TextEncoderModelDirectoryTests.swift`, `Tests/Flux2CoreTests/ModelDirectoryTests.swift`) are deleted. |
+| About / credits surface | **README only for this mission.** The app's GUI About panel work is deferred to a separate workstream. Sortie 20 adds a `## Acknowledgments` section to the project README crediting HuggingFace as the origin of mirrored model weights and noting Intrusive Memory's R2 redistribution. |
+| `acervo ship` subfolder support | **Confirmed: `acervo` treats the path as a normalized string and accepts paths multiple directories deep.** WU1 Sortie 11 ships `VincentGOURBIN/flux_qint_8bit` as `acervo ship VincentGOURBIN/flux_qint_8bit flux-2-dev/transformer/qint8/`. No runtime filter needed. |
+| Package shape | **Library-only.** Both `Sources/Flux2CLI/` and `Sources/FluxEncodersCLI/` are deleted in Sortie 14. The package's executable products go away; only `Flux2Core` and `FluxTextEncoders` libraries remain. End-to-end CLI exercise is delegated to the sibling `../SwiftVinetas` repo. |
+| `customModelsDirectory` | **Removed entirely in Sortie 14.** Sandboxed apps cannot use a custom storage directory (container-bound), so the override was misleading API. Storage location is `Acervo.sharedModelsDirectory` post-migration; no override hook is exposed. The two test files that exclusively covered this surface (`Tests/FluxTextEncodersTests/TextEncoderModelDirectoryTests.swift`, `Tests/Flux2CoreTests/ModelDirectoryTests.swift`) are deleted. |
+| WU1 ship granularity | **One sortie per repo ship.** Each `acervo ship <model-id>` is its own agent dispatch with a binary pass/fail outcome. Ships execute strictly sequentially (operator can only run one ship at a time; staging dir + HF bandwidth are shared). Smallest payload first to fail cheap. |
 
 ## Codebase Reconnaissance (verified ahead of plan)
 
@@ -52,7 +53,7 @@ These are decided. The refine passes do not re-litigate them.
 | `decode(tokens:)` keyword form (rename to `decode(tokenIds:)`) | `TekkenTokenizer.swift:398, 475`; `Qwen3Generator.swift:104, 134, 142, 230, 259, 267` (8 sites) |
 | `decode(_:skipSpecialTokens:)` positional form (must rewrite — no positional overload in swift-tokenizers 0.4.2) | `FluxTextEncoders.swift:896`; `Tests/FluxTextEncodersTests/TokenizerTests.swift:140` |
 | `from(modelFolder:)` (rename to `from(directory:)`; new signature drops `hubApi:` and `strict:` parameters) | `FluxTextEncoders.swift:201`, `Tokenizer/TekkenTokenizer.swift:232` |
-| `applyChatTemplate(messages:)` call sites (audit `addGenerationPrompt` default flip) | Explicit `false`: `EmbeddingExtractor.swift:192`. Default-relying (must be made explicit): `TekkenTokenizer.swift:473, 510`; `TokenizerTests.swift:77, 93, 108`; `FluxTextEncodersTests.swift:204` |
+| `applyChatTemplate(messages:)` call sites (audit `addGenerationPrompt` default flip) | Explicit `false`: `Embeddings/EmbeddingExtractor.swift:193`. Default-relying (must be made explicit): `TekkenTokenizer.swift:473, 510`; `TokenizerTests.swift:77, 93, 108`; `FluxTextEncodersTests.swift:204` |
 
 ### HuggingFace runtime surface (full elimination targets)
 
@@ -63,9 +64,10 @@ These are decided. The refine passes do not re-litigate them.
 | `HubApi(downloadBase:)` initializer | `TextEncoderModelDownloader.swift:29` |
 | Hardcoded `huggingface.co` URL (URLSession direct fetch) | `TextEncoderModelDownloader.swift:267` — `https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/main/tekken.json`. **The entire `ensureTekkenJson(at:progress:)` method (lines 252-283) is deleted, not migrated** — `tekken.json` ships in every lmstudio-community MLX quant directly (verified by HF API probe), so the fallback is never needed. |
 | Hand-rolled HF API client (NOT using `Hub`) | `Flux2Core/Loading/ModelDownloader.swift:419-480` — hits `huggingface.co/api/models/<repo>/tree/main` and `huggingface.co/<repo>/resolve/main/<file>` directly via URLSession. Largest single rewrite in the mission. |
-| `huggingFaceRepo` / `huggingFaceURL` / `huggingFaceSubfolder` accessors (display strings) | `Flux2Core/Configuration/ModelRegistry.swift:34, 59, 115, 252, 267, 316, 323, 328` |
+| `huggingFaceRepo` / `huggingFaceURL` / `huggingFaceSubfolder` accessors (display strings) | `Flux2Core/Configuration/ModelRegistry.swift:34, 117, 257, 273, 321, 334` |
 | Legacy HF cache path resolution | `TextEncoderModelDownloader.swift:87-110` (`~/.cache/huggingface/hub/models--<org>--<repo>/snapshots/...`) — **delete entirely** per locked decision 7. |
-| `repoId` field on `ModelInfo` / `Qwen3ModelInfo` / `TransformerVariant` | `TextEncoderModelRegistry.swift`, `Flux2Core/ModelRegistry.swift`. **Kept** — Acervo's `slugify(_:)` converts `org/repo` → `org_repo` transparently at the resolution layer. |
+| `repoId` accessor/field on `ModelInfo` / `Qwen3ModelInfo` | `TextEncoderModelRegistry.swift` (verified: `repoId` accessor at lines 69, 155; stored property at lines 198, 236). **Kept** — Acervo's `slugify(_:)` converts `org/repo` → `org_repo` transparently. |
+| `repoId` on `TransformerVariant` | **Does NOT exist yet** in `Flux2Core/Configuration/ModelRegistry.swift` (verified: only `huggingFaceRepo` accessors at lines 34, 257, 321). Sortie 20 introduces `repoId` here by renaming `huggingFaceRepo` — no naming collision. |
 
 ### Models requiring CDN provisioning (11 total, ~137 GB)
 
@@ -95,11 +97,11 @@ These are decided. The refine passes do not re-litigate them.
 
 ## Pre-flight Risk Notes
 
-- **`acervo ship` requires `HF_TOKEN` plus operator license acceptance for the one gated repo (`black-forest-labs/FLUX.2-klein-9B`).** Acceptance URL: `https://huggingface.co/black-forest-labs/FLUX.2-klein-9B`. Failed CHECK 1 is recoverable — accept the license, re-run.
-- **HF download cost.** Sortie 2 + Sortie 3 of WU1 download ~137 GB from huggingface.co before re-uploading to R2. This is the operator's bandwidth/storage. Plan for ≥3 hours of wall clock on a typical broadband uplink, plus R2 upload time. (Down from the original ~300 GB / ≥6 hour estimate after the variant cuts.)
-- **Module-name collision (swift-transformers `Tokenizers` vs swift-tokenizers `Tokenizers`)** precludes side-by-side parity testing within one SPM resolution. Tokenizer parity uses captured golden fixtures: WU2 Sortie 6 captures encode/decode outputs against the OLD package, WU2 Sortie 12 asserts equality against the NEW package.
-- **Positional `decode` overload absent in swift-tokenizers 0.4.2.** `FluxTextEncoders.swift:896` and `TokenizerTests.swift:140` currently rely on a positional `[Int]` overload that swift-transformers 1.x exposed but swift-tokenizers does not. Must be rewritten to `decode(tokenIds:skipSpecialTokens:)` during WU2 Sortie 8.
-- **`applyChatTemplate` `addGenerationPrompt` default flipped `false` → `true`.** Five default-relying call sites will silently change behavior at the moment of dep swap. WU2 Sortie 8 makes every call explicit to lock in current `false` semantics.
+- **`acervo ship` requires `HF_TOKEN` plus operator license acceptance for the one gated repo (`black-forest-labs/FLUX.2-klein-9B`).** Acceptance URL: `https://huggingface.co/black-forest-labs/FLUX.2-klein-9B`. Failed CHECK 1 in Sortie 12 is recoverable — accept the license, re-run the sortie.
+- **HF download cost.** Sorties 2–12 of WU1 download ~137 GB from huggingface.co before re-uploading to R2. This is the operator's bandwidth/storage. Plan for ≥3 hours of wall clock on a typical broadband uplink, plus R2 upload time. Each ship is its own sortie so partial completion is preserved across operator sessions — failure of, say, Sortie 10 (Mistral 8-bit, 25 GB) does not invalidate the prior 8 successful ships.
+- **Module-name collision (swift-transformers `Tokenizers` vs swift-tokenizers `Tokenizers`)** precludes side-by-side parity testing within one SPM resolution. Tokenizer parity uses captured golden fixtures: WU2 Sortie 15 captures encode/decode outputs against the OLD package, WU2 Sortie 21 asserts equality against the NEW package.
+- **Positional `decode` overload absent in swift-tokenizers 0.4.2.** `FluxTextEncoders.swift:896` and `TokenizerTests.swift:140` currently rely on a positional `[Int]` overload that swift-transformers 1.x exposed but swift-tokenizers does not. Must be rewritten to `decode(tokenIds:skipSpecialTokens:)` during WU2 Sortie 17.
+- **`applyChatTemplate` `addGenerationPrompt` default flipped `false` → `true`.** Five default-relying call sites will silently change behavior at the moment of dep swap. WU2 Sortie 17 makes every call explicit to lock in current `false` semantics.
 - **Branch coordination.** `Sources/Flux2Core/Loading/ModelDownloader.swift` is dirty per `git status` on `mission/marching-relay/1`. Mission must start from a clean working tree on `main` (or another agreed merge base). Do **not** start until marching-relay is merged or rebased.
 - **No swift-tokenizers version bump available.** Latest is `0.4.2` (released 2026-04-24). The pin is current.
 - **Test impact.** `Flux2CoreTests`, `Flux2GPUTests`, and `FluxTextEncodersTests` may include cases that hit the old HF paths; some may require `HF_TOKEN` env setup. Post-migration, the suite must run with no `HF_TOKEN` and only `R2_PUBLIC_URL` (read-only CDN) reachable. Tests that were skipped under "no HF token" should be re-evaluated under "no R2" instead.
@@ -108,16 +110,18 @@ These are decided. The refine passes do not re-litigate them.
 
 | Work Unit | Directory | Sorties | Layer | Dependencies |
 |---|---|---|---|---|
-| Acervo CDN Provisioning | `/Users/stovak/Projects/flux-2-swift-mlx` (operator-side `acervo ship` runs) | 4 | 0 | none |
-| HF Excision + Code Migration | `/Users/stovak/Projects/flux-2-swift-mlx` | 9 | 1 | WU1 complete (all 11 manifests verified on CDN) for S7 onwards. S5 (library cleanup) and S6 (fixture capture) have no WU1 dependency and may run in parallel with WU1. |
+| Acervo CDN Provisioning | `/Users/stovak/Projects/flux-2-swift-mlx` (operator-side `acervo ship` runs) | 13 | 0 | none |
+| HF Excision + Code Migration | `/Users/stovak/Projects/flux-2-swift-mlx` | 9 | 1 | WU1 complete (all 11 manifests verified on CDN) for Sortie 16 onwards. Sortie 14 (library cleanup) and Sortie 15 (fixture capture) have no WU1 dependency and may run in parallel with WU1. |
 
 ---
 
 ## Work Unit 1 — Acervo CDN Provisioning
 
+> **Granularity**: One sortie per repo ship (per locked decision). Each `acervo ship <model-id>` is its own agent dispatch with binary pass/fail. Sorties 2–12 execute strictly sequentially (operator can only run one ship at a time; staging dir and HF bandwidth are shared). Order: smallest non-gated payload first (fail cheap), then gated klein-9B last, then smoke test.
+
 ### Sortie 1: Inventory lock + license verification probe
 
-**Priority**: 37.75 — highest. Blocks all 11 downstream sorties. Foundation: locks the canonical 11-model inventory + license posture used by every later sortie. Risk: medium (operator may need to click HF license).
+**Priority**: 41 — highest. Blocks all 21 downstream sorties. Foundation: locks the canonical 11-model inventory + license posture used by every later sortie. Risk: medium (operator may need to click HF license).
 
 **Entry criteria**:
 - [ ] First sortie — no prerequisites
@@ -143,77 +147,197 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 2: Ship non-gated models to CDN (10 models)
+### Per-ship sortie template (applied to Sorties 2–12)
 
-**Priority**: 35.25 — second highest. Blocks all 10 downstream sorties. Foundation: produces the 10 manifests referenced by every WU2 sortie. Risk: medium (network/storage failures, ~108 GB transit). Complexity: high (10 ship operations, each with its own failure surface).
+Each ship sortie shares this structure. Fields that vary per repo (model ID, size, df threshold, special notes) are listed in each individual sortie below.
 
-**Entry criteria**:
-- [ ] Sortie 1 inventory + license verification log present
-- [ ] Adequate local storage for staging — verified machine-readable: `df -k "$HOME" | awk 'NR==2 {exit ($4 < 50*1024*1024)}'` (≥50 GB free in `$HOME`; single-largest staging is `VincentGOURBIN/flux_qint_8bit` ~32 GB, plus headroom for parallel manifest writes; Acervo cleans staging after each successful upload). Record the `df -k` output in `docs/missions/cdn-ship-log.md` before shipping.
+**Tasks** (every ship sortie):
+1. **Preflight df check** — verify ≥ `<df_threshold>` GB free in `$HOME` via `df -k "$HOME" | awk 'NR==2 {exit ($4 < <df_threshold>*1024*1024)}'`. Record the `df -k "$HOME"` output to `docs/missions/cdn-ship-log.md` under a per-sortie heading before shipping.
+2. **Ship the repo** via `acervo ship <model-id>` (or for the qint8 subfolder ship, the two-arg form). Capture stdout/stderr verbatim to the ship log under the per-sortie heading.
+3. **Verify manifest is live**: `curl -fsS -o /tmp/manifest-<slug>.json -w "%{http_code}\n" "$R2_PUBLIC_URL/<slugified-repo>/manifest.json"`. Record exit code and HTTP code to the ship log.
+4. **Verify expected tokenizer artifacts are in the manifest** (per-repo: `tekken.json` for Mistral; `tokenizer.json` for Qwen3; n/a for transformer/VAE).
 
-**Tasks**:
-1. Ship each non-gated repo via `acervo ship <model-id>` in this order (smallest first so failures abort cheap):
-   1. `lmstudio-community/Qwen3-4B-MLX-4bit` (2 GB)
-   2. `lmstudio-community/Qwen3-8B-MLX-4bit` (4 GB)
-   3. `lmstudio-community/Qwen3-4B-MLX-8bit` (4 GB)
-   4. `aydin99/FLUX.2-klein-4B-int8` (4 GB)
-   5. `lmstudio-community/Qwen3-8B-MLX-8bit` (8 GB)
-   6. `black-forest-labs/FLUX.2-klein-4B` (8 GB)
-   7. `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` (13 GB)
-   8. `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` (19 GB)
-   9. `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` (25 GB)
-   10. `VincentGOURBIN/flux_qint_8bit` (32 GB) — subfolder-only ship via `acervo ship VincentGOURBIN/flux_qint_8bit flux-2-dev/transformer/qint8/` (confirmed: `acervo` treats the path as a normalized string and allows paths multiple directories deep). The shipped manifest will contain only the qint8 files; downstream `Acervo.ensureAvailable(...)` calls in Sortie 10 do not need a runtime filter.
-2. For each ship, confirm via the manifest file list that the expected tokenizer artifacts are present (verified ahead of plan: every Mistral MLX quant has `tekken.json`, `tokenizer.json`, `tokenizer_config.json`; every Qwen3 MLX quant has `tokenizer.json`, `tokenizer_config.json`, `special_tokens_map.json`, `added_tokens.json`).
-3. Capture stdout/stderr of every invocation to `docs/missions/cdn-ship-log.md`.
-4. After each ship, verify `manifest.json` is fetchable from `R2_PUBLIC_URL/<slugified-repo>/manifest.json` via `curl` — record HTTP 200 and content-length.
-
-**Exit criteria**:
-- [ ] `grep -c "CHECK 6 passed" docs/missions/cdn-ship-log.md` returns ≥ 10 (one per non-gated ship)
-- [ ] All 10 manifests return HTTP 200 from `R2_PUBLIC_URL/<slug>/manifest.json` (record exit codes from `curl -fsS -o /dev/null -w "%{http_code}\n" ...` for each, in the ship log)
-- [ ] `tekken.json` confirmed present in each of the 3 Mistral MLX manifest file lists (grep the JSON of each captured manifest for `"tekken.json"`)
-- [ ] `tokenizer.json` confirmed present in each of the 4 Qwen3 MLX manifest file lists
-- [ ] Subfolder decision for `VincentGOURBIN/flux_qint_8bit` recorded in the ship log (the `acervo ship` command line and resulting manifest path are logged)
-- [ ] `git status -s -- Sources/ Tests/` returns empty (no source/test edits made by this sortie)
+**Exit criteria** (every ship sortie):
+- [ ] One new `CHECK 6 passed` entry in `docs/missions/cdn-ship-log.md` under this sortie's heading (verifiable: `awk '/^## Sortie <N>/,/^## Sortie/' docs/missions/cdn-ship-log.md | grep -c "CHECK 6 passed"` returns ≥ 1)
+- [ ] `curl -fsS -o /dev/null -w "%{http_code}" "$R2_PUBLIC_URL/<slug>/manifest.json"` returns `200`
+- [ ] Tokenizer-artifact grep over the captured manifest passes (per-repo specifics in the sortie)
+- [ ] `git status -s -- Sources/ Tests/` returns empty (no source/test edits by this sortie)
 
 ---
 
-### Sortie 3: Ship gated model to CDN (1 model)
+### Sortie 2: Ship `lmstudio-community/Qwen3-4B-MLX-4bit` (2 GB)
 
-**Priority**: 30.5 — high. Blocks Sortie 4 + WU2 (klein9B variant referenced by `TransformerVariant.klein9B_bf16`). Risk: high (gated repo; license-acceptance failure is the most likely failure mode in WU1). Kept separate from S2 for clean retry semantics on license-related failures.
+**Priority**: 38 — first ship; validates the shipping pipeline on the smallest non-gated payload. Risk: low (smallest payload, no gating, ungated org).
 
 **Entry criteria**:
-- [ ] Sortie 2 complete
-- [ ] License verification log shows `black-forest-labs/FLUX.2-klein-9B` accepted (HTTP 200 from probe)
+- [ ] Sortie 1 complete; license probe + env vars + `--dry-run` recorded
+- [ ] `df_threshold = 6` (≥6 GB free in `$HOME`; ~2 GB ship + 2× headroom)
 
-**Tasks**:
-1. Ship `black-forest-labs/FLUX.2-klein-9B` (~18 GB) via `acervo ship black-forest-labs/FLUX.2-klein-9B`.
-2. Append the invocation output to `docs/missions/cdn-ship-log.md`.
-3. Verify `manifest.json` is fetchable from `R2_PUBLIC_URL/<slug>/manifest.json` via `curl` — record HTTP 200 and content-length.
-
-**Exit criteria**:
-- [ ] `black-forest-labs/FLUX.2-klein-9B` shows "CHECK 6 passed" in the ship log
-- [ ] Manifest returns HTTP 200 from `R2_PUBLIC_URL`
-- [ ] Total models on CDN = 11 (10 from Sortie 2 + 1 from Sortie 3)
+**Repo-specific**:
+- Model ID: `lmstudio-community/Qwen3-4B-MLX-4bit`
+- Tokenizer-artifact assertion: manifest contains `"tokenizer.json"`, `"tokenizer_config.json"`, `"special_tokens_map.json"`, `"added_tokens.json"`
 
 ---
 
-### Sortie 4: CDN read-side smoke test from clean machine
+### Sortie 3: Ship `lmstudio-community/Qwen3-8B-MLX-4bit` (4 GB)
 
-**Priority**: 28.75 — high. WU1 gate: confirms the read path Acervo will use at runtime works against the freshly provisioned manifests. Foundation: validates the slugify mapping (`org/repo` → `org_repo`) the runtime depends on. May run in parallel with Sortie 6 (no shared dependency).
+**Priority**: 37.5 — second ship; second-smallest. Risk: low.
 
 **Entry criteria**:
-- [ ] Sortie 3 complete; 11 manifests live on R2
+- [ ] Sortie 2 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 10`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Qwen3-8B-MLX-4bit`
+- Tokenizer-artifact assertion: manifest contains `"tokenizer.json"`
+
+---
+
+### Sortie 4: Ship `lmstudio-community/Qwen3-4B-MLX-8bit` (4 GB)
+
+**Priority**: 37 — third ship. Risk: low.
+
+**Entry criteria**:
+- [ ] Sortie 3 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 10`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Qwen3-4B-MLX-8bit`
+- Tokenizer-artifact assertion: manifest contains `"tokenizer.json"`
+
+---
+
+### Sortie 5: Ship `aydin99/FLUX.2-klein-4B-int8` (4 GB)
+
+**Priority**: 36.5 — fourth ship; first transformer-family ship. Risk: low (community ungated).
+
+**Entry criteria**:
+- [ ] Sortie 4 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 10`
+
+**Repo-specific**:
+- Model ID: `aydin99/FLUX.2-klein-4B-int8`
+- Tokenizer-artifact assertion: n/a (transformer; no tokenizer expected). Skip the artifact grep step but record "no-tokenizer-expected" in the ship log.
+
+---
+
+### Sortie 6: Ship `lmstudio-community/Qwen3-8B-MLX-8bit` (8 GB)
+
+**Priority**: 36 — fifth ship. Risk: low.
+
+**Entry criteria**:
+- [ ] Sortie 5 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 18`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Qwen3-8B-MLX-8bit`
+- Tokenizer-artifact assertion: manifest contains `"tokenizer.json"`
+
+---
+
+### Sortie 7: Ship `black-forest-labs/FLUX.2-klein-4B` (8 GB)
+
+**Priority**: 35.5 — sixth ship; this is also the canonical VAE source for ALL Flux.2 variants. Risk: low (Apache-2.0, ungated).
+
+**Entry criteria**:
+- [ ] Sortie 6 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 18`
+
+**Repo-specific**:
+- Model ID: `black-forest-labs/FLUX.2-klein-4B`
+- Tokenizer-artifact assertion: n/a (transformer/VAE). Record "no-tokenizer-expected; this manifest is the VAE source for downstream Flux.2 variants" in the ship log.
+
+---
+
+### Sortie 8: Ship `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` (13 GB)
+
+**Priority**: 35 — seventh ship; first Mistral. Risk: low (ungated).
+
+**Entry criteria**:
+- [ ] Sortie 7 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 28`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit`
+- Tokenizer-artifact assertion: manifest contains `"tekken.json"` AND `"tokenizer.json"` AND `"tokenizer_config.json"` (this is the keystone verification that makes deletion of `ensureTekkenJson(at:)` in Sortie 18 safe — Mistral 4-bit is the smallest of the three Mistral quants and the first chance to confirm the assumption).
+
+---
+
+### Sortie 9: Ship `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` (19 GB)
+
+**Priority**: 34.5 — eighth ship. Risk: low.
+
+**Entry criteria**:
+- [ ] Sortie 8 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 40`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit`
+- Tokenizer-artifact assertion: manifest contains `"tekken.json"` AND `"tokenizer.json"`
+
+---
+
+### Sortie 10: Ship `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` (25 GB)
+
+**Priority**: 34 — ninth ship. Risk: medium (largest single Mistral, ~25 GB upload).
+
+**Entry criteria**:
+- [ ] Sortie 9 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 50`
+
+**Repo-specific**:
+- Model ID: `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit`
+- Tokenizer-artifact assertion: manifest contains `"tekken.json"` AND `"tokenizer.json"`
+
+---
+
+### Sortie 11: Ship `VincentGOURBIN/flux_qint_8bit` (32 GB) — subfolder ship
+
+**Priority**: 33.5 — tenth ship; largest payload in the mission. Risk: medium (subfolder syntax, largest single upload). Foundation: this is the canonical qint8 transformer for production use.
+
+**Entry criteria**:
+- [ ] Sortie 10 commit/log complete; previous manifest verified live
+- [ ] `df_threshold = 65`
+
+**Repo-specific**:
+- Model ID: `VincentGOURBIN/flux_qint_8bit`
+- Ship invocation: `acervo ship VincentGOURBIN/flux_qint_8bit flux-2-dev/transformer/qint8/` (two-arg form; subfolder-only ship). The shipped manifest contains only the qint8 files; downstream `Acervo.ensureAvailable(...)` calls in Sortie 19 do not need a runtime filter. Record the exact command line in the ship log.
+- Tokenizer-artifact assertion: n/a (transformer). Record "no-tokenizer-expected" + the subfolder decision (`acervo ship` two-arg form invoked) in the ship log.
+
+---
+
+### Sortie 12: Ship `black-forest-labs/FLUX.2-klein-9B` (18 GB) — gated
+
+**Priority**: 33 — eleventh ship; the only gated repo. Risk: high (license-acceptance failure is the most likely failure mode in WU1; isolated as its own sortie for clean retry semantics on license-related failures). Foundation: completes the WU1 ship phase; required for `TransformerVariant.klein9B_bf16` runtime path in Sortie 19.
+
+**Entry criteria**:
+- [ ] Sortie 11 commit/log complete
+- [ ] License verification log from Sortie 1 shows `black-forest-labs/FLUX.2-klein-9B` accepted (HTTP 200 from probe). If not, **stop**: operator must visit `https://huggingface.co/black-forest-labs/FLUX.2-klein-9B`, click "Agree and access repository", and re-run the Sortie 1 probe before this sortie can dispatch.
+- [ ] `df_threshold = 40`
+
+**Repo-specific**:
+- Model ID: `black-forest-labs/FLUX.2-klein-9B`
+- Tokenizer-artifact assertion: n/a (transformer). Record "no-tokenizer-expected; gated repo; license-accepted at Sortie 1" in the ship log.
+
+---
+
+### Sortie 13: CDN read-side smoke test from clean machine
+
+**Priority**: 32 — high. WU1 gate: confirms the read path Acervo will use at runtime works against the freshly provisioned manifests. Foundation: validates the slugify mapping (`org/repo` → `org_repo`) the runtime depends on. May run in parallel with Sortie 15 (no shared dependency).
+
+**Entry criteria**:
+- [ ] Sortie 12 complete; 11 manifests live on R2
 
 **Tasks**:
 1. From a clean directory with no Flux2Swift state, write a minimal one-shot Swift script (`scripts/cdn-smoke-test.swift`, deleted at end of sortie) that imports `SwiftAcervo` and calls `Acervo.fetchManifest(for:)` for each of the 11 model IDs. Do not depend on `acervo` CLI read-side commands — call the Swift API directly so this exercises the same code path the runtime will use.
-2. For each model: verify the returned manifest's file count and total byte count match the ship log from Sorties 2-3.
+2. For each model: verify the returned manifest's file count and total byte count match the ship log from Sorties 2-12.
 3. Verify Acervo's `slugify(_:)` produces the expected slug for each `org/repo` (e.g., `lmstudio-community/Mistral-Small-...` → `lmstudio-community_Mistral-Small-...`). Document any surprises.
-4. Pick one small model (e.g., `lmstudio-community/Qwen3-4B-MLX-4bit`) and run `Acervo.ensureAvailable(_:files:progress:)` end-to-end. Confirm files land in `Acervo.modelDirectory(for:)` and SHA-256 manifests verify.
+4. Pick one small model (`lmstudio-community/Qwen3-4B-MLX-4bit`) and run `Acervo.ensureAvailable(_:files:progress:)` end-to-end. Confirm files land in `Acervo.modelDirectory(for:)` and SHA-256 manifests verify.
 5. Tear down the test directory AND delete `scripts/cdn-smoke-test.swift` (the script is one-shot recon and must not be committed).
 
 **Exit criteria**:
 - [ ] All 11 `fetchManifest` calls return success (logged with model id + file count + total bytes)
-- [ ] Manifest file counts match the ship log from S2/S3 for all 11 models
+- [ ] Manifest file counts match the ship log from Sorties 2-12 for all 11 models
 - [ ] One end-to-end `ensureAvailable(_:files:progress:)` (small model: `lmstudio-community/Qwen3-4B-MLX-4bit`) succeeds and SHA-256 verification passes
 - [ ] `scripts/cdn-smoke-test.swift` does not exist; no untracked files outside `Acervo.sharedModelsDirectory`
 - [ ] Working tree commit message includes the literal string `WU1 complete; CDN provisioned`
@@ -222,16 +346,16 @@ These are decided. The refine passes do not re-litigate them.
 
 ## Work Unit 2 — HF Excision + Code Migration
 
-> **Gate**: WU2 Sortie 7 does not begin until WU1 Sortie 4 reports success AND Sorties 5 + 6 are committed. Sorties 5 (library cleanup) and 6 (fixture capture) have no WU1 dependency and may run in parallel with any WU1 sortie; the supervisor serializes them as S5 → S6 because they share the SwiftPM build directory.
+> **Gate**: WU2 Sortie 16 does not begin until WU1 Sortie 13 reports success AND Sorties 14 + 15 are committed. Sorties 14 (library cleanup) and 15 (fixture capture) have no WU1 dependency and may run in parallel with any WU1 sortie; the supervisor serializes them as Sortie 14 → Sortie 15 because they share the SwiftPM build directory.
 
-### Sortie 5: Library-only cleanup — remove CLI targets and customModelsDirectory
+### Sortie 14: Library-only cleanup — remove CLI targets and customModelsDirectory
 
-**Priority**: 26.5 — high foundation. Reduces the surface every subsequent sortie has to migrate (fewer call sites in S8/S10, fewer registry strings in S11, fewer tests in S12). Risk: low (mechanical deletion). Independent of WU1 (no CDN, no HF, no Acervo touch). Decided ahead of execution: this package is library-only; downstream end-to-end testing happens via `../SwiftVinetas` (sibling repo). Sandboxed apps cannot use a custom storage directory anyway, so `customModelsDirectory` is a misleading API surface that is deleted now rather than migrated.
+**Priority**: 26.5 — high foundation for WU2. Reduces the surface every subsequent sortie has to migrate (fewer call sites in S17/S19, fewer registry strings in S20, fewer tests in S21). Risk: low (mechanical deletion). Independent of WU1 (no CDN, no HF, no Acervo touch). Decided ahead of execution: this package is library-only; downstream end-to-end testing happens via `../SwiftVinetas` (sibling repo). Sandboxed apps cannot use a custom storage directory anyway, so `customModelsDirectory` is a misleading API surface that is deleted now rather than migrated.
 
 **Entry criteria**:
 - [ ] Working tree clean and on the mission base branch
-- [ ] `Package.resolved` still pins `huggingface/swift-transformers` (cleanup operates on the OLD dependency graph; the swap happens in Sortie 7)
-- [ ] No source edits made by S6 onwards yet
+- [ ] `Package.resolved` still pins `huggingface/swift-transformers` (cleanup operates on the OLD dependency graph; the swap happens in Sortie 16)
+- [ ] No source edits made by Sortie 15 onwards yet
 
 **Tasks**:
 
@@ -239,8 +363,8 @@ These are decided. The refine passes do not re-litigate them.
    - Remove the directories: `Sources/Flux2CLI/` and `Sources/FluxEncodersCLI/`.
    - In `Package.swift`: remove the `Flux2CLI` and `FluxEncodersCLI` `.executableTarget(...)` entries AND their corresponding `.executable(name:targets:)` product entries. The library products (`Flux2Core`, `FluxTextEncoders`) and their targets remain.
 2. **Delete `customModelsDirectory` from runtime code** (do this AFTER task 1 so the deleted CLI doesn't dangle a reference):
-   - `Sources/Flux2Core/Configuration/ModelRegistry.swift`: remove the `static var customModelsDirectory: URL?` declaration (around line 415) and the `if let custom = customModelsDirectory { ... }` branch in the directory accessor (around lines 433–435). The accessor returns the unconditional default for now; Sortie 10 will replace the default with `Acervo.modelDirectory(for:)`.
-   - `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`: remove the `static var customModelsDirectory: URL?` (around line 20), simplify the body of `makeHubApi()` so it no longer consults `customModelsDirectory` (the function itself remains — full deletion of `makeHubApi()` + `reconfigureHubApi()` happens in Sortie 9 when Acervo replaces `hubApi`), and remove the `if let custom = customModelsDirectory { ... }` branches in the Mistral and Qwen3 directory accessors (around lines 40 and 51). After this sortie: `makeHubApi()` and `reconfigureHubApi()` still exist; `customModelsDirectory` does not.
+   - `Sources/Flux2Core/Configuration/ModelRegistry.swift`: remove the `static var customModelsDirectory: URL?` declaration (around line 415) and the `if let custom = customModelsDirectory { ... }` branch in the directory accessor (around lines 433–435). The accessor returns the unconditional default for now; Sortie 19 will replace the default with `Acervo.modelDirectory(for:)`.
+   - `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`: remove the `static var customModelsDirectory: URL?` (around line 20), simplify the body of `makeHubApi()` so it no longer consults `customModelsDirectory` (the function itself remains — full deletion of `makeHubApi()` + `reconfigureHubApi()` happens in Sortie 18 when Acervo replaces `hubApi`), and remove the `if let custom = customModelsDirectory { ... }` branches in the Mistral and Qwen3 directory accessors (around lines 40 and 51). After this sortie: `makeHubApi()` and `reconfigureHubApi()` still exist; `customModelsDirectory` does not.
 3. **Delete tests that exclusively cover the removed surface**:
    - `Tests/FluxTextEncodersTests/TextEncoderModelDirectoryTests.swift` — entire file.
    - `Tests/Flux2CoreTests/ModelDirectoryTests.swift` — entire file.
@@ -263,12 +387,12 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 6: Capture golden tokenizer fixtures from the old package
+### Sortie 15: Capture golden tokenizer fixtures from the old package
 
-**Priority**: 24.75 — must run BEFORE Sortie 7 (Package.swift swap) because it depends on the old swift-transformers `Tokenizers` module being resolved. Parallelizable with WU1 S4 (no shared file or dependency). Foundation: produces the parity oracle used by Sortie 12.
+**Priority**: 24.75 — must run BEFORE Sortie 16 (Package.swift swap) because it depends on the old swift-transformers `Tokenizers` module being resolved. Parallelizable with WU1 Sortie 13 (no shared file or dependency). Foundation: produces the parity oracle used by Sortie 21.
 
 **Entry criteria**:
-- [ ] Sortie 5 commit exists (cleanup landed; build clean against old package)
+- [ ] Sortie 14 commit exists (cleanup landed; build clean against old package)
 - [ ] `Package.resolved` still pins `huggingface/swift-transformers`
 - [ ] Working tree clean
 
@@ -277,7 +401,7 @@ These are decided. The refine passes do not re-litigate them.
 2. Define a deterministic prompt set (≥10 prompts: ASCII, multilingual, emojis, chat-template messages with role markers, one ≥1024-char document).
 3. Add a one-shot fixture-generation test under `Tests/Fixtures/Generators/` that, against the OLD package, writes JSON files of `{prompt, encoded_token_ids[], decoded_text}` per (tokenizer × prompt).
 4. Run via XcodeBuildMCP `swift_package_test` (never raw `swift test`). Commit the resulting fixtures under `Tests/Fixtures/TokenizerParity/`.
-5. After fixtures are generated, delete the generator (it depends on old-package APIs that won't compile after Sortie 7).
+5. After fixtures are generated, delete the generator (it depends on old-package APIs that won't compile after Sortie 16).
 
 **Exit criteria**:
 - [ ] `Tests/Fixtures/TokenizerParity/*.json` exists with one file per (tokenizer × prompt)
@@ -286,13 +410,13 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 7: Package.swift swap
+### Sortie 16: Package.swift swap
 
-**Priority**: 22.75 — gate sortie that establishes the new dependency graph. Foundation: every WU2 sortie after this depends on the new module resolution. Risk: medium (the old `Tokenizers` module name is reused by swift-tokenizers, so call sites won't import-break — failures are silent until call-site rewrites in S8). Build is expected to fail at this sortie's exit (call sites unchanged).
+**Priority**: 22.75 — gate sortie that establishes the new dependency graph. Foundation: every WU2 sortie after this depends on the new module resolution. Risk: medium (the old `Tokenizers` module name is reused by swift-tokenizers, so call sites won't import-break — failures are silent until call-site rewrites in S17). Build is expected to fail at this sortie's exit (call sites unchanged).
 
 **Entry criteria**:
-- [ ] WU1 complete (all 11 manifests live)
-- [ ] Sortie 6 fixtures committed
+- [ ] WU1 complete (all 11 manifests live, smoke test passed)
+- [ ] Sortie 15 fixtures committed
 
 **Tasks**:
 1. In `Package.swift`, line 20: replace `.package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6")` with two entries:
@@ -319,12 +443,12 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 8: Tokenizers API rename + applyChatTemplate audit
+### Sortie 17: Tokenizers API rename + applyChatTemplate audit
 
-**Priority**: 19 — restores library-target build. Foundation: unblocks Sorties 8 and 9 (downloader rewrites). Risk: low (mechanical renames, single grep'd call sites). Behavior risk: `applyChatTemplate` default flip from `false` → `true` is a silent semantic change that this sortie locks down.
+**Priority**: 19 — restores library-target build. Foundation: unblocks Sorties 18 and 19 (downloader rewrites). Risk: low (mechanical renames, single grep'd call sites). Behavior risk: `applyChatTemplate` default flip from `false` → `true` is a silent semantic change that this sortie locks down.
 
 **Entry criteria**:
-- [ ] Sortie 7 commit exists
+- [ ] Sortie 16 commit exists
 - [ ] `docs/missions/recon-swift-tokenizers.md` reachable for signature reference
 
 **Tasks**:
@@ -335,9 +459,9 @@ These are decided. The refine passes do not re-litigate them.
    - `Sources/FluxTextEncoders/Tokenizer/TekkenTokenizer.swift:473, 510`
    - `Tests/FluxTextEncodersTests/TokenizerTests.swift:77, 93, 108`
    - `Tests/FluxTextEncodersTests/FluxTextEncodersTests.swift:204`
-   The site at `EmbeddingExtractor.swift:192` already passes `false` — leave it.
+   The site at `Embeddings/EmbeddingExtractor.swift:193` already passes `false` — leave it.
 5. Verify `Sendable` conformance on stored `Tokenizer` properties (`TekkenTokenizer.swift:42`, `KleinEmbeddingExtractor.swift:23`) compiles cleanly under Swift 6.2.
-6. After edits: `swift_package_build` for `FluxTextEncoders` and `Flux2Core` library targets must succeed. The two downloader files remain broken (Sorties 8 and 9).
+6. After edits: `swift_package_build` for `FluxTextEncoders` and `Flux2Core` library targets must succeed. The two downloader files remain broken (Sorties 18 and 19).
 
 **Exit criteria**:
 - [ ] `grep -rn 'decode(tokens:' Sources Tests` returns no matches
@@ -350,48 +474,48 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 9: Rewrite TextEncoderModelDownloader against Acervo
+### Sortie 18: Rewrite TextEncoderModelDownloader against Acervo
 
-**Priority**: 18.25 — first runtime HF excision. Risk: high (replaces Hub-based download paths; adds `notProvisionedOnCDN` error case; deletes the `tekken.json` fallback). Complexity: high (one large file rewrite + error-case design). Foundation: establishes the Acervo integration pattern reused by Sortie 10.
+**Priority**: 18.25 — first runtime HF excision. Risk: high (replaces Hub-based download paths; adds `notProvisionedOnCDN` error case; deletes the `tekken.json` fallback). Complexity: high (one large file rewrite + error-case design). Foundation: establishes the Acervo integration pattern reused by Sortie 19.
 
 **Entry criteria**:
-- [ ] Sortie 8 commit exists
-- [ ] WU1 manifests for all `lmstudio-community/Qwen3-*` and `mistralai/Mistral-Small-3.2-...` repos verified live
+- [ ] Sortie 17 commit exists
+- [ ] WU1 manifests for all `lmstudio-community/Qwen3-*-MLX-*bit` (4 manifests; Sorties 2, 3, 4, 6) and `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-{4bit,6bit,8bit}` (3 manifests; Sorties 8, 9, 10) verified live on R2 — these are the seven repos this sortie's downloader migration depends on. **Note**: the upstream `mistralai/Mistral-Small-3.2-24B-Instruct-2506` repo is NOT shipped to CDN per the locked decision; the `tekken.json` it once provided as fallback ships inside every lmstudio-community MLX quant.
 
 **Tasks**:
 1. In `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`:
    - Replace `import Hub` with `import SwiftAcervo`.
    - Delete the legacy HF cache path resolution (lines 87-110, the `~/.cache/huggingface/hub/...` block).
    - Delete the `hubApi: HubApi` static, `makeHubApi()`, and `reconfigureHubApi()`. Storage location is `Acervo.sharedModelsDirectory` (Acervo manages this internally; no override hook is exposed — this matches the locked decision to remove `customModelsDirectory` entirely).
-   - Replace the `download(model:progress:)` body that uses `hubApi.snapshot(from:matching:)` with `Acervo.ensureAvailable(modelInfo.repoId, files: <explicit file list>, progress: ...)`. The file list per model comes from the manifest written in WU1 — for Mistral MLX quants the list includes `tekken.json`, `tokenizer.json`, `tokenizer_config.json`, the safetensors shards, and config files (verified present in each MLX quant repo ahead of plan).
-   - **Delete `ensureTekkenJson(at:progress:)` entirely** (lines 252-283 plus the call sites that invoke it at lines 210, 242, 264). This method is dead code: the hardcoded `huggingface.co/.../tekken.json` fetch was a defensive fallback for the case where downloaded model dirs lacked `tekken.json` — but every lmstudio-community MLX quant ships `tekken.json` directly (verified by HF API probe across 4-bit, 6-bit, 8-bit). With explicit-file-list shipping via Acervo, `tekken.json` is always present.
+   - Replace the `download(model:progress:)` body that uses `hubApi.snapshot(from:matching:)` with `Acervo.ensureAvailable(modelInfo.repoId, files: <explicit file list>, progress: ...)`. The file list per model comes from the manifest written in WU1 — for Mistral MLX quants the list includes `tekken.json`, `tokenizer.json`, `tokenizer_config.json`, the safetensors shards, and config files (verified present in each MLX quant repo ahead of plan and re-confirmed by Sortie 8's manifest grep).
+   - **Delete `ensureTekkenJson(at:progress:)` entirely** (lines 252-283 plus the call sites that invoke it at lines 210, 242, 264). This method is dead code: the hardcoded `huggingface.co/.../tekken.json` fetch was a defensive fallback for the case where downloaded model dirs lacked `tekken.json` — but every lmstudio-community MLX quant ships `tekken.json` directly (verified by HF API probe AND by Sortie 8/9/10 manifest greps). With explicit-file-list shipping via Acervo, `tekken.json` is always present.
    - Add handling for `ModelVariant.bf16` (text encoder): when called for the cut variant, throw `TextEncoderModelDownloaderError.notProvisionedOnCDN(variant: .bf16)` with a message naming the variant and stating it will be re-enabled in a follow-up CDN mission.
    - Replace `findModelPath(for:)` with `Acervo.modelDirectory(for: model.repoId)` + `Acervo.isModelAvailable(_:)` checks. Drop `verifyShardedModel(at:)` if Acervo's manifest verification covers it; otherwise keep and call after `ensureAvailable`.
    - Same migration for `downloadQwen3(_:progress:)` and `findQwen3ModelPath(for:)` (the parallel Qwen3 path starting around line 296).
-2. Public API of `TextEncoderModelDownloader` should remain stable for the surfaces still present after Sortie 5: `download(_:progress:)`, `downloadQwen3(_:progress:)`, `findModelPath(for:)`, `findQwen3ModelPath(for:)`, `verifyShardedModel(at:)`, `modelsDirectory`. (`customModelsDirectory` is intentionally NOT in this list — it was deleted in Sortie 5.) If any caller-facing signature must change, document the break in the commit message.
+2. Public API of `TextEncoderModelDownloader` should remain stable for the surfaces still present after Sortie 14: `download(_:progress:)`, `downloadQwen3(_:progress:)`, `findModelPath(for:)`, `findQwen3ModelPath(for:)`, `verifyShardedModel(at:)`, `modelsDirectory`. (`customModelsDirectory` is intentionally NOT in this list — it was deleted in Sortie 14.) If any caller-facing signature must change, document the break in the commit message.
 3. `swift_package_build` for `FluxTextEncoders` (full target) must succeed.
 
 **Exit criteria**:
 - [ ] `grep -n 'import Hub' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
 - [ ] `grep -n 'huggingface' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches (case-insensitive)
 - [ ] `grep -n 'hubApi\|HubApi\|snapshot(from:' Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift` returns no matches
-- [ ] `swift_package_build` succeeds for `FluxTextEncoders` (full target including the `FluxEncodersCLI` and `Flux2App` consumers, if they compile after this sortie)
+- [ ] `swift_package_build` succeeds for `FluxTextEncoders` (full target including the consumers, if they compile after this sortie)
 - [ ] Commit message: `R2.5; TextEncoderModelDownloader → SwiftAcervo`
 
 ---
 
-### Sortie 10: Rewrite Flux2Core/ModelDownloader against Acervo
+### Sortie 19: Rewrite Flux2Core/ModelDownloader against Acervo
 
-**Priority**: 15.5 — largest single rewrite in the mission (deletes the hand-rolled HF API client). Risk: high (touches transformer + VAE + klein download paths; introduces `notProvisionedOnCDN` for 4 cut variants; updates 8 enumerated callers). Complexity: high. Could be split into 9a (downloader rewrite + new error type) and 9b (caller updates) if execution shows context pressure — kept atomic because the new error type and caller updates must land together to keep the build green.
+**Priority**: 15.5 — largest single rewrite in the mission (deletes the hand-rolled HF API client). Risk: high (touches transformer + VAE + klein download paths; introduces `notProvisionedOnCDN` for 4 cut variants; updates 4 enumerated callers post-cleanup). Complexity: high. Could be split into 19a (downloader rewrite + new error type) and 19b (caller updates) if execution shows context pressure — kept atomic because the new error type and caller updates must land together to keep the build green.
 
 **Entry criteria**:
-- [ ] Sortie 9 commit exists
-- [ ] WU1 manifests for all transformer + VAE + klein repos verified live
+- [ ] Sortie 18 commit exists
+- [ ] WU1 manifests for `aydin99/FLUX.2-klein-4B-int8`, `black-forest-labs/FLUX.2-klein-4B`, `VincentGOURBIN/flux_qint_8bit`, and `black-forest-labs/FLUX.2-klein-9B` verified live (Sorties 5, 7, 11, and 12)
 
 **Tasks**:
 1. In `Sources/Flux2Core/Loading/ModelDownloader.swift`:
    - **Delete** the entire hand-rolled HF API client: `fetchFileList(repoId:subfolder:)` (around line 419), the `download(filePath:repoId:...)` per-file download (around line 475), and any helper that hits `huggingface.co`.
-   - Replace the `download(_:progress:)` method body with `Acervo.ensureAvailable(repoId, files: <explicit list>, progress: ...)`. For repos with `huggingFaceSubfolder` (e.g., `qint8` → `flux-2-dev/transformer/qint8/`), use the file list resolution decided in WU1 Sortie 2 task 1 (subfolder-only ship vs. whole-repo-ship-with-runtime-filter).
+   - Replace the `download(_:progress:)` method body with `Acervo.ensureAvailable(repoId, files: <explicit list>, progress: ...)`. For repos with `huggingFaceSubfolder` (e.g., `qint8` → `flux-2-dev/transformer/qint8/`), the file list resolution decided in WU1 Sortie 11 (subfolder-only ship) means no runtime filter is needed — Acervo's manifest already only contains the qint8 files.
    - Replace `findModelPath(for:)` with `Acervo.modelDirectory(for: repoId)` lookup.
    - Replace `repoId(for:)` with the same logic but document that the returned string is now an Acervo model ID (slugified internally by SwiftAcervo).
    - Keep `verifyModel(at:)` — this is local-side shard completeness verification, complementary to Acervo's manifest verification.
@@ -402,13 +526,13 @@ These are decided. The refine passes do not re-litigate them.
    - `TransformerVariant.klein9B_kv_bf16` (was `black-forest-labs/FLUX.2-klein-9b-kv`)
    The error message should name the variant and state: "Variant not yet provisioned on Acervo CDN. Track follow-up CDN provisioning mission in docs/missions/."
 3. Add a `var isProvisionedOnCDN: Bool` property on `TransformerVariant` (returns `false` for the four cut variants, `true` for the rest) so UI iteration over `allCases` can gray them out.
-4. Update the concrete `Flux2ModelDownloader` callers — re-grep at sortie start with `grep -rn 'Flux2ModelDownloader(' Sources/` to get the current list (Sortie 5 deleted `Sources/Flux2CLI/`, so the callers from there are gone). Expected post-cleanup callers:
+4. Update the concrete `Flux2ModelDownloader` callers — re-grep at sortie start with `grep -rn 'Flux2ModelDownloader(' Sources/` to get the current list (Sortie 14 deleted `Sources/Flux2CLI/`, so the callers from there are gone). Expected post-cleanup callers:
    - `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift:141`
    - `Sources/Flux2Core/Training/LoRATrainingHelper.swift:470`
    - `Sources/Flux2App/ViewModels/ModelManager.swift:332, 374`
    Each must handle the new error gracefully — surfacing "not yet available" rather than crashing. Also audit `Tests/Flux2CoreTests/Flux2CoreTests.swift:406` (which references `TransformerVariant.bf16`) — adjust to skip download or assert the not-provisioned error.
 5. Goal: no public API change to `Flux2ModelDownloader.download(_:progress:)` other than the new error case. Internal swap.
-6. `swift_package_build` must succeed for ALL remaining targets in `Package.swift` (libraries + the `Flux2App` target + test targets; CLIs were deleted in Sortie 5).
+6. `swift_package_build` must succeed for ALL remaining targets in `Package.swift` (libraries + the `Flux2App` target + test targets; CLIs were deleted in Sortie 14).
 
 **Exit criteria**:
 - [ ] `grep -rn 'huggingface\.co' Sources/` returns no matches (case-insensitive) — every runtime HF URL is gone from `Sources/`
@@ -419,21 +543,22 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 11: Strip HF runtime strings; add README acknowledgments
+### Sortie 20: Strip HF runtime strings; add README acknowledgments
 
 **Priority**: 8 — completes the runtime HF excision (removes display strings + accessor renames) and lands the credits surface. Risk: low (mechanical renames + README authoring). Verification: `grep -rn 'huggingface' Sources/` returns only origin/license attribution comments.
 
 > **Note**: GUI About-panel work is explicitly out of scope for this mission per user direction (deferred to a separate workstream). This sortie's credits work is README-only.
 
 **Entry criteria**:
-- [ ] Sortie 10 commit exists; full project builds
+- [ ] Sortie 19 commit exists; full project builds
 
 **Tasks**:
-1. In `Sources/Flux2Core/Configuration/ModelRegistry.swift`:
-   - **Remove** the `huggingFaceURL` accessors at lines 115, 268, 329 (no runtime HF URLs).
-   - **Rename** `huggingFaceRepo` → `repoId` and `huggingFaceSubfolder` → `repoSubfolder` (or similar HF-free names). Update all callers in `Sources/`. Doc comments may attribute model weight origin to HuggingFace (e.g., "Acervo model ID; weights originally from <hf-org>/<hf-repo>") — this is allowed under the credits policy.
+1. In `Sources/Flux2Core/Configuration/ModelRegistry.swift` (verified: `huggingFaceRepo` at lines 34, 257, 321; `huggingFaceURL` at lines 117, 273, 334; no pre-existing `repoId` accessor on these enums — confirmed via `grep -n 'repoId' Sources/Flux2Core/Configuration/ModelRegistry.swift` returns no matches at sortie start):
+   - **Remove** the three `huggingFaceURL` accessors (no runtime HF URLs).
+   - **Rename** `huggingFaceRepo` → `repoId` and `huggingFaceSubfolder` → `repoSubfolder`. Because `repoId` does not currently exist on these enums, this is a clean rename, not a delete. Update all callers in `Sources/` (the rename will compile-fail at every old call site; fix each).
+   - Doc comments may attribute model weight origin to HuggingFace (e.g., "Acervo model ID; weights originally from <hf-org>/<hf-repo>") — this is allowed under the credits policy.
    - Where the prior `huggingFaceURL` was consumed by UI code, remove the link or replace with an Acervo CDN manifest URL if SwiftAcervo exposes one.
-2. Audit `Sources/FluxTextEncoders/Configuration/TextEncoderModelRegistry.swift` similarly — the `huggingFaceURL` accessors at lines 84, 166, 208, 247 must go. The `repoId` field stays.
+2. Audit `Sources/FluxTextEncoders/Configuration/TextEncoderModelRegistry.swift` (verified: `repoId` accessor at lines 69, 155 and stored property at 198, 236; `huggingFaceURL` accessors at lines 84, 166, 208, 247). **Delete** the four `huggingFaceURL` accessors. The `repoId` accessor/field already exists and stays — no rename needed here.
 3. **Update README.md with an `## Acknowledgments` section** containing:
    - Open-source dependency list with licenses: `mlx-swift` (MIT), `swift-argument-parser` (Apache-2.0), `swift-tokenizers` (Apache-2.0), `SwiftAcervo` (verify its license), `universal`/YAML (verify).
    - HuggingFace credit line: "Model weights for the variants distributed via this project's Acervo CDN were originally published on HuggingFace by Mistral AI, the Black Forest Labs team, the LM Studio community, and individual contributors (`VincentGOURBIN`, `aydin99`). Intrusive Memory mirrors these weights via Cloudflare R2 for distribution to Flux2Swift users."
@@ -448,41 +573,42 @@ These are decided. The refine passes do not re-litigate them.
 
 ---
 
-### Sortie 12: Test sweep + tokenizer parity verification
+### Sortie 21: Test sweep + tokenizer parity verification
 
-**Priority**: 5 — proves the migration didn't regress tokenizer behavior. Risk: medium (hidden parity gaps surface here; weakening assertions to "pass tests" is forbidden). Foundation: gates the CI verification in Sortie 13.
+**Priority**: 5 — proves the migration didn't regress tokenizer behavior. Risk: medium (hidden parity gaps surface here; weakening assertions to "pass tests" is forbidden). Foundation: gates the CI verification in Sortie 22.
 
 **Entry criteria**:
-- [ ] Sortie 11 commit exists; full project builds clean
-- [ ] Sortie 6 golden fixtures present at `Tests/Fixtures/TokenizerParity/`
+- [ ] Sortie 20 commit exists; full project builds clean
+- [ ] Sortie 15 golden fixtures present at `Tests/Fixtures/TokenizerParity/`
 
 **Tasks**:
-1. Update `Tests/FluxTextEncodersTests/TokenizerTests.swift` for the `decode` rename (if not already done in Sortie 8 task 2). Re-run; assert green.
+1. Update `Tests/FluxTextEncodersTests/TokenizerTests.swift` for the `decode` rename (if not already done in Sortie 17 task 2). Re-run; assert green.
 2. Add `Tests/FluxTextEncodersTests/TokenizerParityTests.swift`:
-   - Loads each Sortie 6 fixture JSON.
+   - Loads each Sortie 15 fixture JSON.
    - Asserts new-package `encode(text:)` output equals recorded `expected_token_ids`.
    - Asserts new-package `decode(tokenIds:)` output equals recorded `expected_decoded_text`.
    - Includes a printout of prompt + diff on any mismatch.
 3. Run `swift_package_test` for `FluxTextEncodersTests`. All assertions must pass.
 4. Run `swift_package_test` for `Flux2CoreTests` and `Flux2GPUTests`. Investigate any new failures, especially around offline/cache-only paths. Acervo's `isModelAvailable` semantics differ from the old `Hub` cache — fix tests to use Acervo APIs, do not weaken assertions.
 5. Audit any test helper that calls out to `huggingface.co` or expects `HF_TOKEN`. Replace with Acervo-based fixtures or skip with a clear reason.
-6. Mark `TokenizerParityTests.swift` with a comment indicating Sortie 13 will delete it after CI green.
+6. Mark `TokenizerParityTests.swift` with a comment indicating Sortie 22 will delete it after CI green.
 
 **Exit criteria**:
 - [ ] `swift_package_test` succeeds for `FluxTextEncodersTests`, `Flux2CoreTests`, `Flux2GPUTests`
 - [ ] Parity test exists and passes
 - [ ] No `huggingface.co` fetches in any test code path (`grep -rn 'huggingface' Tests/` returns only credits/comment references)
 - [ ] No assertions weakened relative to pre-migration (verify via `git diff Tests/`)
+- [ ] `TokenizerParityTests.swift` contains a `// Sortie 22 will delete this file after CI green` comment marker
 - [ ] Commit message: `R4.1, R4.2, R4.3; test sweep + parity`
 
 ---
 
-### Sortie 13: CI verification + parity test cleanup
+### Sortie 22: CI verification + parity test cleanup
 
 **Priority**: 1.75 — terminal sortie. Risk: low (CI may surface OS-version or simulator drift, but local green is a strong predictor). Cleanup: removes the parity oracle so it does not rot in-tree.
 
 **Entry criteria**:
-- [ ] Sortie 12 commit exists; full local test suite green
+- [ ] Sortie 21 commit exists; full local test suite green
 - [ ] Mission branch pushed to remote
 
 **Tasks**:
@@ -492,7 +618,7 @@ These are decided. The refine passes do not re-litigate them.
 4. If CI fails, triage and fix on the same branch. Do **not** mark this sortie complete with red CI.
 5. Once CI is fully green, delete `TokenizerParityTests.swift` and `Tests/Fixtures/TokenizerParity/`. Re-run `swift_package_test` to confirm deletion does not break anything else. Push.
 6. Verify final `Package.resolved` is committed cleanly (no untracked changes after a fresh `swift package resolve`).
-7. Update the PR description with: (a) link to `recon-swift-tokenizers.md`, (b) link to `cdn-ship-log.md`, (c) summary of API changes, (d) note that the parity test was added and removed within this PR, (e) link to the new credits surface.
+7. Update the PR description with: (a) link to `recon-swift-tokenizers.md`, (b) link to `cdn-ship-log.md`, (c) link to `recon-cdn-inventory.md`, (d) summary of API changes, (e) note that the parity test was added and removed within this PR, (f) link to the new credits surface.
 
 **Exit criteria**:
 - [ ] `gh pr checks <PR>` shows all checks green
@@ -500,31 +626,32 @@ These are decided. The refine passes do not re-litigate them.
 - [ ] `Tests/FluxTextEncodersTests/TokenizerParityTests.swift` does not exist
 - [ ] `Tests/Fixtures/TokenizerParity/` does not exist
 - [ ] `swift_package_test` still passes after parity test deletion
-- [ ] PR description includes the mission summary
+- [ ] PR description includes the mission summary (links to recon docs, ship log, summary of API changes, credits surface)
 - [ ] No untracked changes after a fresh `swift package resolve`
 
 ---
 
 ## Parallelism Structure
 
-**Critical path** (length 12 sorties on the longest chain): S1 → S2 → S3 → S4 → S7 → S8 → S9 → S10 → S11 → S12 → S13. S5 (cleanup) and S6 (fixtures) sit before S7 but neither depends on WU1, so they can begin as soon as the operator starts the mission — they do not extend wall-clock beyond WU1.
+**Critical path** (length 20 sorties on the longest chain): Sortie 1 → Sortie 2 → Sortie 3 → Sortie 4 → Sortie 5 → Sortie 6 → Sortie 7 → Sortie 8 → Sortie 9 → Sortie 10 → Sortie 11 → Sortie 12 → Sortie 13 → Sortie 16 → Sortie 17 → Sortie 18 → Sortie 19 → Sortie 20 → Sortie 21 → Sortie 22. Sortie 14 (cleanup) and Sortie 15 (fixtures) sit before Sortie 16 but neither depends on WU1, so they can begin as soon as the operator starts the mission — they do not extend wall-clock beyond WU1.
 
 **Parallel execution groups**:
 
-- **Group 1 — WU1 sequential (CDN provisioning)**: S1 → S2 → S3 → S4. No intra-group parallelism (each ship is a precondition for the next stage's verification or list completeness). Operator-credentialed work; supervising agent only.
-- **Group 2 — Pre-swap WU2 prep (overlapping WU1)**: S5 (library cleanup) and S6 (fixture capture) both have zero file overlap with WU1 sorties (different directories: WU1 writes to `docs/missions/` + the operator's R2 bucket; S5 deletes `Sources/Flux2CLI/` + tests; S6 writes to `Tests/Fixtures/`). Both can dispatch concurrently with any WU1 sortie. Order between S5 and S6 is independent functionally but they share the SwiftPM build directory, so the supervisor serializes them: **S5 → S6**, with the pair running alongside WU1's S2/S3/S4. **Supervising agent only** (both run `swift_package_build`/`swift_package_test`; sub-agents must not build).
-- **Group 3 — WU2 sequential (code migration)**: S7 → S8 → S9 → S10 → S11 → S12 → S13. Each sortie modifies code that the next depends on (Package.swift swap, then call-site rewrites, then downloaders, then registry strings, then tests, then CI). No intra-group parallelism. **Hard gate**: S7 cannot start until WU1 S4 reports success AND S5+S6 are committed.
+- **Group 1 — WU1 sequential (CDN provisioning, 13 sorties)**: Sortie 1 → Sortie 2 → Sortie 3 → Sortie 4 → Sortie 5 → Sortie 6 → Sortie 7 → Sortie 8 → Sortie 9 → Sortie 10 → Sortie 11 → Sortie 12 → Sortie 13. **No intra-group parallelism** (per locked decision: ships are strictly sequential — operator can only run one `acervo ship` at a time, and they share staging dir + HF download bandwidth). Operator-credentialed work; supervising agent only. Each ship is a single-goal binary pass/fail dispatch.
+- **Group 2 — Pre-swap WU2 prep (overlapping WU1)**: Sortie 14 (library cleanup) and Sortie 15 (fixture capture) both have zero file overlap with WU1 sorties (different directories: WU1 writes to `docs/missions/` + the operator's R2 bucket; Sortie 14 deletes `Sources/Flux2CLI/` + tests; Sortie 15 writes to `Tests/Fixtures/`). Both can dispatch concurrently with any WU1 sortie. Order between Sortie 14 and Sortie 15 is independent functionally but they share the SwiftPM build directory, so the supervisor serializes them: **Sortie 14 → Sortie 15**, with the pair running alongside any WU1 sortie. **Supervising agent only** (both run `swift_package_build`/`swift_package_test`; sub-agents must not build).
+- **Group 3 — WU2 sequential (code migration, 7 sorties)**: Sortie 16 → Sortie 17 → Sortie 18 → Sortie 19 → Sortie 20 → Sortie 21 → Sortie 22. Each sortie modifies code that the next depends on (Package.swift swap, then call-site rewrites, then downloaders, then registry strings, then tests, then CI). No intra-group parallelism. **Hard gate**: Sortie 16 cannot start until WU1 Sortie 13 reports success AND Sorties 14 + 15 are committed.
 
 **Agent constraints**:
 - **Supervising agent**: handles every sortie in this mission. All WU2 sorties run `swift_package_build` or `swift_package_test`. WU1 sorties run operator-credentialed CLI tools (`acervo ship`, `hf`, `curl`, R2 access) that should not be delegated.
 - **Sub-agents (up to 4)**: not used. The mission shape is heavily sequential and build-bound. Allocating sub-agents here would add coordination overhead without wall-clock benefit.
 
-**Maximum parallelism**: 2 simultaneous sorties at any moment (one WU1 ship/verify in flight + one WU2 prep sortie from {S5, S6}).
+**Maximum parallelism**: 2 simultaneous sorties at any moment (one WU1 ship/verify in flight + one WU2 prep sortie from {Sortie 14, Sortie 15}).
 
 **Missed opportunities**: none material. The dependency graph is linear by construction:
-- CDN must be provisioned before any code change can be tested against the new path (WU1 → WU2 S7 layer gate).
+- CDN must be provisioned before any code change can be tested against the new path (WU1 → WU2 Sortie 16 layer gate).
+- Within WU1, ships are strictly sequential per locked decision (no concurrent `acervo ship` invocations).
 - Within WU2 post-swap, each sortie's exit state (Package.swift swap, then call-site rewrites, then downloader rewrites, then registry strings) is the next sortie's entry precondition.
-- Splitting S10 into 10a (downloader rewrite) + 10b (caller updates) was considered and rejected: the new error case must land with its callers to keep the build green.
+- Splitting Sortie 19 into 19a (downloader rewrite) + 19b (caller updates) was considered and rejected: the new error case must land with its callers to keep the build green.
 
 ---
 
@@ -534,8 +661,8 @@ These items have documented fallbacks and do NOT block execution start. Each is 
 
 | Sortie | Issue Type | Description | Resolution Plan |
 |---|---|---|---|
-| WU2 S9 (task 1) | Open question | Does Acervo's manifest verification cover what the legacy `verifyShardedModel(at:)` checks (per-shard SHA + `.safetensors.index.json` presence + total byte count)? | Read `SwiftAcervo` 0.8.3+ source. If covered, drop `verifyShardedModel(at:)`. If partial, keep it and call it after `Acervo.ensureAvailable`. Decision goes in the sortie's commit message. |
-| WU2 S11 (task 3) | Vague criterion | "verify its license" for `SwiftAcervo`, `universal`/YAML | Auto-resolved at sortie start: `cat .build/checkouts/SwiftAcervo/LICENSE` (and equivalent for the YAML dep). Record the license name in the README acknowledgments table. Not a research task — mechanical lookup. |
+| WU2 Sortie 18 (task 1) | Open question | Does Acervo's manifest verification cover what the legacy `verifyShardedModel(at:)` checks (per-shard SHA + `.safetensors.index.json` presence + total byte count)? | Read `SwiftAcervo` 0.8.3+ source. If covered, drop `verifyShardedModel(at:)`. If partial, keep it and call it after `Acervo.ensureAvailable`. Decision goes in the sortie's commit message. |
+| WU2 Sortie 20 (task 3) | Vague criterion | "verify its license" for `SwiftAcervo`, `universal`/YAML | Auto-resolved at sortie start: `cat .build/checkouts/SwiftAcervo/LICENSE` (and equivalent for the YAML dep). Record the license name in the README acknowledgments table. Not a research task — mechanical lookup. |
 
 **Vague criteria scan**: clean — every exit criterion in the plan is grep- or build-verifiable.
 
@@ -545,18 +672,57 @@ These items have documented fallbacks and do NOT block execution start. Each is 
 
 ---
 
+## Requirements Coverage (verified against `docs/missions/tokenizer-migration.md`)
+
+| Requirement | Source Description | Covered By |
+|---|---|---|
+| **R1.1** | Replace `swift-transformers` dep with new deps | Sortie 16. **Modified per locked decision**: `swift-tokenizers` + `SwiftAcervo` (NOT `swift-hf-api`, which is rejected in favor of Acervo). |
+| **R1.2** | Update target deps in FluxTextEncoders + Flux2Core | Sortie 16 tasks 2-3 |
+| **R1.3** | Delete `Package.resolved`, re-resolve, verify no swift-transformers transitives | Sortie 16 tasks 4-6 |
+| **R1.4** | Backend trait: default Swift, only opt into Rust if benchmarked | Locked decision: default Swift. Implemented in Sortie 16 (no opt-in). |
+| **R2.1** | `FluxTextEncoders.swift:14` import unchanged | Sortie 17 task 2 (positional `decode` rewrite at line 896) |
+| **R2.2** | TekkenTokenizer.swift `decode`, `from(modelFolder:)` renames | Sortie 17 tasks 1, 3 |
+| **R2.3** | KleinEmbeddingExtractor.swift audit | Sortie 17 task 5 (Sendable verification at line 23); applyChatTemplate in EmbeddingExtractor.swift:193 already explicit `false` per recon |
+| **R2.4** | Qwen3Generator.swift audit | Sortie 17 task 1 (6 sites at lines 104, 134, 142, 230, 259, 267) |
+| **R2.5** | TextEncoderModelDownloader import + API | Sortie 18. **Modified per locked decision**: replace with SwiftAcervo, not swift-hf-api. Adds `notProvisionedOnCDN` for `ModelVariant.bf16`. Deletes `ensureTekkenJson(at:)`. |
+| **R2.6** | Flux2Core/ModelDownloader.swift audit for Hub usage | Sortie 19. **Expanded per scope**: full hand-rolled HF API client deletion, not just `import` changes. |
+| **R3.1** | Tokenizer Sendable conformance compile-clean | Sortie 17 task 5 |
+| **R4.1** | TokenizerTests.swift `decode` rename | Sortie 17 task 2 (line 140) + Sortie 21 task 1 (re-verify) |
+| **R4.2** | TextEncoderModelDirectoryTests + FluxTextEncodersTests + Flux2CoreTests rerun | TextEncoderModelDirectoryTests + ModelDirectoryTests **deleted** in Sortie 14 (per locked decision: `customModelsDirectory` removed entirely; sandboxed apps can't use a custom storage directory). Remaining tests rerun in Sortie 21. |
+| **R4.3** | Tokenizer parity test (added + dropped within mission) | Sortie 15 captures fixtures from OLD package, Sortie 21 asserts equality, Sortie 22 deletes. |
+| **R5.1** | No data file changes | Out of scope; verified by inspection — `tokenizer.json`, `tekken.json`, `tokenizer_config.json`, safetensors layouts unchanged. |
+| **R6.1** | XcodeBuildMCP `swift_package_build`/`_test` locally; GitHub Actions green | Throughout WU2 (no `swift build` / `swift test`); CI gate at Sortie 22. |
+| **R6.2** | Minimum platforms compatibility | Verified in Sortie 16 build (SwiftAcervo 0.8.3+ supports `macOS(.v26)` / `iOS(.v26)`; failure here aborts the sortie). |
+| **R7** | Risks: `swift-hf-api` parity, `decode` rename, trait selection, dirty ModelDownloader | Pre-flight Risk Notes addresses each. `swift-hf-api` parity moot per locked decision (not introduced). `decode` rename addressed in Sortie 17 with grep verification in exit criteria. Trait selection: default Swift (locked). Dirty ModelDownloader: pre-flight note instructs not to start until marching-relay merged or rebased. |
+
+**Additional scope coverage** (beyond the original tokenizer-migration.md):
+
+| Scope item | Source | Covered By |
+|---|---|---|
+| Hand-rolled HF API client deletion | Plan iteration scope expansion | Sortie 19 |
+| HF runtime URL elimination (`huggingface.co` strings, `huggingFaceURL` accessors) | Plan iteration scope expansion | Sortie 19 (URL grep) + Sortie 20 (accessor renames) |
+| Acervo CDN provisioning (11 models, ~137 GB) | Plan iteration scope expansion | WU1 (Sorties 1–13) |
+| `notProvisionedOnCDN` error case for 5 cut variants | Locked decision | Sortie 18 (text encoder bf16) + Sortie 19 (4 transformer variants) |
+| README acknowledgments | Locked decision (About panel deferred) | Sortie 20 task 3 |
+| Library-only package shape (CLI deletion) | Locked decision | Sortie 14 |
+| `customModelsDirectory` removal | Locked decision | Sortie 14 |
+
+**Coverage verdict**: ✓ All R1.1–R7 requirements covered, with two requirements modified per locked decisions (R1.1 swaps `swift-hf-api` for `SwiftAcervo`; R4.2 drops two test files because their underlying API is deleted). All scope expansions covered.
+
+---
+
 ## Summary
 
 | Metric | Value |
 |---|---|
 | Work units | 2 |
-| Total sorties | 13 (4 in WU1, 9 in WU2) |
-| Dependency structure | Layered: WU1 (CDN provisioning) → WU2 post-swap (S7+). WU2 pre-swap sorties (S5 cleanup, S6 fixtures) are independent of WU1 and can run alongside it. |
-| Critical path length | 12 sorties (S1→S2→S3→S4→S7→S8→S9→S10→S11→S12→S13; S5+S6 overlap with WU1) |
-| Maximum simultaneous sorties | 2 (one WU1 sortie + one of {S5, S6}) |
-| Models to mirror to CDN | 11 (~137 GB) |
+| Total sorties | 22 (13 in WU1, 9 in WU2) |
+| Dependency structure | Layered: WU1 (CDN provisioning) → WU2 post-swap (Sortie 16+). WU2 pre-swap sorties (Sortie 14 cleanup, Sortie 15 fixtures) are independent of WU1 and can run alongside it. |
+| Critical path length | 20 sorties (Sortie 1 → Sortie 13 sequential, then Sortie 16 → Sortie 22 sequential; Sorties 14+15 overlap WU1 and don't extend wall-clock) |
+| Maximum simultaneous sorties | 2 (one WU1 sortie + one of {Sortie 14, Sortie 15}) |
+| Models to mirror to CDN | 11 (~137 GB; one ship per sortie, Sorties 2–12) |
 | Variants kept in registry but not provisioned | 5 (1 text-encoder BF16 + 4 transformer variants) |
-| Gated repos requiring license click-through | 1 (`black-forest-labs/FLUX.2-klein-9B`) |
+| Gated repos requiring license click-through | 1 (`black-forest-labs/FLUX.2-klein-9B`; isolated as Sortie 12) |
 | Source requirements doc | `docs/missions/tokenizer-migration.md` (original; expanded by user direction during plan iteration) |
 | Requirements covered | R1.1–R1.4, R2.1–R2.6, R3.1, R4.1–R4.3, R5.1, R6.1–R6.2, R7 + full HF excision |
-| Open questions blocking execution | 0 (4 in-sortie questions with documented fallbacks; see above) |
+| Open questions blocking execution | 0 (2 in-sortie questions with documented fallbacks; see above) |
