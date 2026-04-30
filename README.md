@@ -2,21 +2,7 @@
 
 A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image generation models, running locally on Apple Silicon Macs using [MLX](https://github.com/ml-explore/mlx-swift).
 
-[![FluxForge Studio on the App Store](https://img.shields.io/badge/App_Store-FluxForge_Studio-0D96F6?logo=apple&logoColor=white)](https://apps.apple.com/us/app/fluxforge-studio/id6758351212) [![Website](https://img.shields.io/badge/Website-fluxforge.vinceforge.com-blue)](https://fluxforge.vinceforge.com)
-
-<a href="https://www.buymeacoffee.com/fluxforgestudio"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=fluxforgestudio&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
-
-## Downloads
-
-**[📦 Latest Release (v2.5.0)](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/tag/v2.5.0)** — Universal binaries for Apple Silicon
-
-| Download | Description |
-|----------|-------------|
-| [Flux2App](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/download/v2.5.0/Flux2App-v2.5.0-macOS.zip) | Demo macOS app with T2I, I2I, chat ([guide](docs/Flux2App.md)) |
-| [Flux2CLI](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/download/v2.5.0/Flux2CLI-v2.5.0-macOS.zip) | Image generation CLI ([guide](docs/CLI.md)) |
-| [FluxEncodersCLI](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/download/v2.5.0/FluxEncodersCLI-v2.5.0-macOS.zip) | Text encoders CLI ([guide](docs/TextEncoders.md)) |
-
-> **Note**: On first launch, macOS may block unsigned apps. Right-click → Open to bypass Gatekeeper.
+> **Fork notice**: This is the `intrusive-memory` fork. It is consumed primarily as a Swift Package Manager library. The original upstream is [VincentGourbin/flux-2-swift-mlx](https://github.com/VincentGourbin/flux-2-swift-mlx), which also publishes pre-built CLI/app binaries. This fork does not currently publish release binaries — see [Build from Source](#build-from-source).
 
 ## Features
 
@@ -46,9 +32,9 @@ A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image gen
 
 ## Requirements
 
-- macOS 15.0 (Sequoia) or later (built on macOS 26 Tahoe)
-- Apple Silicon Mac (M1/M2/M3/M4)
-- Xcode 16.0 or later
+- macOS 26.0 (Tahoe) or later
+- Apple Silicon Mac (M1/M2/M3/M4) — MLX has no x86_64 path
+- Xcode 16 or later, Swift 6.2+
 
 **Memory requirements by model (with on-the-fly quantization):**
 
@@ -60,32 +46,43 @@ A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image gen
 
 ## Installation
 
-### Pre-built Binaries (Recommended)
+### As a Swift Package (recommended for library use)
 
-Download from the [Releases page](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/latest):
+Add to your `Package.swift`:
 
-```bash
-# CLI
-unzip Flux2CLI-v2.5.0-macOS.zip
-./Flux2CLI t2i "a cat" --model klein-4b
-
-# App
-unzip Flux2App-v2.5.0-macOS.zip
-open Flux2App.app
+```swift
+dependencies: [
+    .package(url: "https://github.com/intrusive-memory/flux-2-swift-mlx", .upToNextMajor(from: "2.7.0")),
+],
+targets: [
+    .target(
+        name: "YourTarget",
+        dependencies: [
+            .product(name: "Flux2Core", package: "flux-2-swift-mlx"),
+            // or .product(name: "FluxTextEncoders", package: "flux-2-swift-mlx"),
+        ]
+    ),
+]
 ```
+
+Available products: `Flux2Core` (image generation), `FluxTextEncoders` (text encoders + VLM).
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/VincentGourbin/flux-2-swift-mlx.git
+git clone https://github.com/intrusive-memory/flux-2-swift-mlx.git
 cd flux-2-swift-mlx
 ```
 
-Build with Xcode (not `swift build`):
+Build with Xcode (not `swift build` — see [CLAUDE.md](CLAUDE.md) / [GEMINI.md](GEMINI.md) for the build conventions used in this repository):
 
 1. Open the project in Xcode
 2. Select `Flux2CLI` or `Flux2App` scheme
 3. Build with `Cmd+B` (or `Cmd+R` to run)
+
+### Pre-built Binaries
+
+This fork does **not** currently publish CLI or app binaries. If you need a signed CLI/app bundle, the upstream [VincentGourbin/flux-2-swift-mlx releases](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/latest) page has them.
 
 ### Download Models
 
@@ -208,6 +205,15 @@ See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed
 | [Custom Model Integration](docs/CustomModelIntegration.md) | Integrating custom MLX-compatible models into the framework |
 | [Flux2App Guide](docs/Flux2App.md) | Demo macOS application |
 
+### For AI Agents Working on This Repo
+
+| File | Audience |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Universal — read first |
+| [CLAUDE.md](CLAUDE.md) | Claude Code (XcodeBuildMCP, build conventions) |
+| [GEMINI.md](GEMINI.md) | Gemini (standard `xcodebuild`) |
+| [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md) | Authoritative testing standard |
+
 ### Examples and Benchmarks
 
 | Example | Description |
@@ -235,6 +241,7 @@ See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed
 ## Acknowledgments
 
 - [Black Forest Labs](https://blackforestlabs.ai/) for Flux.2
+- [Vincent Gourbin](https://github.com/VincentGourbin/flux-2-swift-mlx) for the original upstream implementation
 - [Hugging Face Diffusers](https://github.com/huggingface/diffusers) for reference implementation
 - [MLX](https://github.com/ml-explore/mlx) team at Apple for the ML framework
 
