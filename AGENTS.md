@@ -76,7 +76,29 @@ The full release procedure lives in the `ship-swift-library` skill. Agents shoul
 
 ---
 
-## 5. Testing Standard
+## 5. Build and Test Entry Points
+
+The repo ships a `Makefile` that wraps the canonical `xcodebuild` invocations from §6 / `TESTING_REQUIREMENTS.md`. It is the preferred entry point for routine builds and CI-safe tests; agents that need finer-grained control can call `xcodebuild` directly with the same flags.
+
+| Target | Purpose |
+|---|---|
+| `make build` | Debug build, macOS arm64 |
+| `make build-ios` | Build for iOS Simulator (iPhone 17, OS 26.1) |
+| `make install` | Debug build + copy CLIs and `mlx-swift_Cmlx.bundle` to `./bin` |
+| `make release` | Release build + copy to `./bin` |
+| `make test` | Run both CI-required suites (`FluxTextEncodersTests` + `Flux2CoreTests`) |
+| `make test-fte` / `make test-core` | Individual CI-safe suites |
+| `make test-gpu` | `Flux2GPUTests` — local-only, requires GPU + downloaded weights |
+| `make lint` | `swift format -i` over `Sources/` + `Tests/` (no `.swift-format` config — first run rewrites a lot) |
+| `make lint-check` | Same scan, non-mutating (CI-friendly) |
+| `make resolve` | Resolve SPM dependencies into `.spm` |
+| `make clean` | Remove `./bin`, `.spm`, and `Flux2Swift-*` DerivedData |
+
+Run `make help` for the full list. CI (`.github/workflows/tests.yml`) currently still calls `xcodebuild` directly — keep CI and the Makefile in sync when changing flags.
+
+---
+
+## 6. Testing Standard
 
 Authoritative document: [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md). Summary:
 
@@ -103,7 +125,7 @@ Tests use **Swift Testing** (`@Test`, `Issue.record`), not XCTest. The migration
 
 ---
 
-## 6. Common Agent Tasks
+## 7. Common Agent Tasks
 
 ### Adding a test
 1. Decide the target by what the test needs: no GPU/weights → `FluxTextEncodersTests` or `Flux2CoreTests`; GPU/weights → `Flux2GPUTests`.
@@ -121,13 +143,13 @@ Tests use **Swift Testing** (`@Test`, `Issue.record`), not XCTest. The migration
 3. Ship via the `ship-swift-library` skill. The version bump rides with the release PR.
 
 ### Touching CI workflows
-1. The repo has exactly one workflow: `.github/workflows/tests.yml`. There is **no `release.yml`** — see §7.
+1. The repo has exactly one workflow: `.github/workflows/tests.yml`. There is **no `release.yml`** — see §8.
 2. Pin every `uses:` to the latest major (`@v6`, `@v5`, etc.) — older majors trigger Node 16/20 deprecation warnings.
 3. Job names are load-bearing — they're referenced by branch-protection contexts. Don't rename without updating protection.
 
 ---
 
-## 7. Build Artifact Distribution
+## 8. Build Artifact Distribution
 
 This fork **does not produce release binaries**. Only `tests.yml` exists; there is no `release.yml` to build/upload tarballs or zipped CLI/app bundles.
 
@@ -141,7 +163,7 @@ The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries
 
 ---
 
-## 8. Documentation Index
+## 9. Documentation Index
 
 - [README.md](README.md) — End-user / library-consumer entry point
 - [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md) — Authoritative testing standard
@@ -156,7 +178,7 @@ The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries
 
 ---
 
-## 9. Universal Critical Rules
+## 10. Universal Critical Rules
 
 These apply to every agent. Agent-specific rules live in [CLAUDE.md](CLAUDE.md) / [GEMINI.md](GEMINI.md).
 

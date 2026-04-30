@@ -168,11 +168,12 @@ These are decided. The refine passes do not re-litigate them.
 4. After each ship, verify `manifest.json` is fetchable from `R2_PUBLIC_URL/<slugified-repo>/manifest.json` via `curl` — record HTTP 200 and content-length.
 
 **Exit criteria**:
-- [ ] All 10 non-gated repos show "CHECK 6 passed" in the ship log
-- [ ] All 10 manifests return HTTP 200 from `R2_PUBLIC_URL`
-- [ ] `tekken.json` confirmed present in each of the 3 Mistral MLX manifest file lists
-- [ ] Subfolder decision for `VincentGOURBIN/flux_qint_8bit` recorded in the ship log
-- [ ] No code in `Sources/` or `Tests/` modified
+- [ ] `grep -c "CHECK 6 passed" docs/missions/cdn-ship-log.md` returns ≥ 10 (one per non-gated ship)
+- [ ] All 10 manifests return HTTP 200 from `R2_PUBLIC_URL/<slug>/manifest.json` (record exit codes from `curl -fsS -o /dev/null -w "%{http_code}\n" ...` for each, in the ship log)
+- [ ] `tekken.json` confirmed present in each of the 3 Mistral MLX manifest file lists (grep the JSON of each captured manifest for `"tekken.json"`)
+- [ ] `tokenizer.json` confirmed present in each of the 4 Qwen3 MLX manifest file lists
+- [ ] Subfolder decision for `VincentGOURBIN/flux_qint_8bit` recorded in the ship log (the `acervo ship` command line and resulting manifest path are logged)
+- [ ] `git status -s -- Sources/ Tests/` returns empty (no source/test edits made by this sortie)
 
 ---
 
@@ -208,14 +209,14 @@ These are decided. The refine passes do not re-litigate them.
 2. For each model: verify the returned manifest's file count and total byte count match the ship log from Sorties 2-3.
 3. Verify Acervo's `slugify(_:)` produces the expected slug for each `org/repo` (e.g., `lmstudio-community/Mistral-Small-...` → `lmstudio-community_Mistral-Small-...`). Document any surprises.
 4. Pick one small model (e.g., `lmstudio-community/Qwen3-4B-MLX-4bit`) and run `Acervo.ensureAvailable(_:files:progress:)` end-to-end. Confirm files land in `Acervo.modelDirectory(for:)` and SHA-256 manifests verify.
-5. Tear down the test directory.
+5. Tear down the test directory AND delete `scripts/cdn-smoke-test.swift` (the script is one-shot recon and must not be committed).
 
 **Exit criteria**:
-- [ ] All 11 `fetchManifest` calls return success
-- [ ] Manifest file counts match the ship log
-- [ ] One end-to-end `ensureAvailable` succeeds and verifies
-- [ ] No files left behind outside `Acervo.sharedModelsDirectory`
-- [ ] Working tree commit message includes `WU1 complete; CDN provisioned`
+- [ ] All 11 `fetchManifest` calls return success (logged with model id + file count + total bytes)
+- [ ] Manifest file counts match the ship log from S2/S3 for all 11 models
+- [ ] One end-to-end `ensureAvailable(_:files:progress:)` (small model: `lmstudio-community/Qwen3-4B-MLX-4bit`) succeeds and SHA-256 verification passes
+- [ ] `scripts/cdn-smoke-test.swift` does not exist; no untracked files outside `Acervo.sharedModelsDirectory`
+- [ ] Working tree commit message includes the literal string `WU1 complete; CDN provisioned`
 
 ---
 
@@ -237,9 +238,9 @@ These are decided. The refine passes do not re-litigate them.
 1. **Delete CLI targets and source**:
    - Remove the directories: `Sources/Flux2CLI/` and `Sources/FluxEncodersCLI/`.
    - In `Package.swift`: remove the `Flux2CLI` and `FluxEncodersCLI` `.executableTarget(...)` entries AND their corresponding `.executable(name:targets:)` product entries. The library products (`Flux2Core`, `FluxTextEncoders`) and their targets remain.
-2. **Delete `customModelsDirectory` from runtime code**:
+2. **Delete `customModelsDirectory` from runtime code** (do this AFTER task 1 so the deleted CLI doesn't dangle a reference):
    - `Sources/Flux2Core/Configuration/ModelRegistry.swift`: remove the `static var customModelsDirectory: URL?` declaration (around line 415) and the `if let custom = customModelsDirectory { ... }` branch in the directory accessor (around lines 433–435). The accessor returns the unconditional default for now; Sortie 10 will replace the default with `Acervo.modelDirectory(for:)`.
-   - `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`: remove the `static var customModelsDirectory: URL?` (around line 20), the `makeHubApi()` derivation that consults it (around line 27), the `reconfigureHubApi()` helper (around line 32), and the `if let custom` branches in the Mistral and Qwen3 directory accessors (around lines 40 and 51). Note: `makeHubApi()` and `reconfigureHubApi()` are slated for full deletion in Sortie 9; this sortie just removes their `customModelsDirectory` dependency.
+   - `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`: remove the `static var customModelsDirectory: URL?` (around line 20), simplify the body of `makeHubApi()` so it no longer consults `customModelsDirectory` (the function itself remains — full deletion of `makeHubApi()` + `reconfigureHubApi()` happens in Sortie 9 when Acervo replaces `hubApi`), and remove the `if let custom = customModelsDirectory { ... }` branches in the Mistral and Qwen3 directory accessors (around lines 40 and 51). After this sortie: `makeHubApi()` and `reconfigureHubApi()` still exist; `customModelsDirectory` does not.
 3. **Delete tests that exclusively cover the removed surface**:
    - `Tests/FluxTextEncodersTests/TextEncoderModelDirectoryTests.swift` — entire file.
    - `Tests/Flux2CoreTests/ModelDirectoryTests.swift` — entire file.
@@ -340,7 +341,7 @@ These are decided. The refine passes do not re-litigate them.
 
 **Exit criteria**:
 - [ ] `grep -rn 'decode(tokens:' Sources Tests` returns no matches
-- [ ] `grep -rn 'tokenizer\.decode(\\w' Sources Tests` (positional first-arg form) returns no matches in `Sources/FluxTextEncoders/` or `Tests/`
+- [ ] No positional `decode` calls remain: `grep -rEn 'tokenizer\.decode\(' Sources Tests` returns matches and EVERY match is followed by `tokenIds:` (verifiable via `grep -rEn 'tokenizer\.decode\(' Sources Tests | grep -v 'tokenIds:'` returning no matches)
 - [ ] `grep -rn 'from(modelFolder:' Sources Tests` returns no matches
 - [ ] `grep -rn 'applyChatTemplate(messages:' Sources Tests | grep -v 'addGenerationPrompt'` returns no matches
 - [ ] `swift_package_build` succeeds for `FluxTextEncoders` and `Flux2Core` library targets (test/CLI/App MAY still fail due to downloaders)
@@ -361,13 +362,13 @@ These are decided. The refine passes do not re-litigate them.
 1. In `Sources/FluxTextEncoders/Loading/TextEncoderModelDownloader.swift`:
    - Replace `import Hub` with `import SwiftAcervo`.
    - Delete the legacy HF cache path resolution (lines 87-110, the `~/.cache/huggingface/hub/...` block).
-   - Replace `hubApi: HubApi` static + `makeHubApi()` + `reconfigureHubApi()` with `Acervo` static-API calls. `customModelsDirectory` semantics map to Acervo's `sharedModelsDirectory` — verify whether SwiftAcervo exposes a way to override the storage root; if not, document a deviation in `customModelsDirectory`'s behavior in the doc comment.
+   - Delete the `hubApi: HubApi` static, `makeHubApi()`, and `reconfigureHubApi()`. Storage location is `Acervo.sharedModelsDirectory` (Acervo manages this internally; no override hook is exposed — this matches the locked decision to remove `customModelsDirectory` entirely).
    - Replace the `download(model:progress:)` body that uses `hubApi.snapshot(from:matching:)` with `Acervo.ensureAvailable(modelInfo.repoId, files: <explicit file list>, progress: ...)`. The file list per model comes from the manifest written in WU1 — for Mistral MLX quants the list includes `tekken.json`, `tokenizer.json`, `tokenizer_config.json`, the safetensors shards, and config files (verified present in each MLX quant repo ahead of plan).
    - **Delete `ensureTekkenJson(at:progress:)` entirely** (lines 252-283 plus the call sites that invoke it at lines 210, 242, 264). This method is dead code: the hardcoded `huggingface.co/.../tekken.json` fetch was a defensive fallback for the case where downloaded model dirs lacked `tekken.json` — but every lmstudio-community MLX quant ships `tekken.json` directly (verified by HF API probe across 4-bit, 6-bit, 8-bit). With explicit-file-list shipping via Acervo, `tekken.json` is always present.
    - Add handling for `ModelVariant.bf16` (text encoder): when called for the cut variant, throw `TextEncoderModelDownloaderError.notProvisionedOnCDN(variant: .bf16)` with a message naming the variant and stating it will be re-enabled in a follow-up CDN mission.
    - Replace `findModelPath(for:)` with `Acervo.modelDirectory(for: model.repoId)` + `Acervo.isModelAvailable(_:)` checks. Drop `verifyShardedModel(at:)` if Acervo's manifest verification covers it; otherwise keep and call after `ensureAvailable`.
    - Same migration for `downloadQwen3(_:progress:)` and `findQwen3ModelPath(for:)` (the parallel Qwen3 path starting around line 296).
-2. Public API of `TextEncoderModelDownloader` should remain stable: `download(_:progress:)`, `downloadQwen3(_:progress:)`, `findModelPath(for:)`, `findQwen3ModelPath(for:)`, `verifyShardedModel(at:)`, `modelsDirectory`, `customModelsDirectory`. If any caller-facing signature must change, document the break in the commit message.
+2. Public API of `TextEncoderModelDownloader` should remain stable for the surfaces still present after Sortie 5: `download(_:progress:)`, `downloadQwen3(_:progress:)`, `findModelPath(for:)`, `findQwen3ModelPath(for:)`, `verifyShardedModel(at:)`, `modelsDirectory`. (`customModelsDirectory` is intentionally NOT in this list — it was deleted in Sortie 5.) If any caller-facing signature must change, document the break in the commit message.
 3. `swift_package_build` for `FluxTextEncoders` (full target) must succeed.
 
 **Exit criteria**:
