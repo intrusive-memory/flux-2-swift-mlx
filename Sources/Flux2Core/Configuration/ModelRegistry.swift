@@ -31,7 +31,8 @@ public enum ModelRegistry {
     // Flux.2 Klein 9B KV (KV-cached variant for faster multi-reference I2I)
     case klein9B_kv_bf16 = "klein9b-kv-bf16"
 
-    public var huggingFaceRepo: String {
+    /// Acervo model ID; weights originally from the corresponding HuggingFace repo.
+    public var repoId: String {
       switch self {
       case .bf16:
         return "black-forest-labs/FLUX.2-dev"
@@ -55,8 +56,8 @@ public enum ModelRegistry {
       }
     }
 
-    /// Subfolder within the HuggingFace repo
-    public var huggingFaceSubfolder: String? {
+    /// Subfolder within the Acervo model directory where this transformer's weights live.
+    public var repoSubfolder: String? {
       switch self {
       case .bf16:
         return "transformer"
@@ -110,11 +111,6 @@ public enum ModelRegistry {
         // Klein 9B KV from black-forest-labs IS gated
         return true
       }
-    }
-
-    /// Full HuggingFace URL for the model
-    public var huggingFaceURL: String {
-      "https://huggingface.co/\(huggingFaceRepo)"
     }
 
     /// License information (delegates to modelType)
@@ -254,7 +250,8 @@ public enum ModelRegistry {
     case mlx6bit = "6bit"
     case mlx4bit = "4bit"
 
-    public var huggingFaceRepo: String {
+    /// Acervo model ID; weights originally from the corresponding HuggingFace repo.
+    public var repoId: String {
       switch self {
       case .bf16:
         // Original from Mistral AI (gated)
@@ -266,11 +263,6 @@ public enum ModelRegistry {
       case .mlx4bit:
         return "lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit"
       }
-    }
-
-    /// Full HuggingFace URL for the model
-    public var huggingFaceURL: String {
-      "https://huggingface.co/\(huggingFaceRepo)"
     }
 
     public var estimatedSizeGB: Int {
@@ -318,20 +310,16 @@ public enum ModelRegistry {
   public enum VAEVariant: String, CaseIterable, Sendable {
     case standard = "standard"
 
-    public var huggingFaceRepo: String {
+    /// Acervo model ID; weights originally from `black-forest-labs/FLUX.2-klein-4B` on HuggingFace.
+    public var repoId: String {
       // VAE is downloaded from Klein 4B repo (NOT gated)
       // Same VAE weights as all Flux.2 models
       "black-forest-labs/FLUX.2-klein-4B"
     }
 
-    /// Subfolder within the HuggingFace repo
-    public var huggingFaceSubfolder: String {
+    /// Subfolder within the Acervo model directory where the VAE weights live.
+    public var repoSubfolder: String {
       "vae"
-    }
-
-    /// Full HuggingFace URL for the model
-    public var huggingFaceURL: String {
-      "https://huggingface.co/\(huggingFaceRepo)/tree/main/\(huggingFaceSubfolder)"
     }
 
     public var estimatedSizeGB: Int { 3 }

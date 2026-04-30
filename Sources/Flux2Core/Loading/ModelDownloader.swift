@@ -34,24 +34,18 @@ public class Flux2ModelDownloader: @unchecked Sendable {
     }
   }
 
-  // MARK: - Acervo Model IDs (formerly `huggingFaceRepo`)
-  //
-  // SwiftAcervo addresses content by the same "org/repo" string format as
-  // HuggingFace (slugified internally by `Acervo.slugify(_:)`). The accessor
-  // `huggingFaceRepo` on `TransformerVariant` / `VAEVariant` is the source of
-  // truth for these IDs; Sortie 20 renames that accessor to `repoId`. Until
-  // then we read it under its current name.
+  // MARK: - Acervo Model IDs
 
   /// Acervo model ID for a component.
   ///
   /// The returned string is an Acervo model ID (slugified internally by
-  /// SwiftAcervo when used as a directory name). It currently equals the
+  /// SwiftAcervo when used as a directory name). It equals the original
   /// HuggingFace `<org>/<repo>` form because Acervo's CDN ships use the same
   /// addressing scheme.
   private static func repoId(for component: ModelRegistry.ModelComponent) -> String {
     switch component {
     case .transformer(let variant):
-      return variant.huggingFaceRepo
+      return variant.repoId
     case .textEncoder:
       // Text encoder downloads are owned by FluxTextEncoders.TextEncoderModelDownloader.
       // Returned for reference only; this class does not download text encoders.
@@ -70,7 +64,7 @@ public class Flux2ModelDownloader: @unchecked Sendable {
   private static func subfolder(for component: ModelRegistry.ModelComponent) -> String? {
     switch component {
     case .transformer(let variant):
-      return variant.huggingFaceSubfolder
+      return variant.repoSubfolder
     case .vae:
       return "vae"
     case .textEncoder:

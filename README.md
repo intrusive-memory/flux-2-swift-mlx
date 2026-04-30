@@ -240,10 +240,37 @@ See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed
 
 ## Acknowledgments
 
-- [Black Forest Labs](https://blackforestlabs.ai/) for Flux.2
-- [Vincent Gourbin](https://github.com/VincentGourbin/flux-2-swift-mlx) for the original upstream implementation
-- [Hugging Face Diffusers](https://github.com/huggingface/diffusers) for reference implementation
-- [MLX](https://github.com/ml-explore/mlx) team at Apple for the ML framework
+### Open-source dependencies
+
+| Dependency | License |
+|---|---|
+| [mlx-swift](https://github.com/ml-explore/mlx-swift) | MIT |
+| [swift-argument-parser](https://github.com/apple/swift-argument-parser) | Apache-2.0 |
+| [swift-transformers](https://github.com/huggingface/swift-transformers) | Apache-2.0 |
+| [swift-jinja](https://github.com/maaku/swift-jinja) | Apache-2.0 |
+| [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) | MIT |
+| [universal](https://github.com/marcprux/universal) | Apache-2.0 |
+| [Black Forest Labs](https://blackforestlabs.ai/) | — (Flux.2 model architecture) |
+| [Vincent Gourbin](https://github.com/VincentGourbin/flux-2-swift-mlx) | MIT (original upstream Swift implementation) |
+| [Hugging Face Diffusers](https://github.com/huggingface/diffusers) | Apache-2.0 (reference implementation) |
+
+### Model weights
+
+Model weights for the variants distributed via this project's Acervo CDN were originally published on HuggingFace by Mistral AI, the Black Forest Labs team, the LM Studio community, and individual contributors (`VincentGOURBIN`, `aydin99`). Intrusive Memory mirrors these weights via Cloudflare R2 for distribution to Flux2Swift users.
+
+| Acervo model ID | HuggingFace origin | License |
+|---|---|---|
+| `lmstudio-community/Qwen3-4B-MLX-8bit` | [huggingface.co/lmstudio-community/Qwen3-4B-MLX-8bit](https://huggingface.co/lmstudio-community/Qwen3-4B-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-4B-MLX-4bit` | [huggingface.co/lmstudio-community/Qwen3-4B-MLX-4bit](https://huggingface.co/lmstudio-community/Qwen3-4B-MLX-4bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-8B-MLX-8bit` | [huggingface.co/lmstudio-community/Qwen3-8B-MLX-8bit](https://huggingface.co/lmstudio-community/Qwen3-8B-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-8B-MLX-4bit` | [huggingface.co/lmstudio-community/Qwen3-8B-MLX-4bit](https://huggingface.co/lmstudio-community/Qwen3-8B-MLX-4bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit) | Apache-2.0 |
+| `aydin99/FLUX.2-klein-4B-int8` | [huggingface.co/aydin99/FLUX.2-klein-4B-int8](https://huggingface.co/aydin99/FLUX.2-klein-4B-int8) | Apache-2.0 (same as BFL Klein) |
+| `black-forest-labs/FLUX.2-klein-4B` | [huggingface.co/black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) | Apache-2.0 |
+| `black-forest-labs/FLUX.2-klein-9B` | [huggingface.co/black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Gated — FLUX.2 Non-Commercial License |
+| `VincentGOURBIN/flux_qint_8bit` | [huggingface.co/VincentGOURBIN/flux_qint_8bit](https://huggingface.co/VincentGOURBIN/flux_qint_8bit) | Gated — FLUX.2 Non-Commercial License (derived from Dev) |
 
 ## License
 
