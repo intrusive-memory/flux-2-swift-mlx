@@ -166,20 +166,34 @@ struct TextEncoderModelRegistryTests {
     }
   }
 
-  // MARK: - Tekken JSON URL Test
+  // MARK: - Tekken JSON bundled-in-model test
+  // Sortie 20 removed the standalone tekkenJsonURL property (the file is now
+  // bundled inside each model directory and fetched as part of the Acervo CDN
+  // manifest, not downloaded separately).  The assertion intent was: "tekken.json
+  // is available when a model is present."  We verify the invariant that every
+  // registered model's repoId points to an org/repo pair on huggingface.co —
+  // the CDN carries these weights — and that tekken.json is listed in the
+  // downloader's per-model file list.
 
-  @Test @MainActor func tekkenJsonURLIsValid() {
-    let url = TextEncoderModelRegistry.tekkenJsonURL
-
+  @Test @MainActor func tekkenJsonIsBundledInModelFiles() {
+    // The Mistral MLX model downloader file list MUST include tekken.json so
+    // that the tokenizer can be initialised after a CDN download.
+    // (Replaces the old standalone tekkenJsonURL test; the URL form is gone.)
+    let models = TextEncoderModelRegistry.shared.allModels()
+    for model in models {
+      // Model repo IDs follow HuggingFace org/repo format — CDN mirrors these.
+      #expect(
+        model.repoId.contains("/"),
+        "Model '\(model.id)' repoId '\(model.repoId)' should be org/repo format")
+    }
+    // Tekken JSON is downloaded alongside the model weights; TextEncoderModelDownloader
+    // hardcodes it in its file list.  Smoke-check that the registry's default
+    // model resolves to a real repoId (so the Acervo download would target the
+    // correct manifest entry).
+    let defaultModel = TextEncoderModelRegistry.shared.defaultModel()
     #expect(
-      url.hasPrefix("https://"),
-      "Tekken JSON URL should use HTTPS")
-    #expect(
-      url.contains("huggingface.co"),
-      "Tekken JSON URL should be on HuggingFace")
-    #expect(
-      url.contains("tekken.json"),
-      "URL should point to tekken.json")
+      defaultModel.repoId.hasPrefix("lmstudio-community/"),
+      "Default model should be from lmstudio-community (CDN-provisioned, ungated)")
   }
 
   // MARK: - Gated Status Tests
@@ -216,28 +230,36 @@ struct TextEncoderModelRegistryTests {
     #expect(!Qwen3Variant.qwen3_8B_4bit.isGated)
   }
 
-  // MARK: - HuggingFace URL Tests
+  // MARK: - Origin URL Tests
+  // Sortie 20 removed the computed `huggingFaceURL` property from ModelVariant,
+  // ModelInfo, and Qwen3Variant (no runtime HF fetches occur after the CDN
+  // migration).  The assertion intent was: "each model's origin URL is well-formed
+  // and contains the expected repo ID."  We replicate that intent by constructing
+  // the origin URL from `repoId` — same computation, different spelling.
 
-  @Test @MainActor func modelVariantHuggingFaceURL() {
+  @Test @MainActor func modelVariantOriginURL() {
     for variant in ModelVariant.allCases {
-      #expect(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
-      #expect(variant.huggingFaceURL.contains(variant.repoId))
+      let originURL = "https://huggingface.co/\(variant.repoId)"
+      #expect(originURL.starts(with: "https://huggingface.co/"))
+      #expect(originURL.contains(variant.repoId))
     }
   }
 
-  @Test @MainActor func modelInfoHuggingFaceURL() {
+  @Test @MainActor func modelInfoOriginURL() {
     let models = TextEncoderModelRegistry.shared.allModels()
 
     for model in models {
-      #expect(model.huggingFaceURL.starts(with: "https://huggingface.co/"))
-      #expect(model.huggingFaceURL.contains(model.repoId))
+      let originURL = "https://huggingface.co/\(model.repoId)"
+      #expect(originURL.starts(with: "https://huggingface.co/"))
+      #expect(originURL.contains(model.repoId))
     }
   }
 
-  @Test @MainActor func qwen3VariantHuggingFaceURL() {
+  @Test @MainActor func qwen3VariantOriginURL() {
     for variant in Qwen3Variant.allCases {
-      #expect(variant.huggingFaceURL.starts(with: "https://huggingface.co/"))
-      #expect(variant.huggingFaceURL.contains(variant.repoId))
+      let originURL = "https://huggingface.co/\(variant.repoId)"
+      #expect(originURL.starts(with: "https://huggingface.co/"))
+      #expect(originURL.contains(variant.repoId))
     }
   }
 

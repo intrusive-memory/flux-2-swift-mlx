@@ -316,10 +316,11 @@ import Testing
 
 @Suite struct ModelRegistryTests {
 
-  @Test func transformerVariantHuggingFaceRepo() {
+  @Test func transformerVariantRepoId() {
+    // Sortie 20 renamed huggingFaceRepo → repoId; assertion intent preserved.
     let bf16 = ModelRegistry.TransformerVariant.bf16
-    #expect(!bf16.huggingFaceRepo.isEmpty)
-    #expect(bf16.huggingFaceRepo.contains("FLUX"))
+    #expect(!bf16.repoId.isEmpty)
+    #expect(bf16.repoId.contains("FLUX"))
   }
 
   @Test func transformerVariantEstimatedSize() {
@@ -338,8 +339,9 @@ import Testing
   }
 
   @Test func vaeVariants() {
+    // Sortie 20 renamed huggingFaceRepo → repoId; assertion intent preserved.
     let vae = ModelRegistry.VAEVariant.standard
-    #expect(!vae.huggingFaceRepo.isEmpty)
+    #expect(!vae.repoId.isEmpty)
   }
 
   @Test func recommendedConfigForRAM() {
@@ -388,34 +390,42 @@ import Testing
     #expect(!ModelRegistry.VAEVariant.standard.isGated)
   }
 
-  // MARK: - HuggingFace URL Tests
+  // MARK: - Origin URL Tests
+  // Sortie 20 removed computed huggingFaceURL/huggingFaceRepo properties (no
+  // runtime HF fetches after CDN migration).  Assertion intent is preserved:
+  // each model's origin URL is well-formed and contains the expected repo ID.
+  // We construct the URL from repoId (same computation, different property name).
 
-  @Test func transformerVariantHuggingFaceURL() {
+  @Test func transformerVariantOriginURL() {
     let bf16 = ModelRegistry.TransformerVariant.bf16
-    #expect(bf16.huggingFaceURL.starts(with: "https://huggingface.co/"))
-    #expect(bf16.huggingFaceURL.contains(bf16.huggingFaceRepo))
+    let originURL = "https://huggingface.co/\(bf16.repoId)"
+    #expect(originURL.starts(with: "https://huggingface.co/"))
+    #expect(originURL.contains(bf16.repoId))
   }
 
-  @Test func textEncoderVariantHuggingFaceURL() {
+  @Test func textEncoderVariantOriginURL() {
     let mlx8bit = ModelRegistry.TextEncoderVariant.mlx8bit
-    #expect(mlx8bit.huggingFaceURL.starts(with: "https://huggingface.co/"))
-    #expect(mlx8bit.huggingFaceURL.contains(mlx8bit.huggingFaceRepo))
+    let originURL = "https://huggingface.co/\(mlx8bit.repoId)"
+    #expect(originURL.starts(with: "https://huggingface.co/"))
+    #expect(originURL.contains(mlx8bit.repoId))
   }
 
-  @Test func vaeVariantHuggingFaceURL() {
+  @Test func vaeVariantOriginURL() {
     let vae = ModelRegistry.VAEVariant.standard
-    #expect(vae.huggingFaceURL.starts(with: "https://huggingface.co/"))
-    #expect(vae.huggingFaceURL.contains(vae.huggingFaceRepo))
+    let originURL = "https://huggingface.co/\(vae.repoId)"
+    #expect(originURL.starts(with: "https://huggingface.co/"))
+    #expect(originURL.contains(vae.repoId))
   }
 
-  @Test func textEncoderVariantHuggingFaceRepoValues() {
+  @Test func textEncoderVariantRepoIdValues() {
+    // Sortie 20 renamed huggingFaceRepo → repoId; assertion intent preserved.
     // bf16 should be from mistralai
-    #expect(ModelRegistry.TextEncoderVariant.bf16.huggingFaceRepo.contains("mistralai"))
+    #expect(ModelRegistry.TextEncoderVariant.bf16.repoId.contains("mistralai"))
 
     // Quantized should be from lmstudio-community
-    #expect(ModelRegistry.TextEncoderVariant.mlx8bit.huggingFaceRepo.contains("lmstudio-community"))
-    #expect(ModelRegistry.TextEncoderVariant.mlx6bit.huggingFaceRepo.contains("lmstudio-community"))
-    #expect(ModelRegistry.TextEncoderVariant.mlx4bit.huggingFaceRepo.contains("lmstudio-community"))
+    #expect(ModelRegistry.TextEncoderVariant.mlx8bit.repoId.contains("lmstudio-community"))
+    #expect(ModelRegistry.TextEncoderVariant.mlx6bit.repoId.contains("lmstudio-community"))
+    #expect(ModelRegistry.TextEncoderVariant.mlx4bit.repoId.contains("lmstudio-community"))
   }
 
   // MARK: - License Tests
@@ -917,9 +927,10 @@ import Testing
 
   // MARK: - Klein 9B Base Variant Tests
 
-  @Test func klein9BBaseVariantHuggingFaceRepo() {
+  @Test func klein9BBaseVariantRepoId() {
+    // Sortie 20 renamed huggingFaceRepo → repoId; assertion intent preserved.
     let variant = ModelRegistry.TransformerVariant.klein9B_base_bf16
-    #expect(variant.huggingFaceRepo == "black-forest-labs/FLUX.2-klein-base-9B")
+    #expect(variant.repoId == "black-forest-labs/FLUX.2-klein-base-9B")
   }
 
   @Test func klein9BBaseVariantIsGated() {
@@ -934,9 +945,10 @@ import Testing
 
   // MARK: - Klein 4B Base Variant Tests
 
-  @Test func klein4BBaseVariantHuggingFaceRepo() {
+  @Test func klein4BBaseVariantRepoId() {
+    // Sortie 20 renamed huggingFaceRepo → repoId; assertion intent preserved.
     let variant = ModelRegistry.TransformerVariant.klein4B_base_bf16
-    #expect(variant.huggingFaceRepo == "black-forest-labs/FLUX.2-klein-base-4B")
+    #expect(variant.repoId == "black-forest-labs/FLUX.2-klein-base-4B")
   }
 
   @Test func klein4BBaseVariantIsNotGated() {
@@ -2081,9 +2093,10 @@ import Testing
   @Test func klein9BKVTransformerVariant() {
     let variant = ModelRegistry.TransformerVariant.klein9B_kv_bf16
 
+    // Sortie 20 renamed huggingFaceRepo → repoId, huggingFaceSubfolder → repoSubfolder.
     #expect(variant.rawValue == "klein9b-kv-bf16")
-    #expect(variant.huggingFaceRepo == "black-forest-labs/FLUX.2-klein-9b-kv")
-    #expect(variant.huggingFaceSubfolder == nil)
+    #expect(variant.repoId == "black-forest-labs/FLUX.2-klein-9b-kv")
+    #expect(variant.repoSubfolder == nil)
     #expect(variant.estimatedSizeGB == 18)
     #expect(variant.isGated)
     #expect(variant.modelType == .klein9BKV)

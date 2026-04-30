@@ -102,6 +102,14 @@ public final class Qwen3Generator: @unchecked Sendable {
       if hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
+          // NOTE (OPERATION FAREWELL EMBRACE Sortie 21): swift-tokenizers' BPE decoder
+          // inserts a space between successive tokens during decode. Confirmed on the
+          // 7-vocab GPT-2 stub (`<unk> <unk>` instead of `<unk><unk>`). For full Qwen3
+          // vocabularies the impact is unverified — most real text doesn't hit `<unk>`,
+          // but generated output strings may have subtly different whitespace vs the
+          // pre-migration swift-transformers behavior. Validate with an app smoke test
+          // on a real Qwen3 model (post-CDN-ship); if user-visible whitespace drift is
+          // observed, file as a follow-up.
           let tokenText = tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
