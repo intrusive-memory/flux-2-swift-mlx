@@ -6,9 +6,20 @@
 
 ## 1. Build Tools — Never `swift build` or `swift test`
 
-The user's global `~/.claude/CLAUDE.md` forbids `swift build` and `swift test`. This applies in full here. Use one of:
+The user's global `~/.claude/CLAUDE.md` forbids `swift build` and `swift test`. This applies in full here. Order of preference:
 
-### XcodeBuildMCP (preferred — local development)
+### `make` targets (preferred — matches global "prefer Makefiles" rule)
+
+This repo now ships a `Makefile`. Run `make help` to discover targets. The most common are:
+
+- `make build` / `make build-ios` — debug builds for macOS arm64 / iOS Simulator
+- `make install` / `make release` — copy CLIs + `mlx-swift_Cmlx.bundle` to `./bin`
+- `make test` (CI-required suites) / `make test-gpu` (local-only)
+- `make lint` — run `swift format` across the tree (see §6 — first-run produces churn)
+
+The Makefile wraps `xcodebuild` with the canonical flags from `TESTING_REQUIREMENTS.md` (`ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`, etc.).
+
+### XcodeBuildMCP (when you need finer control)
 
 When working interactively, prefer the XcodeBuildMCP tools over raw shell commands. Relevant operations for this repo:
 
@@ -40,8 +51,7 @@ xcodebuild test \
 
 ### What does NOT exist here
 
-- No `Makefile` — don't try `make build` / `make test` / `make lint`. The `ship-swift-library` skill assumes one; for this repo, skip those steps.
-- No `swift-format` configuration. Don't run formatters speculatively — there is no enforced style and an unconfigured run will produce mass churn.
+- No `.swift-format` configuration file. `make lint` runs `swift format` with default rules, so the first run will rewrite a large amount of source. Treat that diff as a one-time style baseline; review it before committing.
 - No `release.yml` workflow. Don't reference `make dist` or expect tarball uploads to fire on `release: published`.
 
 ---
@@ -83,12 +93,11 @@ The user's global Claude instructions live at `~/.claude/CLAUDE.md`. Key load-be
 
 ## 5. Claude-Specific Critical Rules
 
-In addition to the universal rules in [AGENTS.md §9](AGENTS.md#9-universal-critical-rules):
+In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-critical-rules):
 
-1. **Never use `swift build` / `swift test`.** Use XcodeBuildMCP locally; `xcodebuild` in CI.
-2. **Always pass `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`** when invoking `xcodebuild`. MLX is arm64-only.
-3. **Don't invent a `make lint` step here.** This repo has no Makefile and no formatter config.
-4. **Don't manually upload release tarballs.** No `release.yml` exists; the right answer is to add one in a separate PR, not to hand-build artifacts at release time.
+1. **Never use `swift build` / `swift test`.** Use `make` targets first, then XcodeBuildMCP locally; `xcodebuild` in CI.
+2. **Always pass `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`** when invoking `xcodebuild` directly. MLX is arm64-only. (The Makefile already does this for you.)
+3. **Don't manually upload release tarballs.** No `release.yml` exists; the right answer is to add one in a separate PR, not to hand-build artifacts at release time.
 
 ---
 

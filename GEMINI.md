@@ -4,9 +4,17 @@
 
 ---
 
-## 1. Build Tools — Use Standard `xcodebuild`
+## 1. Build Tools — `make` Targets, or Raw `xcodebuild`
 
-Gemini does not have access to XcodeBuildMCP. Use raw `xcodebuild` directly. The canonical invocation for tests:
+The repo ships a `Makefile` that wraps the canonical `xcodebuild` invocations. Prefer `make` targets when they fit:
+
+- `make build` / `make build-ios` — debug builds
+- `make install` / `make release` — copy CLIs + Metal bundle to `./bin`
+- `make test` / `make test-fte` / `make test-core` / `make test-gpu`
+- `make lint` — `swift format` across the tree (first run produces churn; no config file exists)
+- `make help` — full list
+
+Gemini does not have access to XcodeBuildMCP, so when finer control is needed, use raw `xcodebuild` directly. The canonical invocation for tests:
 
 ```bash
 xcodebuild test \
@@ -40,18 +48,17 @@ Discover available simulators with `xcrun simctl list devices available` if a di
 
 ## 3. What Does Not Exist
 
-- No `Makefile` — don't try `make build` / `make test` / `make lint`.
-- No `swift-format` configuration. Don't run formatters speculatively.
+- No `.swift-format` configuration. `make lint` runs with default rules — first run will rewrite a lot of source. Review before committing.
 - No `release.yml` workflow — only `tests.yml`. Releases are tagged manually following the `ship-swift-library` flow described in [AGENTS.md §4](AGENTS.md#4-branching-and-release-flow).
 
 ---
 
 ## 4. Gemini-Specific Critical Rules
 
-In addition to the universal rules in [AGENTS.md §9](AGENTS.md#9-universal-critical-rules):
+In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-critical-rules):
 
-1. **Never use `swift build` / `swift test`.** Use `xcodebuild` directly.
-2. **Always pass `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`** when invoking `xcodebuild`.
+1. **Never use `swift build` / `swift test`.** Prefer `make` targets; otherwise `xcodebuild` directly.
+2. **Always pass `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`** when invoking `xcodebuild` directly. (The Makefile already does this.)
 3. **Pin iOS Simulator OS version exactly** — `OS=latest` is unreliable.
 
 ---
