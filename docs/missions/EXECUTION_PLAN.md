@@ -1,3 +1,10 @@
+---
+feature_name: OPERATION FAREWELL EMBRACE
+starting_point_commit: 72a3eb6f3fe2b295e0eec5c4a8eb02ea1865e55f
+mission_branch: mission/farewell-embrace/01
+iteration: 1
+---
+
 # EXECUTION_PLAN.md — Flux2Swift HuggingFace Excision
 
 > **Scope expansion notice**: This plan has grown beyond the original `docs/missions/tokenizer-migration.md`. By user direction during plan iteration, the mission now covers (a) the original `swift-transformers` → `swift-tokenizers` swap, (b) full elimination of HuggingFace runtime dependencies — including the hand-rolled HF API client in `Flux2Core/Loading/ModelDownloader.swift`, the hardcoded `huggingface.co` URL in `TextEncoderModelDownloader.swift`, and all `huggingFaceURL` display strings — and (c) replacement of model loading with the SwiftAcervo CDN. `swift-hf-api` is NOT introduced.
