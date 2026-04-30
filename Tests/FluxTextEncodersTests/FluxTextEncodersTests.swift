@@ -186,7 +186,7 @@ struct FluxTextEncodersIntegrationTests {
       ["role": "user", "content": "How are you?"],
     ]
 
-    let prompt = tokenizer.applyChatTemplate(messages: messages)
+    let prompt = tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
 
     // Should be non-empty
     #expect(!prompt.isEmpty)

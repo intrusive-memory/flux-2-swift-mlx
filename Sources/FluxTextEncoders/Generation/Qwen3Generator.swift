@@ -102,7 +102,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       if hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
-          let tokenText = tokenizer.decode(tokens: pendingTokens)
+          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -132,7 +132,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining tokens
     if hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokens: pendingTokens)
+      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -140,7 +140,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokens: generatedTokens)
+    var outputText = tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {
@@ -229,7 +229,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       if stream && hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
-          let tokenText = tokenizer.decode(tokens: pendingTokens)
+          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -258,7 +258,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining pending tokens (streaming mode)
     if stream && hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokens: pendingTokens)
+      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -266,7 +266,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokens: generatedTokens)
+    var outputText = tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {
