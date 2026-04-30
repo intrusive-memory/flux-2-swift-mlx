@@ -2,15 +2,24 @@
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. A *work unit* groups related sorties.
 
-## ⏸ Mission Status: PAUSED — awaiting external fix in `../SwiftAcervo`
+## ⏸ Mission Status: PAUSED — Sortie 5 upload incomplete; needs operator-driven resumption
 
-**Pause reason**: WU1 Sortie 5 (`aydin99/FLUX.2-klein-4B-int8`) is FATAL on attempt 1 due to a confirmed bug in `acervo` 0.8.3's manifest generator (basename-only paths for nested-layout HF repos). A separate agent is fixing this in `/Users/stovak/Projects/SwiftAcervo` in parallel; details captured in `/Users/stovak/Projects/SwiftAcervo/TODO.md` § P0.
+The 0.8.4 fix is installed and functionally verified (Resume Protocol from prior iteration passed). Sortie 5 retry's `acervo upload` was killed at the 10-min Bash timeout with only 1.4 of 8.3 GiB uploaded (~17%). CDN probe confirms NONE of the model files (`text_encoder/model.safetensors`, root `diffusion_pytorch_model.safetensors`) reached R2 — only small `.cache/` lock/metadata files did. The local staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` is still intact.
 
-**WU2 is also paused** — Sortie 16 has been gated on WU1 completion since the start; this just makes the dependency more visible.
+**Two related findings, both important for Sortie 6+ planning:**
 
-**Do NOT dispatch any sortie agents** while this status is PAUSED. The next `/mission-supervisor resume` invocation MUST run the Resume Protocol below before considering any dispatch.
+1. **The repo is genuinely 8.3 GiB**, not 4 GiB as the plan listed. `du -sh` confirms: 3.6 GB root `diffusion_pytorch_model.safetensors` + 4.5 GB `text_encoder/` + 160 MB `vae/` + 15 MB `tokenizer/`. The plan's "4 GB" estimate referred to one of the safetensors files, not the full repo.
+2. **Sustained CDN throughput is ~2.3 MiB/s on the big files** (`Completed 1.4 GiB/8.3 GiB (2.3 MiB/s)` per the upload's last log line). The earlier "~17 MiB/s" inference for Sortie 4 came from misreading staging-dir timestamps — the manifest.json's mtime is when local CHECK 3 finishes, not when the upload completes. So Sorties 2 + 3's ~2.2 MiB/s observation was correct all along, and the optimistic recalibration was wrong. **Big-ship ceiling is real**: at 2.3 MiB/s, 8 GiB ≈ 60 min, 32 GiB ≈ 4 hours — well beyond any single-agent dispatch window.
 
-## Resume Protocol (run on next `/mission-supervisor resume`)
+**Why my dispatch was the wrong shape for this payload:** the prompt's ban on Monitor + backgrounding made sense for the lmstudio-community 2–4 GB ships (which all completed within the 10-min Bash window). For an 8.3 GiB payload at 2.3 MiB/s, the 10-min cap is structural — the upload needs ~60 min wall-clock. The Bash tool returned a "still running" indicator at the 10-min mark, the agent (correctly per its instructions) treated that as a violation and stopped, and the underlying upload was then killed when the agent exited.
+
+**Operator path forward (recommendation):** run `acervo upload aydin99/FLUX.2-klein-4B-int8 /tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8` manually in your host shell (regular terminal, no timeout). `aws s3 sync` underneath should be idempotent — it'll skip the small lock/metadata files that already uploaded, then push the big model files. ETA ~50 min. When complete, run `/mission-supervisor resume` and the supervisor will dispatch a haiku closeout sortie (verify CDN, append log, commit) — same pattern as Sortie 4's closeout.
+
+**Alternate path (untested) for the supervisor to handle Sortie 6+ autonomously:** dispatch with Monitor allowed, where the agent kicks the upload, accepts the Bash timeout return, and uses Monitor to wait for the underlying bash task to complete. This depends on whether the Bash tool's 10-min timeout actually kills the process or just stops streaming. Sortie 5's evidence suggests it kills (no `acervo`/`aws` processes were running after the agent exited), so this path may not work without `nohup` + `disown` + `setsid` to fully detach. NOT recommended for Sortie 5 — operator-manual is faster and more reliable.
+
+Resume Protocol section retained below for audit / future-mission reference.
+
+## Resume Protocol (run on next `/mission-supervisor resume` if a future pause occurs)
 
 Before dispatching ANY sortie, the supervisor must verify the SwiftAcervo fix has landed. Steps:
 
@@ -93,19 +102,22 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 ## Per-Work-Unit State
 
 ### WU1 — Acervo CDN Provisioning
-- Work unit state: BLOCKED — confirmed `acervo` 0.8.3 bug with nested-layout HF repos. Awaiting operator decision before any further dispatches.
+- Work unit state: BLOCKED — Sortie 5 upload partially completed then killed at 10-min Bash timeout. Awaiting operator-driven manual upload before any further dispatch.
 - Current sortie: 5 of 13 (Sorties 1, 2, 3, 4 COMPLETED at commits `ff42362`, `bf57228`, `f0fea4a`, `1572273`)
-- Sortie state: FATAL on attempt 1 (structural blocker, not a transient retry candidate)
-- Sortie type: command (operator-credentialed CLI: `acervo ship`)
-- Model: sonnet (attempt 1)
-- Complexity score: 9
-- Last verified: Sortie 5 attempt 1 — `acervo ship aydin99/FLUX.2-klein-4B-int8 --no-verify` downloaded all 19 files into `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` (correct nested layout: `tokenizer/`, `text_encoder/`, `vae/`). CHECK 4 failed because the generated `manifest.json` writes file paths as basenames (e.g. `"path": "config.json"` × 3, one per subdir) instead of subdir-prefixed paths. CHECK 4 then looks for `added_tokens.json` at staging root and finds nothing.
-- Notes:
-  - Throughput observation: download completed in ~4 min (~17 MiB/s), confirming Sortie 4's revised throughput estimate. Sorties 2+3's ~2.2 MiB/s was anomalous.
-  - Affected sorties (likely same bug): 5, 7, 12 (transformer+VAE+text_encoder+tokenizer subdirs); Sortie 11 already plan-special-cased.
-  - Unaffected sorties (flat layout): 6, 8, 9, 10 (lmstudio-community Mistral variants).
-  - Local staging intact at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — do NOT delete pending operator decision.
-  - Three options surfaced to operator: (A) fix `acervo` upstream; (B) skip 5/7/12, ship 6/8/9/10 first, return to nested-repo ships after fix; (C) manual hand-crafted manifest workaround (fragile, untested). Awaiting input.
+- Sortie state: PARTIAL (attempt 2 — supervisor + agent verified env + manifest, agent kicked `acervo upload`, Bash timed out at 10 min, agent reported correctly per instructions, underlying upload was killed when agent exited)
+- Sortie type: command (operator-credentialed CLI: `acervo upload`)
+- Model: sonnet (attempts 1 + 2 both sonnet)
+- Complexity score: 9 — but the architectural mismatch (10-min Bash timeout vs ~60-min upload time) means this sortie is structurally too large for the foreground dispatch pattern. NOT a model/agent quality issue.
+- Last verified (after attempt 2):
+  - `acervo --version` is `0.8.4`. Manifest is correct (subdir paths). CHECK 4 passed (per upload output line 1).
+  - Upload reached "Completed 1.4 GiB / 8.3 GiB (2.3 MiB/s) with 17 file(s) remaining" before being killed.
+  - CDN probe: `manifest.json` HTTP 404; `text_encoder/model.safetensors` HTTP 404; root `diffusion_pytorch_model.safetensors` HTTP 404. **None of the actual model files reached R2.** The 1.4 GiB transferred was lock/metadata files in `.cache/huggingface/download/` plus partial uploads of the small files in `vae/` + `tokenizer/`.
+  - Local staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` is intact (8.3 GiB on disk, all 19 files in nested layout, manifest with subdir paths).
+  - Bash output preserved at `/private/tmp/claude-501/-Users-stovak-Projects-flux-2-swift-mlx/cf6ab61c-03be-4ea0-97ff-07aadd6c2a1e/tasks/bs640w3eb.output` (110 KB).
+- Notes / next steps:
+  - Recommended path: operator runs `acervo upload aydin99/FLUX.2-klein-4B-int8 /tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8` in their host shell. `aws s3 sync` is idempotent → resumes from where attempt 2 stopped. ETA ~60 min wall time (8.3 GiB × 2.3 MiB/s ≈ 3700s).
+  - When complete, `/mission-supervisor resume` will see CDN manifest at HTTP 200 and dispatch a haiku closeout sortie (verify subdir paths, append ship log, path-restricted commit) — same shape as Sortie 4's closeout.
+  - **Big-ship strategy decision is now FORCED for Sortie 6+** (8 GB+ ships): foreground-agent pattern is structurally infeasible. See "Pending operator decision" in Overall Status.
 - Notes (carried forward for all subsequent ship sorties):
   1. **CDN slug form** — `acervo` uploads to **underscore-slug** (`<owner>_<repo>`), NOT slash-slug. Verification `curl` MUST use `<R2_PUBLIC_URL>/models/<owner>_<repo>/manifest.json`. The plan's "slugified-repo" wording in the per-ship template means underscore form. Confirmed by Sortie 2: HTTP 200 on underscore form, HTTP 404 on slash form.
   2. **Foreground ship pattern** — Bash with `timeout: 600000`, no backgrounding. Sortie 2 empirically ran ~18 min despite the 10-min spec; `acervo`'s streaming output kept the call alive. Pattern proven for 2 GB. Expected to scale to 4 GB (~36 min) without strategy change.
@@ -170,21 +182,35 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | WU1 | 5 | BLOCKED — confirmed `acervo` 0.8.3 bug with nested-layout HF repos | Both `acervo ship` and `acervo ship --no-verify` failed at CHECK 4 because the generated `manifest.json` writes basename-only paths for files actually living in `tokenizer/`, `text_encoder/`, `vae/` subdirs. Manifest contains 3× `"path": "config.json"` and 2× `"path": "diffusion_pytorch_model.safetensors"` (one per subdir + root). Files on disk are CORRECT (full nested layout); only the manifest is wrong. Bug is upstream in `acervo`. Local staging preserved at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/`. Confirmed `--no-verify` IS required for non-lmstudio aydin99 (CHECK 1 failed without it). Throughput observed ~17 MiB/s during download — confirms revised throughput estimate; Sorties 2+3's ~2.2 MiB/s was anomalous. **Surface to operator with three options: (A) fix acervo, (B) skip nested-repo ships and ship 6/8/9/10 first, (C) hand-crafted manifest workaround. Awaiting decision before further WU1 dispatches.** |
 | 2026-04-30 | — | — | OPERATOR DECISION: option A (fix `acervo` upstream first) | Operator dispatched a separate agent in `../SwiftAcervo` (development branch) to fix the manifest generator. TODO captured in `/Users/stovak/Projects/SwiftAcervo/TODO.md` (P0 = manifest path bug, P1 = `--no-verify` clarity for non-LFS repos). Mission state set to PAUSED with explicit Resume Protocol gating any further dispatch on (1) `acervo --version` > `0.8.3` and (2) probe manifest containing subdir-prefixed paths. Local staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` preserved so retry can use `acervo manifest` + `acervo upload` instead of full re-download. |
 | 2026-04-30 | — | — | EXECUTION_PLAN.md SwiftAcervo dep version bumped 0.8.3 → 0.8.4 | Per operator direction. The fix-release version is 0.8.4. Five references updated (lines 25, 38, 431, 671, 702). Resume Protocol step 1 tightened from `> 0.8.3` to `>= 0.8.4` for clarity. **Note**: this is one of the few places the supervisor edits EXECUTION_PLAN.md during execution (normally forbidden); doing so under explicit operator direction. No semantic change to the plan — just locks the floor version to the fix release. |
+| 2026-04-30 | — | — | Resume Protocol PASSED — `acervo` 0.8.4 verified locally | Step 1: `acervo --version` returns `0.8.4`. Step 2: regenerated manifest at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/manifest.json` now contains 18 distinct subdir-prefixed paths (`text_encoder/…` × 4, `tokenizer/…` × 7, `vae/…` × 2) and exactly 1 entry for `config.json` (was 3 in the broken version). Mission unblocked. WU1 → RUNNING. Sortie 5 → BACKOFF (attempt 2/3). |
+| 2026-04-30 | WU1 | 5 | Sortie 5 retry strategy: skip download AND manifest, go straight to `acervo upload` | Supervisor's Resume Protocol probe already regenerated the manifest correctly. Re-running `acervo manifest` would be idempotent but adds ~30s for nothing. Re-running `acervo ship` from scratch would re-download 4 GiB. Going straight to `acervo upload <repo> <staging_dir>` is the cheapest correct path. |
+| 2026-04-30 | WU1 | 5 | Sortie 5 retry attempt 2 outcome: PARTIAL upload, then killed at 10-min Bash timeout | Agent did everything right per dispatch (verified env + manifest + df, kicked `acervo upload`, captured early CHECK 4 pass). Upload reached 1.4 of 8.3 GiB at ~2.3 MiB/s; Bash returned "still running in background" indicator at 10-min timeout; agent stopped + reported per the (in-hindsight overly strict) ban on Monitor/backgrounding; underlying upload process was then killed when the agent exited. CDN probe: 0 model files reached R2. Local staging intact. Repo is genuinely 8.3 GiB (3.6 GB root + 4.5 GB text_encoder + 160 MB vae); plan's "4 GB" estimate referred to one safetensors file, not the full repo. |
+| 2026-04-30 | WU1 | 5 | Throughput recalibration: ~2.3 MiB/s sustained on big files | Earlier "~17 MiB/s" inference for Sortie 4 was wrong — it came from misreading manifest.json's mtime (CHECK 3 completion, not upload completion). Sorties 2 + 3's ~2.2 MiB/s observation was correct all along. **At ~2.3 MiB/s, big-ship ceiling is real**: Sortie 6 (8 GB) ≈ 60 min, Sortie 11 (32 GB) ≈ 4 hours. Foreground-agent pattern is structurally infeasible for ships > ~1.5 GiB at this throughput. |
+| 2026-04-30 | — | — | DISPATCH DESIGN ERROR: ban on Monitor/backgrounding was too strict for big payloads | Sortie 5 retry's prompt explicitly forbade Monitor + any backgrounding mechanism. Was correct for the lmstudio-community 2–4 GB ships (which fit within 10-min Bash window). Wrong for the 8.3 GiB aydin99 payload, which structurally needs ~60 min wall time. Mitigation: Sortie 6+ dispatch will need a different shape (operator-manual, or kicker-poller pattern). DO NOT carry the strict ban forward to big-ship dispatches. |
+| 2026-04-30 | WU1 | 5 | Sortie 5 → BLOCKED, awaiting operator-manual upload | Recommended path: operator runs `acervo upload aydin99/FLUX.2-klein-4B-int8 /tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8` in host shell (no timeout). aws s3 sync is idempotent — resumes from attempt 2's partial state. When CDN manifest goes HTTP 200, `/mission-supervisor resume` will dispatch a haiku closeout (verify + log + commit). |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — **PAUSED** awaiting external SwiftAcervo fix. 6 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15).
+OPERATION FAREWELL EMBRACE — **PAUSED** awaiting operator-manual upload of Sortie 5 staging. 6 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15).
 
-**Active blocker**: WU1 Sortie 5 FATAL on `acervo` 0.8.3 nested-layout manifest bug. Operator is fixing `acervo` in parallel (`/Users/stovak/Projects/SwiftAcervo`, development branch). Resume Protocol at the top of this file gates any further dispatch on a verified version bump + manifest probe.
-
-**No agent dispatches authorized** until Resume Protocol passes.
+**No agent dispatches authorized** until Sortie 5 manifest goes HTTP 200 on CDN.
 
 Idle:
 - WU2 — Sortie 16 PENDING, gated on WU1 finishing all 11 manifests + smoke test (Sortie 13).
 
-Resolved (no longer pending):
-- Throughput question: observed ~17 MiB/s on Sortie 5 download (confirming Sortie 4's inferred speed). Sorties 2+3's ~2.2 MiB/s was anomalous (possibly contention with concurrent Sortie 15 work). Big-ship foreground pattern looks viable through 8+ GB.
-- Path forward for nested-repo ships: operator chose option A (fix `acervo` upstream), in flight.
+Resolved:
+- `acervo` 0.8.4 fix: installed and verified — manifest generator produces correct subdir-prefixed paths.
+- Path forward for nested-repo manifests: operator chose option A (fix `acervo` upstream), landed.
+
+Pending operator decision (now FORCED — was deferred):
+- **Big-ship strategy for Sorties 6+**. At measured ~2.3 MiB/s sustained throughput on big files, Sortie 6 (8 GB) ≈ 60 min, Sortie 11 (32 GB) ≈ 4 hours. Foreground-agent dispatch (10-min Bash cap) is structurally infeasible. Three options on the table — same three as before, but now we have empirical data:
+  - **(A) Operator-manual ships**: operator runs `acervo upload` (or `acervo ship`) in host shell for each big sortie; supervisor dispatches haiku closeouts. Token-cheap, robust, requires operator labor.
+  - **(B) Supervisor with `nohup` + Monitor**: kicker sortie launches `nohup`'d upload, then a poller sortie loops Monitor to wait for the bash task. Untested whether Bash timeout truly kills nohup'd children; needs experimentation on a low-stakes ship first.
+  - **(C) Hybrid**: operator-manual for the four 8 GB+ ships (6, 8, 9, 10 — wait, 6 = 8 GB; 8 = 13 GB; 9 = 19 GB; 10 = 25 GB; 11 = 32 GB; 12 = 18 GB), supervisor-foreground for the small ones. There are no remaining small ones in WU1 — all subsequent ships are ≥ 8 GB. Hybrid degenerates to option A.
+
+Preserved on disk (DO NOT delete during pause):
+- `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — full Sortie 5 download (8.3 GiB; 19 files). Manifest is correct (subdir-prefixed paths under acervo 0.8.4). aws s3 sync will skip files already pushed to R2.
+- `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-4bit/`, `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-8bit/`, `/tmp/acervo-staging/lmstudio-community_Qwen3-8B-MLX-4bit/` — Sorties 2, 3, 4 staging dirs.
 
 Preserved on disk (DO NOT delete during pause):
 - `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — full Sortie 5 download (19 files, including 4.5 GiB `text_encoder/model.safetensors`). Lets the post-fix retry skip re-download.
