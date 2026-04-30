@@ -27,7 +27,7 @@ import Tokenizers
 public final class FluxTextEncoders: @unchecked Sendable {
   /// Shared singleton instance
   public static let shared = FluxTextEncoders()
-  public static let version = "2.7.0"
+  public static let version = "2.7.1"
 
   private var model: MistralForCausalLM?
   private var vlmModel: MistralVLM?
