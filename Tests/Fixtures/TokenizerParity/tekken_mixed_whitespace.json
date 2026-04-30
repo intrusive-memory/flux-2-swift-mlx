@@ -1,8 +1,0 @@
-{
-  "decoded_text" : "",
-  "encoded_token_ids" : [
-    1000,
-    1001
-  ],
-  "prompt" : "  hello\t\nworld  "
-}
