@@ -2,7 +2,29 @@
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. A *work unit* groups related sorties.
 
-## ▶ Mission Status: SPLIT-EXECUTION — operator-manual WU1 ships; supervisor proceeds with WU2 in parallel
+## ▶ Mission Status: RUNNING — operator chose option D for Sortie 21
+
+Operator decision (2026-04-30): land all uncommitted work + drop `autoTokenizerParity` (with documenting comment) + add `Qwen3Generator.swift` audit note. Re-dispatching Sortie 21 with reduced scope.
+
+## (Resolved) Prior block — Sortie 21 parity-test design flaw
+
+**TL;DR**: Sortie 21's parity test correctly stopped on AutoTokenizer divergence, but the divergence is on the 7-vocab GPT-2 stub from Sortie 15 — every input becomes all-`<unk>` tokens, so this only tests `<unk>`-serialization edge cases between two BPE library implementations, not real tokenization. **Sortie 15's fixture design was insufficient** for what Sortie 21 needs to prove. Operator decision required on path forward.
+
+**TekkenParity PASSED** (but doesn't prove anything about the library swap — TekkenTokenizer is project code; identical pre/post migration).
+
+**AutoTokenizerParity FAILED** on degenerate input. Two library differences observed:
+- **Encode**: old library counted Unicode by code-unit; new by code-point. Multi-byte CJK/Arabic/Hindi got fewer (still all-`<unk>`) tokens.
+- **Decode**: old `decode([3,3])` → `"<unk><unk>"`; new → `"<unk> <unk>"` (space inserted).
+
+Whether these differences MATTER in production depends on whether Qwen3/Mistral tokenizers (full vocabularies, not stubs) hit the same code paths. The test doesn't tell us — and CAN'T tell us with stub fixtures. Decision options below in Decisions Log.
+
+Working tree (uncommitted):
+- `Tests/Flux2CoreTests/Flux2CoreTests.swift` — compile-fix edits for Sortie 20's symbol renames (NEEDED — without these the test build doesn't compile)
+- `Tests/FluxTextEncodersTests/ModelRegistryTests.swift` — same
+- `Tests/FluxTextEncodersTests/TokenizerParityTests.swift` — new file, contains tekkenParity (passing) + autoTokenizerParity (failing)
+- `docs/missions/SUPERVISOR_STATE.md` — supervisor edits
+
+## ▶ Prior Mission Status: SPLIT-EXECUTION — operator-manual WU1 ships; supervisor proceeds with WU2 in parallel
 
 **Strategy update from operator** (2026-04-30): given the structural mismatch between the 10-min Bash timeout and 8 GB+ ship payloads, WU1 ships 5–12 will run via `scripts/wu1-bulk-ship.sh` in the operator's separate terminal window. Sortie 13 (CDN read-side smoke test) is **SKIPPED** per operator direction; the new operating assumption is **eventual consistency** of CDN ships. WU2 Sortie 16's gate ("WU1 complete (all 11 manifests verified on CDN)") is **OVERRIDDEN** so WU2 can begin in parallel — the WU2 sorties through 20 are pure code changes that don't read from the CDN at compile time.
 
@@ -135,18 +157,26 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
   4. **Big-ship ceiling (FUTURE)** — at observed throughput (~2.2 MB/s effective), Sortie 6 (8 GB ≈ 60 min) and beyond will likely exceed any reasonable single-agent dispatch window. Plan to migrate to host-side `nohup acervo ship &` + a polling sortie that just verifies manifest landings, OR split the prompt into "kick off" + "monitor" sorties. **Do not solve this until Sortie 5 has shipped** — confirm 4 GB ships work first, then plan 8+ GB strategy from real data.
 
 ### WU2 — HF Excision + Code Migration
-- Work unit state: RUNNING (WU1 gate OVERRIDDEN per operator — eventual-consistency assumption)
-- Current sortie: 16 of 22 (Sortie 15 COMPLETED at commit `330ecac`)
-- Sortie state: PENDING → DISPATCHED (this iteration)
-- Sortie type: code (Package.swift swap; HF excision)
-- Model: opus (foundation override — establishes new dependency graph; all of Sorties 17–22 depend on this; complexity score ≥ 13 with foundation_score=1 + dep_depth=5+)
-- Complexity score: ~18 (foundation 10 + risk 5 from new package APIs + task complexity 3)
-- Last verified: Sortie 15 — `make build` succeeded post-cleanup; 24 fixtures committed; generator removed; Package.swift identical to pre-Sortie-15 HEAD.
-- Notes:
-  - Plan says Sortie 16's build MAY FAIL (call sites unchanged) — that's expected; capture failure log; failures must be limited to call-site files (TextEncoderModelDownloader.swift, Flux2Core/ModelDownloader.swift, tokenizer call sites, ModelRegistry display strings).
-  - Path-restricted commit to `Package.swift` + `Package.resolved` only.
-  - SwiftAcervo dep version is `from: "0.8.4"` (per plan, EXECUTION_PLAN.md line 38, line 431).
-  - Eventual-consistency caveat: the new `Package.swift` references SwiftAcervo, which becomes a runtime dependency in Sorties 17–19. Compile-time resolution succeeds even if the CDN isn't fully populated; runtime CDN access is exercised in Sortie 21 (parity tests). By the time Sortie 21 dispatches, WU1 ships should be complete.
+- Work unit state: RUNNING
+- Current sortie: 22 of 22 (Sorties 14, 15, 16, 17, 18, 19, 20, 21 COMPLETED at commits `45cd8b2`, `330ecac`, `f193c0d`, `4e16903`, `d5bfae9`, `89ed3ce`, `97297b9`, `088b652`)
+- Sortie state: PENDING (next dispatch this iteration)
+- Sortie type: code + ops (push branch, open PR, wait for CI, delete parity oracle, push cleanup, update PR description)
+- Model: sonnet (mechanical work; CI-wait is bounded polling)
+- Complexity score: ~10
+- Last verified (Sortie 21 — option D recovery):
+  - Commit `088b652` — 4 files: Flux2CoreTests.swift + ModelRegistryTests.swift (compile fixes for Sortie 20's symbol renames), TokenizerParityTests.swift (new — tekkenParity only; autoTokenizerParity removed with retrospective header doc), Qwen3Generator.swift (audit comment at line 105 above first decode call site).
+  - All FluxTextEncodersTests + Flux2CoreTests pass. tekkenParity test passes (12/12 fixtures match).
+  - autoTokenizerParity dropped — Sortie 15's 7-vocab GPT-2 stub fixtures only exercised `<unk>`-serialization edge cases, not real tokenization. Real-vocab parity is post-mission TODO.
+- WU1 ship status (probed at Sortie 22 dispatch time):
+  - Sortie 5 (aydin99): HTTP 200 ✅
+  - Sorties 6, 7, 8, 9, 10, 11, 12: all HTTP 404 — bulk-ship script still in flight.
+  - Sortie 22 does NOT depend on these. CI runs FluxTextEncodersTests (parity uses committed fixtures) + Flux2CoreTests (metadata + ModelRegistry tests, no CDN access) + Flux2GPUTests (environmentally skipped without KLEIN_MODEL_PATH). Once WU1 finishes, runtime user-facing behavior will be available; CI green is independent.
+- Notes for Sortie 22:
+  - Mission branch is `ahead 14` of `origin/mission/farewell-embrace/01` — agent must push first.
+  - Agent uses `gh pr` (allowed per CLAUDE.md). DO NOT auto-merge — operator merges.
+  - CI-wait strategy: bounded polling with `gh pr checks` (NOT `--watch`). Agent polls every ~60s for up to 8–9 minutes within the Bash timeout. If CI still running after that, STOP and report — supervisor dispatches a closeout for the parity-oracle deletion.
+  - Final cleanup: delete `Tests/FluxTextEncodersTests/TokenizerParityTests.swift` + `Tests/Fixtures/TokenizerParity/`. Re-run local tests. Push.
+  - Update PR description with mission summary + recon doc links.
 
 ## Active Agents
 
@@ -154,7 +184,6 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 
 | Work Unit | Sortie | Sortie State | Attempt | Model | Complexity Score | Task ID | Output File | Dispatched At |
 |---|---|---|---|---|---|---|---|---|
-| WU2 | 16 | DISPATCHED | 1/3 | opus | 18 | ac881f38ac7228fed | /private/tmp/claude-501/-Users-stovak-Projects-flux-2-swift-mlx/cf6ab61c-03be-4ea0-97ff-07aadd6c2a1e/tasks/ac881f38ac7228fed.output | 2026-04-30 |
 
 ## Completed Sorties
 
@@ -163,6 +192,12 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | WU1 | 1 | `ff42362` | COMPLETED | Inventory + license probe; recon-cdn-inventory.md created. Commit also absorbed Sortie 14's staged deletions due to shared-index race (see Decisions Log). |
 | WU2 | 14 | `45cd8b2` | COMPLETED | Library-only cleanup; `make build` + 326 tests passed; GPU suite environmentally skipped. |
 | WU2 | 15 | `330ecac` | COMPLETED | 24 golden tokenizer fixtures (12 prompts × {tekken_, autotok_}). Generator + GPT-2 stub resources removed. Package.swift identical to pre-Sortie-15 HEAD. `make build` succeeded post-cleanup. Path-restricted commit; no `docs/missions/` files touched. |
+| WU2 | 16 | `f193c0d` | COMPLETED | Package.swift swap: dropped swift-transformers, added swift-tokenizers (0.4.2) + SwiftAcervo (0.8.4). All 4 grep exit criteria pass on regenerated Package.resolved. Build fails as expected — 6 errors all in Qwen3Generator.swift, exactly matching Sortie 17's task list. **Plan deviation**: Package.resolved is `.gitignored`, not tracked; agent correctly regenerated on disk and did NOT force-track. |
+| WU2 | 17 | `4e16903` | COMPLETED | Tokenizers API renames (decode(tokens:)→decode(tokenIds:), AutoTokenizer.from(modelFolder:)→from(directory:)) at 12 source/test sites + applyChatTemplate addGenerationPrompt:false lock. 5 files in commit (TekkenTokenizer.swift, Qwen3Generator.swift, FluxTextEncoders.swift, TokenizerTests.swift, FluxTextEncodersTests.swift). FluxTextEncoders + Flux2Core library targets build cleanly. Flux2App link still fails on `import Hub` in TextEncoderModelDownloader.swift (Sortie 18 scope). Plan exit #2 grep over-broad (catches TekkenTokenizer's concrete decode method) — accepted as complete on functional-build basis. |
+| WU2 | 18 | `d5bfae9` | COMPLETED | TextEncoderModelDownloader.swift fully rewritten against Acervo (497 → 182 ins/315 del). All 3 grep exit criteria pass; `make build` SUCCEEDED end-to-end. Hub paths + `ensureTekkenJson` + cache helpers all gone. Public API surfaces preserved; `notProvisionedOnCDN(variant:)` added to `TextEncoderModelDownloaderError`. **Surprise finding**: `Flux2Core/Loading/ModelDownloader.swift` also compiles cleanly — it's a hand-rolled URLSession client, no `import Hub`. Plan's note that it would fail here was conservative; Sortie 19 still owns rewriting that file. |
+| WU2 | 19 | `89ed3ce` | COMPLETED | Hand-rolled HF API client deleted. ModelDownloader.swift 734 → 241 ins/515 del. `make build` PASS for ALL targets (first time post-migration). 4 cut-variant `notProvisionedOnCDN` errors + `isProvisionedOnCDN` UI property. 3 callers updated; test file required no changes (Sortie 14 already removed plan-listed line). 12 `huggingface.co` residual matches are in files outside Sortie 19's path restriction; Sortie 20 cleans them up. **Plan-addition flagged**: `TextEncoderModelRegistry.swift:372` runtime tekken.json URL is dead (post-Sortie-18) and not in Sortie 20's plan list — Sortie 20 dispatch will include it. |
+| WU2 | 20 | `97297b9` | COMPLETED | Strip HF runtime strings + README ack. 4 files (README, ModelRegistry.swift, TextEncoderModelRegistry.swift, ModelDownloader.swift caller fix). All grep exit criteria pass; 4 residual `huggingface` matches all in attribution comments. Dead `tekkenJsonURL` deleted. README has full per-model attribution table. `make build` PASS. **Cosmetic nit**: README says `swift-transformers` for the dep name; actual is `swift-tokenizers` (DePasqualeOrg). |
+| WU2 | 21 | `088b652` | COMPLETED (option D — reduced scope) | tekkenParity test passes (12/12 fixtures); autoTokenizerParity test REMOVED (Sortie 15 stub-fixture design only exercised `<unk>`-serialization edge cases). Header comment in TokenizerParityTests.swift documents the design retrospective. Audit comment added in Qwen3Generator.swift line 105 flagging swift-tokenizers BPE decode space-insertion. Test compile-fixes for Sortie 20 symbol renames included (Flux2CoreTests.swift, ModelRegistryTests.swift). All Flux2CoreTests + FluxTextEncodersTests pass; Flux2GPUTests environmentally skipped. |
 | WU1 | 2 | `bf57228` | COMPLETED | Shipped `lmstudio-community/Qwen3-4B-MLX-4bit` (2.1 GiB) to R2. acervo exit 0; CHECKs 4/5/6 passed; manifest HTTP 200 on underscore-slug URL; all 4 tokenizer artifacts present. Path-restricted commit (1 file). |
 | WU1 | 3 | `f0fea4a` | COMPLETED | Shipped `lmstudio-community/Qwen3-8B-MLX-4bit` (4.3 GiB) to R2. acervo exit 0; CHECKs 4/5/6 passed; manifest HTTP 200; all 4 tokenizer artifacts present. Wall time ~33 min at ~2.2 MiB/s. Manifest SHA-256 `9cdc1cbe…`. |
 | WU1 | 4 | `1572273` | COMPLETED (logged retroactively) | Ship attempt-1 agent backgrounded `acervo ship` and exited before logging. Ship itself succeeded (CDN manifest HTTP 200; local staging intact at `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-8bit/`). Haiku closeout sortie verified all checks post-hoc and committed the log entry. Manifest SHA-256 `5b291868…`. |
@@ -207,18 +242,36 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | — | — | OPERATOR DECISION: split-execution strategy | Operator chose to run WU1 ships 5–12 via a bulk-ship script (`scripts/wu1-bulk-ship.sh`) in a separate terminal window, while the supervisor proceeds with WU2 in parallel. Sortie 13 (CDN read-side smoke test) SKIPPED — operating assumption is eventual consistency of CDN ships. WU2 Sortie 16's gate of "WU1 complete" OVERRIDDEN — WU2 Sorties 16–20 are compile-time-only changes that don't read from the CDN; CDN-dependent runtime tests (Sortie 21) come last by which time ships should be done. Trade-off: if WU1 ships fail, Sortie 21 will fail too and require re-runs once CDN populated. Acceptable given operator velocity preference. |
 | 2026-04-30 | — | — | scripts/wu1-bulk-ship.sh created | Wraps the 8 remaining WU1 ships (Sorties 5, 6, 7, 8, 9, 10, 11, 12). Sortie 5 special-case: detects existing staging and runs `acervo upload` instead of full ship (avoids re-download of 8.3 GiB). For non-lmstudio repos (5, 7, 11, 12), tries default invocation first; falls back to `--no-verify` on CHECK 1 failure. Each ship's stdout/stderr captured to `docs/missions/ship-logs/<slug>.log`. CDN-manifest verification at end. Master log goes to `docs/missions/cdn-bulk-ship.log` via tee. Operator runs in a separate terminal: `bash scripts/wu1-bulk-ship.sh 2>&1 \| tee -a docs/missions/cdn-bulk-ship.log`. |
 | 2026-04-30 | WU2 | 16 | Model: opus | Foundation override: Sortie 16 establishes the new dependency graph that all of Sorties 17–22 depend on. Complexity score ~18 (foundation 10 + risk 5 from new package APIs + task complexity 3). The Package.swift swap is mechanically simple but architecturally critical; opus's larger context handles the failure mode (build expected to fail at exit, with errors confined to specific files) better than sonnet. |
+| 2026-04-30 | WU2 | 16 | Sortie 16 COMPLETE at commit `f193c0d` | All exit criteria pass. **Plan correction surfaced**: `Package.resolved` is `.gitignored` (line 32 of `.gitignore`), not tracked. Plan task 4 instructed `git rm Package.resolved` — wrong. Agent regenerated it on disk via `make build`, ran greps against on-disk file (all pass), did NOT force-track. Good judgment call. Build fails in `Qwen3Generator.swift` only — strict subset of expected call-site files; matches Sortie 17's exact line list. |
+| 2026-04-30 | WU2 | 17 | Model: sonnet (overrides foundation rule) | Score 22 by naive scoring (foundation 10 + complexity 9 + risk 3) which would force opus, but the work is mechanical grep-and-replace at known line numbers. Plan explicitly says "Risk: low (mechanical renames, single grep'd call sites)". Sonnet handles this cleanly at 1/3 the cost of opus. Sergeant's "right tool for the job" principle. |
+| 2026-04-30 | WU2 | 17 | Sortie 17 COMPLETE at commit `4e16903`; plan exit-criterion #2 grep over-broad | The grep `tokenizer\.decode\(` catches BOTH swift-tokenizers `Tokenizer.decode(tokenIds:)` calls (which were updated) AND `TekkenTokenizer.decode(_ tokens:)` calls (a concrete class method — different method, takes positional Int array). Residual matches in MistralGenerator.swift (6), FluxTextEncoders.swift (2), TokenizerTests.swift (2) compile fine. Accepted as complete on functional-build basis. **Plan addendum needed (post-mission)**: rename `TekkenTokenizer.decode(_:)` to `decode(tokenIds:)` for cross-cutting consistency, OR tighten the grep to only catch protocol-level `Tokenizer` calls. |
+| 2026-04-30 | WU2 | 17 | Plan line numbers drifted in current codebase | Plan's line numbers were 4–40 lines off across multiple files (e.g. Qwen3Generator.swift +1, FluxTextEncoders.swift +6 to +39). Agent adapted by grepping for the call signature near each plan-cited line and applying renames at the actual sites. **Plan addendum needed (post-mission)**: refresh line numbers, OR stop citing line numbers and rely on grep-able patterns instead. |
+| 2026-04-30 | WU2 | 18 | Model: opus | Foundation + high-risk + high-complexity. Score ~24 (task complexity 9 from large-file rewrite + foundation 5 + risk 5 + ambiguity 3 + new API surface 2). Plan classifies risk:high, complexity:high. opus's larger context handles the multi-section rewrite and error-case design better than sonnet. Sortie 19 will mirror this pattern (also opus). |
+| 2026-04-30 | WU2 | 18 | Entry criterion override: WU1 manifest verification | Plan requires "WU1 manifests for Sorties 2, 3, 4, 6, 8, 9, 10 verified live on R2" before Sortie 18 dispatch. Operator's eventual-consistency override applies — bulk-ship script is producing manifests out-of-band. Sortie 18's CDN dependency is RUNTIME (Sortie 21 parity tests); compile-time only requires SwiftAcervo's API which is resolved already (Package.resolved). Agent will hardcode expected file lists per plan task 1. |
+| 2026-04-30 | WU2 | 18 | Sortie 18 COMPLETE at commit `d5bfae9` | Single-file rewrite. Significant simplification (497 lines → 182 ins / 315 del). All Hub references gone. `make build` PASSED end-to-end. Plan-update finding: `Flux2Core/Loading/ModelDownloader.swift` doesn't `import Hub` — it's a hand-rolled URLSession client. Plan was conservative in saying it would fail here; Sortie 19's scope (rewriting that file) is unchanged but the entry condition is more relaxed than expected. |
+| 2026-04-30 | WU2 | 19 | Model: opus | Largest single rewrite in mission per plan classification. Cross-cuts 5+ files (main downloader + 4 caller sites + possibly TransformerVariant extension). Score ~24 (task complexity 10 + risk 5 + multi-file 4 + ambiguity 3 + foundation 2). High risk because the new error type and 4 caller updates must land together to keep build green. Plan suggested 19a/19b split if context pressure; opus's larger context should keep this atomic. |
+| 2026-04-30 | WU2 | 19 | Entry criterion override: same as Sortie 18 | Plan requires Sorties 5, 7, 11, 12 manifests live before Sortie 19. Operator's eventual-consistency override applies. Agent hardcodes expected file lists; runtime CDN exercise comes in Sortie 21. |
+| 2026-04-30 | WU2 | 19 | Sortie 19 COMPLETE at commit `89ed3ce` | Largest single rewrite landed atomically (no 19a/19b split needed). Build green for ALL targets including tests. 12 residual `huggingface.co` matches are all outside Sortie 19's path restriction. Agent diverged from Sortie 18's hardcoded-file-list pattern by passing `files: []` (= use whole manifest); rationale: diffusers-style nested repos differ from flat LM repos. Both choices are appropriate to repo shape. |
+| 2026-04-30 | WU2 | 19 | Plan-addendum: tekken.json dead URL at TextEncoderModelRegistry.swift:372 | Sortie 19 agent surfaced a runtime `huggingface.co/.../tekken.json` URL not captured in Sortie 20's task list. Dead since Sortie 18 (tekken.json now ships with every lmstudio MLX quant). Sortie 20 dispatch will include this in its delete scope. |
+| 2026-04-30 | WU2 | 20 | Model: sonnet | Mechanical work — accessor deletes + symbol renames (`huggingFaceRepo`→`repoId`, `huggingFaceSubfolder`→`repoSubfolder`) with all-caller-fix-needed; README authoring with license lookups from `.build/checkouts/`. Score ~10. Plan classifies risk:low. Sonnet appropriate. |
+| 2026-04-30 | WU2 | 20 | Sortie 20 COMPLETE at commit `97297b9` | All exit criteria pass. Only 1 caller file outside the registries needed updating (ModelDownloader.swift, 2 lines). README ack section added with full per-model attribution table. Cosmetic: dep table says `swift-transformers` (local checkout dir) — actual dep is `swift-tokenizers` (DePasqualeOrg). Worth a 1-line README fix in a follow-up cycle. |
+| 2026-04-30 | WU2 | 21 | Model: sonnet | Tokenizer-parity test is mechanical against committed fixtures; test audit is open-ended. Score ~16. Plan classifies risk:medium because hidden parity gaps are silent regressions. **Critical guardrail in dispatch**: agent must STOP on parity failure; must NOT modify fixtures or weaken assertions. |
+| 2026-04-30 | WU2 | 21 | Entry criterion: WU1 ship status check | Plan-listed entry criterion is "Sortie 20 commit + Sortie 15 fixtures present"; both met. WU1 ship status independently probed: 1/8 manifests live (Sortie 5 only). Other 7 still HTTP 404 (bulk-ship script in flight). Sortie 21's parity test does NOT need WU1 manifests — uses Sortie 15's committed fixtures. Flux2GPUTests environmentally skipped without `KLEIN_MODEL_PATH`. Dispatching now. |
+| 2026-04-30 | WU2 | 21 | Sortie 21 BLOCKED on parity-test design flaw | Agent correctly stopped on AutoTokenizer parity failure (15 issues across 12 fixtures); did NOT modify fixtures or weaken assertions. **However**, the failures are on Sortie 15's 7-vocab GPT-2 stub — every input becomes `<unk>` tokens. The "parity test" is only checking how two BPE libraries serialize `<unk>` arrays. Real divergences observed: (a) old lib counted Unicode by code-unit, new by code-point (different all-`<unk>` token counts); (b) new lib's BPE decoder inserts a space between successive `<unk>` tokens. Whether these matter in production depends on whether Qwen3/Mistral full vocabularies hit the same code paths — the stub-based test cannot tell us. Tekken parity passed but is uninformative (TekkenTokenizer is project code, never depended on either library). |
+| 2026-04-30 | WU2 | 21 | Sortie 15 fixture-design retrospective | When Sortie 15 ran, supervisor flagged that "fixtures use the same default-init tokenizers as the existing test suite [and] parity oracle scope is plumbing equivalence on default-init code paths, not full vocabulary coverage." That was the right read but supervisor should have pushed back HARDER and either (a) redesigned Sortie 15 to use real Qwen3/Mistral tokenizer files, or (b) deferred AutoTokenizer parity to a runtime test post-CDN-ship. The current divergence is the predictable consequence of stub-based fixtures. Lesson for future missions: parity oracles must use representative input, not minimal stubs. |
+| 2026-04-30 | WU2 | 21 | Operator-decision options surfaced | (A) **Drop AutoTokenizer parity test, keep Tekken**: lands Sortie 21 with reduced scope; document in commit message that autotok parity test was misdesigned and would be replaced post-mission with a real-vocab check. Risk: silent Qwen3/Mistral runtime regression undetected until production use. (B) **Defer Sortie 21 until a real Qwen3 manifest is live, regenerate fixtures using new library, assert round-trip self-consistency**: slow; doesn't actually verify "no regression" since both fixtures and assertions come from the new library. (C) **Operator manual smoke test**: subjective, doesn't run in CI. (D) **Land all uncommitted work** (the test compile-fixes ARE needed for build green) and skip the autoTokenizerParity test with explicit "expected divergence on stub vocab" reason; audit production decode call sites in Qwen3Generator.swift. |
+| 2026-04-30 | WU2 | 21 | OPERATOR DECISION: option D | "option d. please resume." Sortie 21 dispatched in option-D shape: drop autoTokenizerParity (with retrospective header), keep tekkenParity, add Qwen3Generator audit comment, land test compile-fixes. Single sonnet, single commit (`088b652`). All tests pass. |
+| 2026-04-30 | WU2 | 22 | Model: sonnet | Mechanical work: push branch, open/update PR via `gh pr`, verify no `HF_TOKEN` secret (`gh secret list`), bounded-poll CI status (`gh pr checks` NOT `--watch` to avoid Bash-timeout backgrounding), delete parity oracle + fixture files, push cleanup, update PR description. Score ~10. |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — split-execution. 6 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15).
+OPERATION FAREWELL EMBRACE — split-execution. 12 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15, 16, 17, 18, 19, 20, 21).
 
 This iteration:
-- **Operator runs `scripts/wu1-bulk-ship.sh` in separate terminal** — handles WU1 Sorties 5, 6, 7, 8, 9, 10, 11, 12 out-of-band. ETA ~3–4 hours wall time at ~2.3 MiB/s on the big files.
-- **Supervisor dispatches WU2 Sortie 16 (Package.swift swap)** in parallel — pure code change, no CDN dependency at compile time.
-- **Sortie 13 (smoke test) SKIPPED** per operator direction.
+- **Operator running `scripts/wu1-bulk-ship.sh`** — WU1 Sorties 5–12 out-of-band. Status: 1/8 manifests live (Sortie 5 only); 7 still in flight.
+- **Supervisor dispatching WU2 Sortie 22** — TERMINAL sortie. Push branch, open/update PR, wait for CI, delete parity oracle, push cleanup.
 
-Idle:
-- WU2 Sorties 17–22 — sequential after Sortie 16.
+After Sortie 22 completes + WU1 ships finish: mission is ready for `/mission-supervisor brief` (post-mission review + archive).
 
 Resolved:
 - `acervo` 0.8.4 fix: installed and verified.
