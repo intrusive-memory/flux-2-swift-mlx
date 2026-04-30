@@ -46,32 +46,39 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 
 ### WU1 — Acervo CDN Provisioning
 - Work unit state: RUNNING
-- Current sortie: 1 of 13
-- Sortie state: DISPATCHED
-- Sortie type: command
+- Current sortie: 2 of 13 (Sortie 1 COMPLETED at commit `ff42362`)
+- Sortie state: PENDING → DISPATCHED (this iteration)
+- Sortie type: command (operator-credentialed CLI: `acervo ship`)
 - Model: sonnet
-- Complexity score: 12
+- Complexity score: 9 (mechanical ship; no foundation override — Sortie 2 is the first execution of the per-ship template)
 - Attempt: 1 of 3
-- Last verified: not yet
-- Notes: Sortie 1 is the inventory + license-probe gate. Cheap to run; foundation for all 21 downstream sorties.
+- Last verified: Sortie 1 — recon doc committed, license accepted, all four env vars present after loader prefix, acervo dry-run CHECK 4 passed
+- Notes: First lmstudio-community ship. Per Sortie 1 finding, all lmstudio repos require `acervo ship --no-verify` (CHECK 1 returns 404 — lmstudio repos are not Git LFS-backed). Smallest non-gated payload (2 GB) — proves the shipping pipeline before scaling up.
 
 ### WU2 — HF Excision + Code Migration
 - Work unit state: RUNNING
-- Current sortie: 14 of 22 (Sortie 14 dispatches now; Sorties 16–22 gated on WU1 complete)
-- Sortie state: DISPATCHED
+- Current sortie: 15 of 22 (Sortie 14 COMPLETED at commit `45cd8b2`)
+- Sortie state: PENDING → DISPATCHED (this iteration)
 - Sortie type: code
 - Model: sonnet
-- Complexity score: 19 (foundation override condition met but mechanical work — see Decisions Log)
+- Complexity score: 13 (foundation for Sortie 21 parity assertion; one-shot fixture generator that depends on the OLD package's `Tokenizers` module — cannot be re-created after Sortie 16's swap)
 - Attempt: 1 of 3
-- Last verified: not yet
-- Notes: Library-only cleanup; deletes CLI targets and customModelsDirectory. Independent of WU1.
+- Last verified: Sortie 14 — `make build` succeeded; FluxTextEncodersTests 125/125 + Flux2CoreTests 201/201 passed; Flux2GPUTests environmentally skipped (no `KLEIN_MODEL_PATH`). `Package.resolved` still pins swift-transformers as required.
+- Notes: Captures golden encode/decode fixtures from OLD package; downstream Sortie 21 asserts equality against the NEW package. Must run BEFORE Sortie 16 (Package.swift swap).
 
 ## Active Agents
 
 | Work Unit | Sortie | Sortie State | Attempt | Model | Complexity Score | Task ID | Output File | Dispatched At |
 |---|---|---|---|---|---|---|---|---|
-| WU1 | 1 | DISPATCHED | 1/3 | sonnet | 12 | (pending dispatch) | (pending) | 2026-04-30 |
-| WU2 | 14 | DISPATCHED | 1/3 | sonnet | 19 | (pending dispatch) | (pending) | 2026-04-30 |
+| WU1 | 2 | DISPATCHED | 1/3 | sonnet | 9 | (this iteration) | (this iteration) | 2026-04-30 |
+| WU2 | 15 | DISPATCHED | 1/3 | sonnet | 13 | (this iteration) | (this iteration) | 2026-04-30 |
+
+## Completed Sorties
+
+| Work Unit | Sortie | Commit | Outcome | Notes |
+|---|---|---|---|---|
+| WU1 | 1 | `ff42362` | COMPLETED | Inventory + license probe; recon-cdn-inventory.md created. Commit also absorbed Sortie 14's staged deletions due to shared-index race (see Decisions Log). |
+| WU2 | 14 | `45cd8b2` | COMPLETED | Library-only cleanup; `make build` + 326 tests passed; GPU suite environmentally skipped. |
 
 ## Decisions Log
 
@@ -82,9 +89,15 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | — | — | Loader prefix injects `HF_TOKEN` from `~/.cache/huggingface/token` and `R2_PUBLIC_URL` from `R2_ENDPOINT` | Operator uses `hf` CLI login (no env-var export) and the public CDN URL is stored under `R2_ENDPOINT`. Loader maps these without echoing values. |
 | 2026-04-30 | WU1 | 1 | Model: sonnet | Complexity 12 (recon + CLI probes; clear exit criteria; type=command modifier −3). Foundation override considered but rejected — Sortie 1 is verification, not architectural. |
 | 2026-04-30 | WU2 | 14 | Model: sonnet | Score 19 would force opus by algorithm; override applied because work is mechanical deletion + build verification (no architectural decisions). Sonnet is sufficient and 3× cheaper than opus. |
+| 2026-04-30 | WU1 | 1 | Recon finding: lmstudio-community repos require `acervo ship --no-verify` | These repos are NOT Git LFS-backed, so CHECK 1 returns 404. Applies to Sorties 2, 3, 4, 6, 8, 9, 10. The non-lmstudio ships (5, 7, 11, 12) MAY still need verification — verify per-sortie. |
+| 2026-04-30 | — | — | Lesson: parallel sorties on the same git tree caused commit cross-contamination | Sortie 14 staged deletions via `git rm`; Sortie 1's `git commit` (no path restriction) absorbed them. Final tree state is correct but commits are mis-attributed. **Mitigation for future sorties**: dispatch prompts MUST instruct path-restricted commits (`git commit -- <paths>`). Considered worktree isolation but rejected — separate-branch commits would not land on the mission branch without merge friction. |
+| 2026-04-30 | WU1 | 2 | Model: sonnet | Score 9 (mechanical ship; clear exit criteria; type=command modifier −3). First ship, smallest payload — proves the pipeline. |
+| 2026-04-30 | WU2 | 15 | Model: sonnet | Score 13 — foundation for parity assertion. One-shot generator depending on OLD package APIs that vanish after Sortie 16. |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — INITIALIZED. Two sorties dispatched in parallel:
-- WU1 Sortie 1 (inventory lock + HF license probe)
-- WU2 Sortie 14 (library-only cleanup)
+OPERATION FAREWELL EMBRACE — IN PROGRESS. 2 of 22 sorties complete.
+
+This iteration dispatching:
+- WU1 Sortie 2 (ship `lmstudio-community/Qwen3-4B-MLX-4bit` — 2 GB; uses `--no-verify`)
+- WU2 Sortie 15 (capture golden tokenizer fixtures from OLD package)
