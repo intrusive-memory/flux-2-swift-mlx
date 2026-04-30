@@ -2,7 +2,17 @@
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. A *work unit* groups related sorties.
 
-## ⏸ Mission Status: PAUSED — Sortie 5 upload incomplete; needs operator-driven resumption
+## ▶ Mission Status: SPLIT-EXECUTION — operator-manual WU1 ships; supervisor proceeds with WU2 in parallel
+
+**Strategy update from operator** (2026-04-30): given the structural mismatch between the 10-min Bash timeout and 8 GB+ ship payloads, WU1 ships 5–12 will run via `scripts/wu1-bulk-ship.sh` in the operator's separate terminal window. Sortie 13 (CDN read-side smoke test) is **SKIPPED** per operator direction; the new operating assumption is **eventual consistency** of CDN ships. WU2 Sortie 16's gate ("WU1 complete (all 11 manifests verified on CDN)") is **OVERRIDDEN** so WU2 can begin in parallel — the WU2 sorties through 20 are pure code changes that don't read from the CDN at compile time.
+
+**WU1 closeout protocol** (when bulk-ship script finishes): operator runs `/mission-supervisor resume`. Supervisor will probe each of the 8 CDN manifest URLs; for each that's HTTP 200, dispatch a haiku closeout sortie that appends a Sortie N section to `cdn-ship-log.md` and creates a path-restricted commit. Closeouts can be dispatched in parallel by sortie since they touch the same file (cdn-ship-log.md) — actually NO, let me revise: closeouts must be SERIAL because they touch the same file and parallel commits would race. Each closeout will commit independently before the next dispatches.
+
+**WU2 unblock**: dispatching Sortie 16 (Package.swift swap) NOW, alongside the operator's bulk-ship script.
+
+**WU1 Sortie 5 status**: still PARTIAL on disk; the bulk-ship script's Sortie-5 special-case will detect existing staging and run `acervo upload` only (skipping re-download).
+
+Resume Protocol section retained below for audit / future-mission reference.
 
 The 0.8.4 fix is installed and functionally verified (Resume Protocol from prior iteration passed). Sortie 5 retry's `acervo upload` was killed at the 10-min Bash timeout with only 1.4 of 8.3 GiB uploaded (~17%). CDN probe confirms NONE of the model files (`text_encoder/model.safetensors`, root `diffusion_pytorch_model.safetensors`) reached R2 — only small `.cache/` lock/metadata files did. The local staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` is still intact.
 
@@ -125,13 +135,18 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
   4. **Big-ship ceiling (FUTURE)** — at observed throughput (~2.2 MB/s effective), Sortie 6 (8 GB ≈ 60 min) and beyond will likely exceed any reasonable single-agent dispatch window. Plan to migrate to host-side `nohup acervo ship &` + a polling sortie that just verifies manifest landings, OR split the prompt into "kick off" + "monitor" sorties. **Do not solve this until Sortie 5 has shipped** — confirm 4 GB ships work first, then plan 8+ GB strategy from real data.
 
 ### WU2 — HF Excision + Code Migration
-- Work unit state: RUNNING (gated on WU1 — Sortie 16 cannot dispatch until WU1 finishes all 11 manifests + smoke test)
+- Work unit state: RUNNING (WU1 gate OVERRIDDEN per operator — eventual-consistency assumption)
 - Current sortie: 16 of 22 (Sortie 15 COMPLETED at commit `330ecac`)
-- Sortie state: PENDING (waiting for WU1 dependency gate; do NOT dispatch yet)
+- Sortie state: PENDING → DISPATCHED (this iteration)
 - Sortie type: code (Package.swift swap; HF excision)
-- Model: TBD at dispatch (will re-score when WU1 completes)
-- Last verified: Sortie 15 — `make build` succeeded post-cleanup; 24 fixtures committed; generator + GPT-2 stub resources removed; `Package.swift` identical to its pre-Sortie-15 HEAD; commit `--stat` confirmed no `docs/missions/` files touched.
-- Notes: WU2 has no work to dispatch this iteration. Next dispatch is Sortie 16 *after* WU1 reaches its closing smoke test (Sortie 13).
+- Model: opus (foundation override — establishes new dependency graph; all of Sorties 17–22 depend on this; complexity score ≥ 13 with foundation_score=1 + dep_depth=5+)
+- Complexity score: ~18 (foundation 10 + risk 5 from new package APIs + task complexity 3)
+- Last verified: Sortie 15 — `make build` succeeded post-cleanup; 24 fixtures committed; generator removed; Package.swift identical to pre-Sortie-15 HEAD.
+- Notes:
+  - Plan says Sortie 16's build MAY FAIL (call sites unchanged) — that's expected; capture failure log; failures must be limited to call-site files (TextEncoderModelDownloader.swift, Flux2Core/ModelDownloader.swift, tokenizer call sites, ModelRegistry display strings).
+  - Path-restricted commit to `Package.swift` + `Package.resolved` only.
+  - SwiftAcervo dep version is `from: "0.8.4"` (per plan, EXECUTION_PLAN.md line 38, line 431).
+  - Eventual-consistency caveat: the new `Package.swift` references SwiftAcervo, which becomes a runtime dependency in Sorties 17–19. Compile-time resolution succeeds even if the CDN isn't fully populated; runtime CDN access is exercised in Sortie 21 (parity tests). By the time Sortie 21 dispatches, WU1 ships should be complete.
 
 ## Active Agents
 
@@ -139,6 +154,7 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 
 | Work Unit | Sortie | Sortie State | Attempt | Model | Complexity Score | Task ID | Output File | Dispatched At |
 |---|---|---|---|---|---|---|---|---|
+| WU2 | 16 | DISPATCHED | 1/3 | opus | 18 | ac881f38ac7228fed | /private/tmp/claude-501/-Users-stovak-Projects-flux-2-swift-mlx/cf6ab61c-03be-4ea0-97ff-07aadd6c2a1e/tasks/ac881f38ac7228fed.output | 2026-04-30 |
 
 ## Completed Sorties
 
@@ -188,29 +204,33 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | WU1 | 5 | Throughput recalibration: ~2.3 MiB/s sustained on big files | Earlier "~17 MiB/s" inference for Sortie 4 was wrong — it came from misreading manifest.json's mtime (CHECK 3 completion, not upload completion). Sorties 2 + 3's ~2.2 MiB/s observation was correct all along. **At ~2.3 MiB/s, big-ship ceiling is real**: Sortie 6 (8 GB) ≈ 60 min, Sortie 11 (32 GB) ≈ 4 hours. Foreground-agent pattern is structurally infeasible for ships > ~1.5 GiB at this throughput. |
 | 2026-04-30 | — | — | DISPATCH DESIGN ERROR: ban on Monitor/backgrounding was too strict for big payloads | Sortie 5 retry's prompt explicitly forbade Monitor + any backgrounding mechanism. Was correct for the lmstudio-community 2–4 GB ships (which fit within 10-min Bash window). Wrong for the 8.3 GiB aydin99 payload, which structurally needs ~60 min wall time. Mitigation: Sortie 6+ dispatch will need a different shape (operator-manual, or kicker-poller pattern). DO NOT carry the strict ban forward to big-ship dispatches. |
 | 2026-04-30 | WU1 | 5 | Sortie 5 → BLOCKED, awaiting operator-manual upload | Recommended path: operator runs `acervo upload aydin99/FLUX.2-klein-4B-int8 /tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8` in host shell (no timeout). aws s3 sync is idempotent — resumes from attempt 2's partial state. When CDN manifest goes HTTP 200, `/mission-supervisor resume` will dispatch a haiku closeout (verify + log + commit). |
+| 2026-04-30 | — | — | OPERATOR DECISION: split-execution strategy | Operator chose to run WU1 ships 5–12 via a bulk-ship script (`scripts/wu1-bulk-ship.sh`) in a separate terminal window, while the supervisor proceeds with WU2 in parallel. Sortie 13 (CDN read-side smoke test) SKIPPED — operating assumption is eventual consistency of CDN ships. WU2 Sortie 16's gate of "WU1 complete" OVERRIDDEN — WU2 Sorties 16–20 are compile-time-only changes that don't read from the CDN; CDN-dependent runtime tests (Sortie 21) come last by which time ships should be done. Trade-off: if WU1 ships fail, Sortie 21 will fail too and require re-runs once CDN populated. Acceptable given operator velocity preference. |
+| 2026-04-30 | — | — | scripts/wu1-bulk-ship.sh created | Wraps the 8 remaining WU1 ships (Sorties 5, 6, 7, 8, 9, 10, 11, 12). Sortie 5 special-case: detects existing staging and runs `acervo upload` instead of full ship (avoids re-download of 8.3 GiB). For non-lmstudio repos (5, 7, 11, 12), tries default invocation first; falls back to `--no-verify` on CHECK 1 failure. Each ship's stdout/stderr captured to `docs/missions/ship-logs/<slug>.log`. CDN-manifest verification at end. Master log goes to `docs/missions/cdn-bulk-ship.log` via tee. Operator runs in a separate terminal: `bash scripts/wu1-bulk-ship.sh 2>&1 \| tee -a docs/missions/cdn-bulk-ship.log`. |
+| 2026-04-30 | WU2 | 16 | Model: opus | Foundation override: Sortie 16 establishes the new dependency graph that all of Sorties 17–22 depend on. Complexity score ~18 (foundation 10 + risk 5 from new package APIs + task complexity 3). The Package.swift swap is mechanically simple but architecturally critical; opus's larger context handles the failure mode (build expected to fail at exit, with errors confined to specific files) better than sonnet. |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — **PAUSED** awaiting operator-manual upload of Sortie 5 staging. 6 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15).
+OPERATION FAREWELL EMBRACE — split-execution. 6 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15).
 
-**No agent dispatches authorized** until Sortie 5 manifest goes HTTP 200 on CDN.
+This iteration:
+- **Operator runs `scripts/wu1-bulk-ship.sh` in separate terminal** — handles WU1 Sorties 5, 6, 7, 8, 9, 10, 11, 12 out-of-band. ETA ~3–4 hours wall time at ~2.3 MiB/s on the big files.
+- **Supervisor dispatches WU2 Sortie 16 (Package.swift swap)** in parallel — pure code change, no CDN dependency at compile time.
+- **Sortie 13 (smoke test) SKIPPED** per operator direction.
 
 Idle:
-- WU2 — Sortie 16 PENDING, gated on WU1 finishing all 11 manifests + smoke test (Sortie 13).
+- WU2 Sorties 17–22 — sequential after Sortie 16.
 
 Resolved:
-- `acervo` 0.8.4 fix: installed and verified — manifest generator produces correct subdir-prefixed paths.
-- Path forward for nested-repo manifests: operator chose option A (fix `acervo` upstream), landed.
+- `acervo` 0.8.4 fix: installed and verified.
+- Path forward for nested-repo manifests: option A (fix `acervo` upstream), landed.
+- Big-ship strategy: operator-manual via bulk-ship script.
 
-Pending operator decision (now FORCED — was deferred):
-- **Big-ship strategy for Sorties 6+**. At measured ~2.3 MiB/s sustained throughput on big files, Sortie 6 (8 GB) ≈ 60 min, Sortie 11 (32 GB) ≈ 4 hours. Foreground-agent dispatch (10-min Bash cap) is structurally infeasible. Three options on the table — same three as before, but now we have empirical data:
-  - **(A) Operator-manual ships**: operator runs `acervo upload` (or `acervo ship`) in host shell for each big sortie; supervisor dispatches haiku closeouts. Token-cheap, robust, requires operator labor.
-  - **(B) Supervisor with `nohup` + Monitor**: kicker sortie launches `nohup`'d upload, then a poller sortie loops Monitor to wait for the bash task. Untested whether Bash timeout truly kills nohup'd children; needs experimentation on a low-stakes ship first.
-  - **(C) Hybrid**: operator-manual for the four 8 GB+ ships (6, 8, 9, 10 — wait, 6 = 8 GB; 8 = 13 GB; 9 = 19 GB; 10 = 25 GB; 11 = 32 GB; 12 = 18 GB), supervisor-foreground for the small ones. There are no remaining small ones in WU1 — all subsequent ships are ≥ 8 GB. Hybrid degenerates to option A.
+Closeout protocol (when bulk-ship script finishes):
+- Operator runs `/mission-supervisor resume`. Supervisor probes 8 CDN manifest URLs; for each HTTP 200, dispatches a SERIAL haiku closeout sortie (one at a time — they share `cdn-ship-log.md`) that appends a Sortie N section and creates a path-restricted commit.
 
-Preserved on disk (DO NOT delete during pause):
-- `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — full Sortie 5 download (8.3 GiB; 19 files). Manifest is correct (subdir-prefixed paths under acervo 0.8.4). aws s3 sync will skip files already pushed to R2.
-- `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-4bit/`, `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-8bit/`, `/tmp/acervo-staging/lmstudio-community_Qwen3-8B-MLX-4bit/` — Sorties 2, 3, 4 staging dirs.
+Preserved on disk:
+- `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — Sortie 5 staging (8.3 GiB). Bulk-ship script will detect this and run `acervo upload` only.
+- `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-4bit/`, `lmstudio-community_Qwen3-4B-MLX-8bit/`, `lmstudio-community_Qwen3-8B-MLX-4bit/` — Sorties 2/3/4 staging (already shipped).
 
 Preserved on disk (DO NOT delete during pause):
 - `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/` — full Sortie 5 download (19 files, including 4.5 GiB `text_encoder/model.safetensors`). Lets the post-fix retry skip re-download.
