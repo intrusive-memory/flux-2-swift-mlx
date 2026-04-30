@@ -92,7 +92,7 @@ ship_repo() {
   local log="${LOG_DIR}/${slug}.log"
 
   echo "----------------------------------------------------------------------"
-  echo "[$(date '+%H:%M:%S')] ${label}: ${repo} ${extra_args[*]}"
+  echo "[$(date '+%H:%M:%S')] ${label}: ${repo} ${extra_args[*]:-}"
   echo "  log → ${log}"
 
   # Skip if CDN manifest is already live.
@@ -105,7 +105,7 @@ ship_repo() {
   {
     echo "===== ${label}: ${repo} ====="
     echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "extra_args: ${extra_args[*]}"
+    echo "extra_args: ${extra_args[*]:-}"
     echo
 
     df -k "${HOME}" || true
@@ -129,14 +129,15 @@ ship_repo() {
 
   # Try the default invocation first. If it exits non-zero, retry with --no-verify
   # (CHECK 1 fails for non-LFS-backed repos).
-  if acervo ship "${repo}" "${extra_args[@]}" >> "${log}" 2>&1; then
+  # Use ${extra_args[@]+...} pattern so an empty array doesn't trip `set -u`.
+  if acervo ship "${repo}" ${extra_args[@]+"${extra_args[@]}"} >> "${log}" 2>&1; then
     echo "  ✅ ship exit 0 (default invocation)"
     return 0
   fi
 
   echo "  default invocation failed; retrying with --no-verify"
   echo "===== retry with --no-verify =====" >> "${log}"
-  if acervo ship "${repo}" "${extra_args[@]}" --no-verify >> "${log}" 2>&1; then
+  if acervo ship "${repo}" ${extra_args[@]+"${extra_args[@]}"} --no-verify >> "${log}" 2>&1; then
     echo "  ✅ ship exit 0 (--no-verify)"
     return 0
   fi
