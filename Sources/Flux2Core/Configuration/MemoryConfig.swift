@@ -111,8 +111,11 @@ public struct MemoryConfig {
 
         let adjustedLimit = Int(Double(baseLimit) * scaleFactor * modelFactor)
 
-        // Clamp to available RAM (leave at least 8GB for system)
-        let maxAllowed = (systemRAMGB - 8) * GB
+        // Clamp to available RAM. Reserve up to 8 GB for the system, but never reserve
+        // more than half of total RAM — otherwise small machines (e.g. 7 GB CI runners)
+        // get a non-positive maxAllowed and the cache limit goes negative.
+        let reservedForSystem = min(systemRAMGB / 2, 8) * GB
+        let maxAllowed = max(systemRAMGB * GB - reservedForSystem, 256 * MB)
         return min(adjustedLimit, maxAllowed)
     }
 
@@ -126,9 +129,13 @@ public struct MemoryConfig {
         case .conservative:
             return 512 * MB
         case .balanced:
-            return min(2 * GB, (systemRAMGB / 32) * GB)
+            // Floor at the conservative profile so small-RAM systems still return a
+            // positive limit (RAM/32 floors to 0 on < 32 GB systems).
+            return min(2 * GB, max(512 * MB, (systemRAMGB / 32) * GB))
         case .performance:
-            return min(4 * GB, (systemRAMGB / 16) * GB)
+            // Floor at the conservative profile so small-RAM systems still return a
+            // positive limit (RAM/16 floors to 0 on < 16 GB systems).
+            return min(4 * GB, max(512 * MB, (systemRAMGB / 16) * GB))
         }
     }
 

@@ -1195,7 +1195,7 @@ import AppKit
         // For systems >= 128GB, might return nil (unlimited)
         if MemoryConfig.systemRAMGB < 128 {
             #expect(limit != nil)
-            #expect(limit! > 256 * 1024 * 1024) // At least 256 MB
+            #expect(limit! >= 256 * 1024 * 1024) // At least 256 MB (small-RAM runners hit the floor exactly)
         }
     }
 
