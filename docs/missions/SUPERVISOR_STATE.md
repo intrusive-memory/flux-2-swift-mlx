@@ -2,7 +2,25 @@
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. A *work unit* groups related sorties.
 
-## ▶ Mission Status: RUNNING — operator chose option D for Sortie 21
+## 🏁 Mission Status: WU2 COMPLETE; WU1 ships still in flight (operator-driven)
+
+**Sortie 22 closed at commit `e5ae8e9`**. Mission branch pushed to remote. Draft PR #8 open against `development`. CI green on the final HEAD. Parity oracle + 24 Sortie-15 fixtures deleted. No `HF_TOKEN` repo secret.
+
+**WU2 (HF Excision + Code Migration) is fully complete.** All 9 WU2 sorties (14, 15, 16, 17, 18, 19, 20, 21, 22) landed. Library + tests build green. Public API surfaces preserved. README acknowledgments published.
+
+**WU1 (Acervo CDN Provisioning) is still partial** — 1 of 8 manifests live (Sortie 5: aydin99 only). Sorties 6, 7, 8, 9, 10, 11, 12 still in flight via the operator's `scripts/wu1-bulk-ship.sh` in a separate terminal. Sortie 13 (smoke test) was explicitly SKIPPED per operator's eventual-consistency direction.
+
+**When the bulk-ship script finishes**: operator runs `/mission-supervisor resume`. Supervisor will probe each of the 7 remaining CDN URLs; for each HTTP 200, dispatch a SERIAL haiku closeout sortie to append a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial (they share `cdn-ship-log.md`).
+
+**After all WU1 closeouts land**: mission is ready for `/mission-supervisor brief` (post-mission review + COMPLETE_*.md generation + archive to `docs/complete/`).
+
+**Open follow-ups (post-mission)**:
+- App smoke test against a real Qwen3 model — validate that the BPE decoder space-insertion behavior (audit comment in `Qwen3Generator.swift`) doesn't break user-visible output.
+- Build a real-vocab parity check using a downloaded Qwen3 `tokenizer.json` (Sortie 15's stub-based fixtures were uninformative; a proper round-trip test against a real vocab is overdue).
+- README dependency-table fix: lists `swift-transformers` (local checkout dir name); should read `swift-tokenizers` (DePasqualeOrg).
+- `TokenizerParityTests.swift` failed on CI's sandboxed test runner (`#file`-based fixture path didn't resolve under xcodebuild's restricted FS access). If a future parity test is added, use `Bundle.module` for fixture resolution rather than `#file` arithmetic.
+
+## (Resolved) Prior Mission Status: RUNNING — operator chose option D for Sortie 21
 
 Operator decision (2026-04-30): land all uncommitted work + drop `autoTokenizerParity` (with documenting comment) + add `Qwen3Generator.swift` audit note. Re-dispatching Sortie 21 with reduced scope.
 
@@ -157,12 +175,11 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
   4. **Big-ship ceiling (FUTURE)** — at observed throughput (~2.2 MB/s effective), Sortie 6 (8 GB ≈ 60 min) and beyond will likely exceed any reasonable single-agent dispatch window. Plan to migrate to host-side `nohup acervo ship &` + a polling sortie that just verifies manifest landings, OR split the prompt into "kick off" + "monitor" sorties. **Do not solve this until Sortie 5 has shipped** — confirm 4 GB ships work first, then plan 8+ GB strategy from real data.
 
 ### WU2 — HF Excision + Code Migration
-- Work unit state: RUNNING
-- Current sortie: 22 of 22 (Sorties 14, 15, 16, 17, 18, 19, 20, 21 COMPLETED at commits `45cd8b2`, `330ecac`, `f193c0d`, `4e16903`, `d5bfae9`, `89ed3ce`, `97297b9`, `088b652`)
-- Sortie state: PENDING (next dispatch this iteration)
-- Sortie type: code + ops (push branch, open PR, wait for CI, delete parity oracle, push cleanup, update PR description)
-- Model: sonnet (mechanical work; CI-wait is bounded polling)
-- Complexity score: ~10
+- Work unit state: COMPLETED ✅
+- All 9 WU2 sorties landed: `45cd8b2`, `330ecac`, `f193c0d`, `4e16903`, `d5bfae9`, `89ed3ce`, `97297b9`, `088b652`, `e5ae8e9`.
+- PR #8 open as draft against `development`: https://github.com/intrusive-memory/flux-2-swift-mlx/pull/8
+- CI green (Test Flux2Core Config-Only macOS 1m53s + Test FluxTextEncoders macOS 3m07s).
+- Last verified (Sortie 22): no `HF_TOKEN` secret at repo level; parity oracle + 24 fixtures deleted; local tests pass after deletion; PR description includes mission summary + recon doc links + API change list + credits surface link.
 - Last verified (Sortie 21 — option D recovery):
   - Commit `088b652` — 4 files: Flux2CoreTests.swift + ModelRegistryTests.swift (compile fixes for Sortie 20's symbol renames), TokenizerParityTests.swift (new — tekkenParity only; autoTokenizerParity removed with retrospective header doc), Qwen3Generator.swift (audit comment at line 105 above first decode call site).
   - All FluxTextEncodersTests + Flux2CoreTests pass. tekkenParity test passes (12/12 fixtures match).
@@ -198,6 +215,7 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | WU2 | 19 | `89ed3ce` | COMPLETED | Hand-rolled HF API client deleted. ModelDownloader.swift 734 → 241 ins/515 del. `make build` PASS for ALL targets (first time post-migration). 4 cut-variant `notProvisionedOnCDN` errors + `isProvisionedOnCDN` UI property. 3 callers updated; test file required no changes (Sortie 14 already removed plan-listed line). 12 `huggingface.co` residual matches are in files outside Sortie 19's path restriction; Sortie 20 cleans them up. **Plan-addition flagged**: `TextEncoderModelRegistry.swift:372` runtime tekken.json URL is dead (post-Sortie-18) and not in Sortie 20's plan list — Sortie 20 dispatch will include it. |
 | WU2 | 20 | `97297b9` | COMPLETED | Strip HF runtime strings + README ack. 4 files (README, ModelRegistry.swift, TextEncoderModelRegistry.swift, ModelDownloader.swift caller fix). All grep exit criteria pass; 4 residual `huggingface` matches all in attribution comments. Dead `tekkenJsonURL` deleted. README has full per-model attribution table. `make build` PASS. **Cosmetic nit**: README says `swift-transformers` for the dep name; actual is `swift-tokenizers` (DePasqualeOrg). |
 | WU2 | 21 | `088b652` | COMPLETED (option D — reduced scope) | tekkenParity test passes (12/12 fixtures); autoTokenizerParity test REMOVED (Sortie 15 stub-fixture design only exercised `<unk>`-serialization edge cases). Header comment in TokenizerParityTests.swift documents the design retrospective. Audit comment added in Qwen3Generator.swift line 105 flagging swift-tokenizers BPE decode space-insertion. Test compile-fixes for Sortie 20 symbol renames included (Flux2CoreTests.swift, ModelRegistryTests.swift). All Flux2CoreTests + FluxTextEncodersTests pass; Flux2GPUTests environmentally skipped. |
+| WU2 | 22 | `e5ae8e9` | COMPLETED (terminal sortie) | Branch pushed, PR #8 opened as draft against `development`. CI green. Parity oracle (`TokenizerParityTests.swift` + 24 fixture JSONs in `Tests/Fixtures/TokenizerParity/`) deleted. No `HF_TOKEN` repo secret. **Note**: first push to CI went red because `TokenizerParityTests.swift`'s `#file`-based fixture path resolution failed under Xcode 26.2's CI sandbox; agent merged Tasks 5 (fix CI) and 6 (delete parity oracle) since deletion was the planned action anyway. CI then green on the deletion commit. Local tekken parity proof was captured in commit `088b652` (Sortie 21); CI itself never ran the parity test. |
 | WU1 | 2 | `bf57228` | COMPLETED | Shipped `lmstudio-community/Qwen3-4B-MLX-4bit` (2.1 GiB) to R2. acervo exit 0; CHECKs 4/5/6 passed; manifest HTTP 200 on underscore-slug URL; all 4 tokenizer artifacts present. Path-restricted commit (1 file). |
 | WU1 | 3 | `f0fea4a` | COMPLETED | Shipped `lmstudio-community/Qwen3-8B-MLX-4bit` (4.3 GiB) to R2. acervo exit 0; CHECKs 4/5/6 passed; manifest HTTP 200; all 4 tokenizer artifacts present. Wall time ~33 min at ~2.2 MiB/s. Manifest SHA-256 `9cdc1cbe…`. |
 | WU1 | 4 | `1572273` | COMPLETED (logged retroactively) | Ship attempt-1 agent backgrounded `acervo ship` and exited before logging. Ship itself succeeded (CDN manifest HTTP 200; local staging intact at `/tmp/acervo-staging/lmstudio-community_Qwen3-4B-MLX-8bit/`). Haiku closeout sortie verified all checks post-hoc and committed the log entry. Manifest SHA-256 `5b291868…`. |
@@ -262,16 +280,24 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | WU2 | 21 | Operator-decision options surfaced | (A) **Drop AutoTokenizer parity test, keep Tekken**: lands Sortie 21 with reduced scope; document in commit message that autotok parity test was misdesigned and would be replaced post-mission with a real-vocab check. Risk: silent Qwen3/Mistral runtime regression undetected until production use. (B) **Defer Sortie 21 until a real Qwen3 manifest is live, regenerate fixtures using new library, assert round-trip self-consistency**: slow; doesn't actually verify "no regression" since both fixtures and assertions come from the new library. (C) **Operator manual smoke test**: subjective, doesn't run in CI. (D) **Land all uncommitted work** (the test compile-fixes ARE needed for build green) and skip the autoTokenizerParity test with explicit "expected divergence on stub vocab" reason; audit production decode call sites in Qwen3Generator.swift. |
 | 2026-04-30 | WU2 | 21 | OPERATOR DECISION: option D | "option d. please resume." Sortie 21 dispatched in option-D shape: drop autoTokenizerParity (with retrospective header), keep tekkenParity, add Qwen3Generator audit comment, land test compile-fixes. Single sonnet, single commit (`088b652`). All tests pass. |
 | 2026-04-30 | WU2 | 22 | Model: sonnet | Mechanical work: push branch, open/update PR via `gh pr`, verify no `HF_TOKEN` secret (`gh secret list`), bounded-poll CI status (`gh pr checks` NOT `--watch` to avoid Bash-timeout backgrounding), delete parity oracle + fixture files, push cleanup, update PR description. Score ~10. |
+| 2026-04-30 | WU2 | 22 | Sortie 22 COMPLETE at commit `e5ae8e9`; PR #8 open | Mission branch pushed; draft PR open against `development`. CI green (Test Flux2Core Config-Only macOS, Test FluxTextEncoders macOS). Parity oracle + 24 fixture JSONs deleted. No HF_TOKEN secret. Bounded-poll CI strategy worked — agent didn't get killed by Bash timeout during CI wait. **Plan deviation (acknowledged)**: agent's first push went red because `TokenizerParityTests.swift`'s `#file`-based fixture-path resolution failed under Xcode 26.2's CI sandbox; agent treated the deletion as both the fix (Task 5) and the cleanup (Task 6). Functionally equivalent to plan intent: CI green, parity oracle gone. Tradeoff: CI never proved tekken parity itself; only local proof captured at commit `088b652`. For future missions: parity tests should use `Bundle.module` for test-fixture access, not `#file` arithmetic. |
+| 2026-04-30 | — | — | WU2 COMPLETE | All 9 WU2 sorties landed. PR #8 open as draft. Mission branch ahead of `origin/mission/farewell-embrace/01` by 0 commits. Operator should NOT merge until WU1 ships finish + smoke test passes. |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — split-execution. 12 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15, 16, 17, 18, 19, 20, 21).
+OPERATION FAREWELL EMBRACE — **WU2 COMPLETE**; WU1 ships still in flight. 13 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15, 16, 17, 18, 19, 20, 21, 22). Sortie 13 (CDN smoke test) explicitly skipped per operator's eventual-consistency direction. Sorties 5–12 are running out-of-band via `scripts/wu1-bulk-ship.sh`.
 
-This iteration:
-- **Operator running `scripts/wu1-bulk-ship.sh`** — WU1 Sorties 5–12 out-of-band. Status: 1/8 manifests live (Sortie 5 only); 7 still in flight.
-- **Supervisor dispatching WU2 Sortie 22** — TERMINAL sortie. Push branch, open/update PR, wait for CI, delete parity oracle, push cleanup.
+PR: https://github.com/intrusive-memory/flux-2-swift-mlx/pull/8 (draft, base `development`, CI green).
 
-After Sortie 22 completes + WU1 ships finish: mission is ready for `/mission-supervisor brief` (post-mission review + archive).
+Pending operator-driven completion:
+- WU1 Sorties 5, 6, 7, 8, 9, 10, 11, 12 — bulk-ship script in flight (1/8 manifests live as of this update).
+
+When the bulk-ship script finishes:
+- Operator runs `/mission-supervisor resume`. Supervisor probes 7 remaining CDN URLs; for each HTTP 200, dispatches a SERIAL haiku closeout sortie that appends a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial — they share `cdn-ship-log.md`.
+
+After all WU1 closeouts land:
+- Mission is ready for `/mission-supervisor brief` (post-mission review + archive to `docs/complete/`).
+- Operator can move PR #8 from draft to ready-to-merge once an app smoke test confirms generated output looks right.
 
 Resolved:
 - `acervo` 0.8.4 fix: installed and verified.
