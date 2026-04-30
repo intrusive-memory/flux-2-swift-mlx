@@ -1,54 +1,74 @@
 /**
  * TextEncoderModelDownloader.swift
- * Downloads Mistral and Qwen3 models from HuggingFace Hub for text encoding
+ * Downloads Mistral and Qwen3 models from the intrusive-memory CDN via SwiftAcervo.
+ *
+ * Sortie 18 (R2.5): Replaced legacy Hub-based downloads with SwiftAcervo's
+ * manifest-driven CDN downloads. Storage location is `Acervo.sharedModelsDirectory`
+ * (App Group container or Application Support fallback); no override hook is exposed.
  */
 
 import Foundation
-import Hub
+import SwiftAcervo
 
 /// Progress callback for download updates
 public typealias TextEncoderDownloadProgressCallback = @Sendable (Double, String) -> Void
 
-/// Model downloader with HuggingFace Hub integration
+/// Model downloader backed by SwiftAcervo's CDN manifest pipeline.
 public class TextEncoderModelDownloader {
 
-  /// HuggingFace token for private/gated models
-  private var hfToken: String?
+  // MARK: - File Lists (hardcoded per Sortie 18 plan; eventual-consistency model)
 
-  /// Hub API instance
-  nonisolated(unsafe) private static var hubApi: HubApi = makeHubApi()
+  /// Files to fetch for an lmstudio-community Mistral MLX quant.
+  ///
+  /// Each `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-{4,6,8}bit`
+  /// repo ships these files; the CDN manifest is the authoritative source at
+  /// runtime. The explicit list mirrors the legacy snapshot match patterns
+  /// (`*.json`, `*.safetensors`) plus `tekken.json`, which every
+  /// lmstudio-community MLX quant ships directly (replaces the deleted
+  /// `ensureTekkenJson(...)` fallback).
+  private static let mistralMLXFiles: [String] = [
+    "config.json",
+    "tekken.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "generation_config.json",
+    "chat_template.jinja",
+    "model.safetensors",
+    "model.safetensors.index.json",
+  ]
 
-  private static func makeHubApi() -> HubApi {
-    setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
-    let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-    return HubApi(downloadBase: base)
-  }
+  /// Files to fetch for an lmstudio-community Qwen3 MLX quant.
+  ///
+  /// Mirrors the legacy snapshot match patterns (`*.json`, `*.safetensors`,
+  /// `tokenizer.model`). Acervo's manifest is the authoritative source —
+  /// names not present in the manifest will surface
+  /// `AcervoError.fileNotInManifest` at runtime.
+  private static let qwen3MLXFiles: [String] = [
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "tokenizer.model",
+    "special_tokens_map.json",
+    "added_tokens.json",
+    "generation_config.json",
+    "chat_template.jinja",
+    "model.safetensors",
+    "model.safetensors.index.json",
+  ]
 
-  /// Call to update the HubApi
-  public static func reconfigureHubApi() {
-    hubApi = makeHubApi()
-  }
+  /// Optional auth token preserved on the type for API stability.
+  /// SwiftAcervo downloads are unauthenticated CDN reads; this is retained
+  /// so `init(hfToken:)` does not break consumers.
+  private var hfToken: String?  // swift-format-ignore: name spelling preserved for API stability
 
-  /// Directory where HubApi downloads models.
-  /// Falls back to ~/Library/Caches/models
-  private static var hubDownloadDirectory: URL {
-    let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-    return cacheDir.appendingPathComponent("models")
-  }
-
-  /// Legacy models directory (Mistral).
-  /// Falls back to ~/.mistral/models (macOS) or Application Support/mistral/models (iOS).
-  /// Sortie 19 replaces this with Acervo.modelDirectory(for:).
+  /// Canonical storage directory for downloaded models.
+  ///
+  /// Backed by `Acervo.sharedModelsDirectory` (App Group container or
+  /// Application Support fallback). Sortie 14 removed the consumer override
+  /// hook (`customModelsDirectory`); no replacement is exposed.
   public static var modelsDirectory: URL {
-    #if os(macOS)
-      let homeDir = FileManager.default.homeDirectoryForCurrentUser
-      return homeDir.appendingPathComponent(".mistral").appendingPathComponent("models")
-    #else
-      let appSupport = FileManager.default.urls(
-        for: .applicationSupportDirectory, in: .userDomainMask
-      ).first!
-      return appSupport.appendingPathComponent("mistral").appendingPathComponent("models")
-    #endif
+    Acervo.sharedModelsDirectory
   }
 
   public init(hfToken: String? = nil) {
@@ -58,80 +78,33 @@ public class TextEncoderModelDownloader {
     }
   }
 
-  /// Check if a model is already downloaded
+  // MARK: - Mistral
+
+  /// Check if a Mistral model is already downloaded.
   public static func isModelDownloaded(_ model: ModelInfo) -> Bool {
     return findModelPath(for: model) != nil
   }
 
-  /// Get the HuggingFace Hub cache path for a model
-  public static func hubCachePath(for model: ModelInfo) -> URL? {
-    // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
-    var newPath = hubDownloadDirectory
-    for component in model.repoId.split(separator: "/") {
-      newPath = newPath.appendingPathComponent(String(component))
-    }
-
-    if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-      return newPath
-    }
-
-    // Check legacy location: ~/.cache/huggingface/hub/models--{org}--{repo}/snapshots/...
-    // This path only exists on macOS
-    #if os(macOS)
-      let homeDir = FileManager.default.homeDirectoryForCurrentUser
-      let hubCache =
-        homeDir
-        .appendingPathComponent(".cache")
-        .appendingPathComponent("huggingface")
-        .appendingPathComponent("hub")
-
-      let modelFolder = "models--\(model.repoId.replacingOccurrences(of: "/", with: "--"))"
-      let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent(
-        "snapshots")
-
-      guard let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-        let latestSnapshot = contents.sorted().last
-      else {
-        return nil
-      }
-
-      let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-      let configPath = modelPath.appendingPathComponent("config.json")
-
-      if FileManager.default.fileExists(atPath: configPath.path) {
-        return modelPath
-      }
-    #endif
-
-    return nil
-  }
-
-  /// Find a model path (checks Hub cache first, then local directory)
+  /// Find a Mistral model path in the Acervo shared models directory.
+  /// Returns the directory only when `config.json` is present and the
+  /// safetensors shard set is complete.
   public static func findModelPath(for model: ModelInfo) -> URL? {
-    // Check Hub cache first
-    if let hubPath = hubCachePath(for: model) {
-      let verification = verifyShardedModel(at: hubPath)
-      if verification.complete {
-        return hubPath
-      }
+    guard Acervo.isModelAvailable(model.repoId) else {
+      return nil
     }
-
-    // Check local models directory
-    let localDir = modelsDirectory.appendingPathComponent(
-      model.repoId.replacingOccurrences(of: "/", with: "--"))
-    if FileManager.default.fileExists(atPath: localDir.appendingPathComponent("config.json").path) {
-      let verification = verifyShardedModel(at: localDir)
-      if verification.complete {
-        return localDir
-      }
+    guard let dir = try? Acervo.modelDirectory(for: model.repoId) else {
+      return nil
     }
-
-    return nil
+    let verification = verifyShardedModel(at: dir)
+    return verification.complete ? dir : nil
   }
 
-  /// Verify that a sharded model has all required safetensors files
-  /// Note: Does NOT trust index.json as some HF repos have mismatched index files
-  /// Instead, detects safetensors files and verifies the series is complete
+  /// Verify that a sharded model has all required safetensors files.
+  ///
+  /// Acervo's manifest verifies per-file SHA-256 + size. This check is
+  /// retained as a complementary local-side shard-series sanity check
+  /// (e.g., to catch a partially-deleted directory): index.json is not
+  /// trusted; the shard filenames themselves declare totals.
   public static func verifyShardedModel(at path: URL) -> (complete: Bool, missing: [String]) {
     let contents = (try? FileManager.default.contentsOfDirectory(atPath: path.path)) ?? []
     let safetensorsFiles = contents.filter { $0.hasSuffix(".safetensors") }
@@ -147,15 +120,12 @@ public class TextEncoderModelDownloader {
     }
 
     // Parse sharded file pattern: model-XXXXX-of-YYYYY.safetensors
-    // Example: model-00001-of-00003.safetensors
     var totalShards: Int?
     var foundIndices: Set<Int> = []
 
     for file in safetensorsFiles {
-      // Parse filename like "model-00001-of-00003.safetensors"
       let name = file.replacingOccurrences(of: ".safetensors", with: "")
       let parts = name.split(separator: "-")
-      // Expected: ["model", "00001", "of", "00003"]
       guard parts.count == 4,
         parts[0] == "model",
         parts[2] == "of",
@@ -168,14 +138,12 @@ public class TextEncoderModelDownloader {
       if totalShards == nil {
         totalShards = total
       } else if totalShards != total {
-        // Inconsistent totals - mixed files
         return (false, ["Inconsistent shard totals: \(totalShards!) vs \(total)"])
       }
 
       foundIndices.insert(index)
     }
 
-    // If we found sharded files, verify all parts are present
     if let total = totalShards {
       let expectedIndices = Set(1...total)
       let missing = expectedIndices.subtracting(foundIndices)
@@ -191,53 +159,40 @@ public class TextEncoderModelDownloader {
     }
 
     // Has some safetensors files but not in standard sharded format
-    // Consider it complete if there are any safetensors files
     return (true, [])
   }
 
-  /// Download a model using Hub API
+  /// Download a Mistral model via Acervo CDN.
   public func download(
     _ model: ModelInfo,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws -> URL {
-    // Check if already downloaded
     if let existingPath = Self.findModelPath(for: model) {
-      let verification = Self.verifyShardedModel(at: existingPath)
-      if verification.complete {
-        // Also ensure tekken.json exists
-        await ensureTekkenJson(at: existingPath, progress: progress)
-        progress?(1.0, "Model already downloaded")
-        return existingPath
-      } else {
-        print("Warning: Incomplete download detected. Missing files: \(verification.missing)")
-        print("Re-downloading...")
-      }
+      progress?(1.0, "Model already downloaded")
+      return existingPath
     }
 
     progress?(0.0, "Starting download of \(model.name)...")
-    print("\nDownloading \(model.name) from HuggingFace...")
+    print("\nDownloading \(model.name) via Acervo CDN...")
     print("Repository: \(model.repoId)")
-    print()
 
-    let modelUrl = try await Self.hubApi.snapshot(
-      from: model.repoId,
-      matching: ["*.json", "*.safetensors"]
-    ) { downloadProgress in
-      let completed = downloadProgress.completedUnitCount
-      let total = downloadProgress.totalUnitCount
-      let fraction = downloadProgress.fractionCompleted
+    try await Acervo.ensureAvailable(
+      model.repoId,
+      files: Self.mistralMLXFiles,
+      progress: { acervoProgress in
+        let message =
+          "Downloading \(acervoProgress.fileName) "
+          + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+        progress?(acervoProgress.overallProgress, message)
+      }
+    )
 
-      let message = "Downloading file \(completed)/\(total)"
-      progress?(fraction, message)
-    }
+    let modelUrl = try Acervo.modelDirectory(for: model.repoId)
 
     let verification = Self.verifyShardedModel(at: modelUrl)
     if !verification.complete {
-      print("\nWarning: Download may be incomplete. Missing files: \(verification.missing)")
+      print("\nWarning: Local shard verification reports missing files: \(verification.missing)")
     }
-
-    // Download tekken.json from original Mistral repo if not present
-    await ensureTekkenJson(at: modelUrl, progress: progress)
 
     progress?(1.0, "Download complete!")
     print("\nDownload complete: \(modelUrl.path)")
@@ -245,98 +200,53 @@ public class TextEncoderModelDownloader {
     return modelUrl
   }
 
-  /// Ensure tekken.json exists in the model directory
-  /// Downloads from original Mistral repo if not present
-  private func ensureTekkenJson(
-    at modelPath: URL, progress: TextEncoderDownloadProgressCallback? = nil
-  ) async {
-    let tekkenPath = modelPath.appendingPathComponent("tekken.json")
-
-    // Check if already exists
-    if FileManager.default.fileExists(atPath: tekkenPath.path) {
-      // Verify it's not a Git LFS pointer
-      if let data = try? Data(contentsOf: tekkenPath),
-        data.count > 1000
-      {  // Real file is ~19MB, pointer is < 200 bytes
-        return
-      }
-    }
-
-    progress?(0.9, "Downloading tekken.json tokenizer...")
-    print("Downloading tekken.json from Mistral AI repository...")
-
-    let tekkenUrl = URL(
-      string:
-        "https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/main/tekken.json"
-    )!
-
-    do {
-      let (data, response) = try await URLSession.shared.data(from: tekkenUrl)
-
-      if let httpResponse = response as? HTTPURLResponse,
-        httpResponse.statusCode == 200,
-        data.count > 1000
-      {  // Sanity check - real file is ~19MB
-        try data.write(to: tekkenPath)
-        print("tekken.json downloaded successfully (\(data.count / 1_000_000)MB)")
-      } else {
-        print("Warning: Failed to download tekken.json - response invalid")
-      }
-    } catch {
-      print("Warning: Could not download tekken.json: \(error.localizedDescription)")
-    }
-  }
-
-  /// Download a model by variant
+  /// Download a model by variant. Cut variants throw `notProvisionedOnCDN`.
   public func download(
     variant: ModelVariant,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws -> URL {
+    if variant == .bf16 {
+      throw TextEncoderModelDownloaderError.notProvisionedOnCDN(variant: .bf16)
+    }
     guard let model = await TextEncoderModelRegistry.shared.model(withVariant: variant) else {
       throw TextEncoderModelDownloaderError.modelNotFound
     }
     return try await download(model, progress: progress)
   }
 
-  // MARK: - Qwen3 Downloads
+  // MARK: - Qwen3
 
-  /// Download a Qwen3 model for Klein embeddings
+  /// Download a Qwen3 model via Acervo CDN.
   public func downloadQwen3(
     _ model: Qwen3ModelInfo,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws -> URL {
-    // Check if already downloaded
     if let existingPath = Self.findQwen3ModelPath(for: model) {
-      let verification = Self.verifyShardedModel(at: existingPath)
-      if verification.complete {
-        progress?(1.0, "Qwen3 model already downloaded")
-        return existingPath
-      } else {
-        print("Warning: Incomplete Qwen3 download detected. Missing files: \(verification.missing)")
-        print("Re-downloading...")
-      }
+      progress?(1.0, "Qwen3 model already downloaded")
+      return existingPath
     }
 
     progress?(0.0, "Starting download of \(model.name)...")
-    print("\nDownloading \(model.name) from HuggingFace...")
+    print("\nDownloading \(model.name) via Acervo CDN...")
     print("Repository: \(model.repoId)")
-    print()
 
-    let modelUrl = try await Self.hubApi.snapshot(
-      from: model.repoId,
-      matching: ["*.json", "*.safetensors", "tokenizer.model"]
-    ) { downloadProgress in
-      let completed = downloadProgress.completedUnitCount
-      let total = downloadProgress.totalUnitCount
-      let fraction = downloadProgress.fractionCompleted
+    try await Acervo.ensureAvailable(
+      model.repoId,
+      files: Self.qwen3MLXFiles,
+      progress: { acervoProgress in
+        let message =
+          "Downloading \(acervoProgress.fileName) "
+          + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+        progress?(acervoProgress.overallProgress, message)
+      }
+    )
 
-      let message = "Downloading file \(completed)/\(total)"
-      progress?(fraction, message)
-    }
+    let modelUrl = try Acervo.modelDirectory(for: model.repoId)
 
     let verification = Self.verifyShardedModel(at: modelUrl)
     if !verification.complete {
-      print("\nWarning: Qwen3 download may be incomplete. Missing files: \(verification.missing)")
+      print(
+        "\nWarning: Qwen3 local shard verification reports missing files: \(verification.missing)")
     }
 
     progress?(1.0, "Download complete!")
@@ -345,7 +255,7 @@ public class TextEncoderModelDownloader {
     return modelUrl
   }
 
-  /// Download a Qwen3 model by variant
+  /// Download a Qwen3 model by variant.
   public func downloadQwen3(
     variant: Qwen3Variant,
     progress: TextEncoderDownloadProgressCallback? = nil
@@ -356,136 +266,83 @@ public class TextEncoderModelDownloader {
     return try await downloadQwen3(model, progress: progress)
   }
 
-  /// Find a Qwen3 model path (checks Hub cache)
-  /// Verifies safetensors files are complete before returning path
+  /// Find a Qwen3 model path in the Acervo shared models directory.
+  /// Returns the directory only when `config.json` is present and the
+  /// safetensors shard set is complete.
   public static func findQwen3ModelPath(for model: Qwen3ModelInfo) -> URL? {
-    // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
-    var newPath = hubDownloadDirectory
-    for component in model.repoId.split(separator: "/") {
-      newPath = newPath.appendingPathComponent(String(component))
+    guard Acervo.isModelAvailable(model.repoId) else {
+      return nil
     }
-
-    if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-      // Verify safetensors files are complete
-      let verification = verifyShardedModel(at: newPath)
-      if verification.complete {
-        return newPath
-      }
+    guard let dir = try? Acervo.modelDirectory(for: model.repoId) else {
+      return nil
     }
-
-    // Check legacy location (macOS only - ~/.cache/huggingface/hub)
-    #if os(macOS)
-      let homeDir = FileManager.default.homeDirectoryForCurrentUser
-      let hubCache =
-        homeDir
-        .appendingPathComponent(".cache")
-        .appendingPathComponent("huggingface")
-        .appendingPathComponent("hub")
-
-      let modelFolder = "models--\(model.repoId.replacingOccurrences(of: "/", with: "--"))"
-      let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent(
-        "snapshots")
-
-      if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-        let latestSnapshot = contents.sorted().last
-      {
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path) {
-          // Verify safetensors files are complete
-          let verification = verifyShardedModel(at: modelPath)
-          if verification.complete {
-            return modelPath
-          }
-        }
-      }
-    #endif
-
-    return nil
+    let verification = verifyShardedModel(at: dir)
+    return verification.complete ? dir : nil
   }
 
-  /// Check if a Qwen3 model is already downloaded
+  /// Check if a Qwen3 model is already downloaded.
   public static func isQwen3ModelDownloaded(_ model: Qwen3ModelInfo) -> Bool {
     return findQwen3ModelPath(for: model) != nil
   }
 
-  /// Find a Qwen3 model path by variant
-  /// Verifies safetensors files are complete before returning path
+  /// Find a Qwen3 model path by variant.
   public static func findQwen3ModelPath(for variant: Qwen3Variant) -> URL? {
     let repoId = variant.repoId
-
-    // Check Hub download directory: {hubDownloadDirectory}/{org}/{repo}
-    var newPath = hubDownloadDirectory
-    for component in repoId.split(separator: "/") {
-      newPath = newPath.appendingPathComponent(String(component))
+    guard Acervo.isModelAvailable(repoId) else {
+      return nil
     }
-
-    if FileManager.default.fileExists(atPath: newPath.appendingPathComponent("config.json").path) {
-      // Verify safetensors files are complete
-      let verification = verifyShardedModel(at: newPath)
-      if verification.complete {
-        return newPath
-      }
+    guard let dir = try? Acervo.modelDirectory(for: repoId) else {
+      return nil
     }
-
-    // Check legacy location (macOS only - ~/.cache/huggingface/hub)
-    #if os(macOS)
-      let homeDir = FileManager.default.homeDirectoryForCurrentUser
-      let hubCache =
-        homeDir
-        .appendingPathComponent(".cache")
-        .appendingPathComponent("huggingface")
-        .appendingPathComponent("hub")
-
-      let modelFolder = "models--\(repoId.replacingOccurrences(of: "/", with: "--"))"
-      let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent(
-        "snapshots")
-
-      if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-        let latestSnapshot = contents.sorted().last
-      {
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path) {
-          // Verify safetensors files are complete
-          let verification = verifyShardedModel(at: modelPath)
-          if verification.complete {
-            return modelPath
-          }
-        }
-      }
-    #endif
-
-    return nil
+    let verification = verifyShardedModel(at: dir)
+    return verification.complete ? dir : nil
   }
 
-  /// Check if a Qwen3 model is already downloaded by variant
+  /// Check if a Qwen3 model is already downloaded by variant.
   public static func isQwen3ModelDownloaded(variant: Qwen3Variant) -> Bool {
     return findQwen3ModelPath(for: variant) != nil
   }
 
-  /// Download a model by repo ID directly
+  // MARK: - Direct repo / resolution
+
+  /// Download a model by repo ID directly. The list of files is the union of
+  /// the Mistral + Qwen3 lists; Acervo will skip names not present in the
+  /// repo's manifest only if they are actually absent — extras throw
+  /// `AcervoError.fileNotInManifest`. For known repo IDs prefer `download(_:)`
+  /// or `downloadQwen3(_:)`.
   public func downloadByRepoId(
     _ repoId: String,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws -> URL {
     progress?(0.0, "Starting download...")
-    print("\nDownloading from HuggingFace: \(repoId)")
+    print("\nDownloading via Acervo CDN: \(repoId)")
 
-    let modelUrl = try await Self.hubApi.snapshot(
-      from: repoId,
-      matching: ["*.json", "*.safetensors"]
+    let files: [String]
+    if repoId.contains("Qwen3") {
+      files = Self.qwen3MLXFiles
+    } else {
+      files = Self.mistralMLXFiles
+    }
+
+    try await Acervo.ensureAvailable(
+      repoId,
+      files: files,
+      progress: { acervoProgress in
+        let message =
+          "Downloading \(acervoProgress.fileName) "
+          + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+        progress?(acervoProgress.overallProgress, message)
+      }
     )
 
+    let modelUrl = try Acervo.modelDirectory(for: repoId)
     progress?(1.0, "Download complete!")
     print("Model available at: \(modelUrl.path)")
 
     return modelUrl
   }
 
-  /// Resolve a model identifier to a local path, downloading if necessary
+  /// Resolve a model identifier to a local path, downloading if necessary.
   public func resolveModel(
     _ identifier: String,
     progress: TextEncoderDownloadProgressCallback? = nil
@@ -499,13 +356,16 @@ public class TextEncoderModelDownloader {
     }
 
     // Try variant matching
-    if let variant = ModelVariant(rawValue: identifier),
-      let model = await TextEncoderModelRegistry.shared.model(withVariant: variant)
-    {
-      if let existingPath = Self.findModelPath(for: model) {
-        return existingPath
+    if let variant = ModelVariant(rawValue: identifier) {
+      if variant == .bf16 {
+        throw TextEncoderModelDownloaderError.notProvisionedOnCDN(variant: .bf16)
       }
-      return try await download(model, progress: progress)
+      if let model = await TextEncoderModelRegistry.shared.model(withVariant: variant) {
+        if let existingPath = Self.findModelPath(for: model) {
+          return existingPath
+        }
+        return try await download(model, progress: progress)
+      }
     }
 
     // Check if it's a local path
@@ -514,7 +374,7 @@ public class TextEncoderModelDownloader {
       return localURL
     }
 
-    // Try as a direct HuggingFace repo ID
+    // Try as a direct repo ID
     return try await downloadByRepoId(identifier, progress: progress)
   }
 
@@ -533,6 +393,9 @@ public enum TextEncoderModelDownloaderError: LocalizedError {
   case qwen3ModelNotFound
   case downloadFailed(String)
   case invalidToken
+  /// Variant has been intentionally cut from CDN provisioning. The follow-up
+  /// CDN mission tracked under `docs/missions/` will re-enable it.
+  case notProvisionedOnCDN(variant: ModelVariant)
 
   public var errorDescription: String? {
     switch self {
@@ -543,7 +406,11 @@ public enum TextEncoderModelDownloaderError: LocalizedError {
     case .downloadFailed(let reason):
       return "Download failed: \(reason)"
     case .invalidToken:
-      return "Invalid HuggingFace token"
+      return "Invalid auth token"
+    case .notProvisionedOnCDN(let variant):
+      return
+        "Variant \(variant.shortName) is not provisioned on the Acervo CDN. "
+        + "It will be re-enabled in a follow-up CDN mission."
     }
   }
 }
