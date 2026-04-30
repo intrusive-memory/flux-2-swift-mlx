@@ -8,9 +8,6 @@ let package = Package(
         // Libraries
         .library(name: "FluxTextEncoders", targets: ["FluxTextEncoders"]),
         .library(name: "Flux2Core", targets: ["Flux2Core"]),
-        // CLI Tools
-        .executable(name: "FluxEncodersCLI", targets: ["FluxEncodersCLI"]),
-        .executable(name: "Flux2CLI", targets: ["Flux2CLI"]),
         // Main Application
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
@@ -44,22 +41,6 @@ let package = Package(
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
                 .product(name: "Hub", package: "swift-transformers"),
                 .product(name: "Transformers", package: "swift-transformers"),
-            ]
-        ),
-        // MARK: - CLI Tools
-        .executableTarget(
-            name: "FluxEncodersCLI",
-            dependencies: [
-                "FluxTextEncoders",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
-        ),
-        .executableTarget(
-            name: "Flux2CLI",
-            dependencies: [
-                "Flux2Core",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "YAML", package: "universal"),
             ]
         ),
         // MARK: - Main Application

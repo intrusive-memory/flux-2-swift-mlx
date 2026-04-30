@@ -415,10 +415,6 @@ public enum ModelRegistry {
 
   // MARK: - Paths
 
-  /// Custom override for model storage directory.
-  /// Set this before any download/check call to redirect model storage.
-  nonisolated(unsafe) public static var customModelsDirectory: URL?
-
   /// CDN base URL for downloading models without HuggingFace authentication.
   ///
   /// When set, the downloader fetches a `manifest.json` from the CDN path
@@ -435,11 +431,8 @@ public enum ModelRegistry {
   nonisolated(unsafe) public static var cdnBaseURL: URL?
 
   /// Base directory for model storage.
-  /// Uses customModelsDirectory if set, otherwise falls back to ~/Library/Caches/models
+  /// Falls back to ~/Library/Caches/models; Sortie 19 replaces this with Acervo.modelDirectory(for:).
   public static var modelsDirectory: URL {
-    if let custom = customModelsDirectory {
-      return custom
-    }
     let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
     return cacheDir.appendingPathComponent("models", isDirectory: true)
   }

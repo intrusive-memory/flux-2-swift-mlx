@@ -15,43 +15,31 @@ public class TextEncoderModelDownloader {
   /// HuggingFace token for private/gated models
   private var hfToken: String?
 
-  /// Custom override for model storage directory.
-  /// Set this before any download/check call to redirect model storage.
-  nonisolated(unsafe) public static var customModelsDirectory: URL?
-
-  /// Hub API instance — recreated if custom directory is set
+  /// Hub API instance
   nonisolated(unsafe) private static var hubApi: HubApi = makeHubApi()
 
   private static func makeHubApi() -> HubApi {
     setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
-    let base =
-      customModelsDirectory?.deletingLastPathComponent()
-      ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
     return HubApi(downloadBase: base)
   }
 
-  /// Call after setting customModelsDirectory to update the HubApi
+  /// Call to update the HubApi
   public static func reconfigureHubApi() {
     hubApi = makeHubApi()
   }
 
   /// Directory where HubApi downloads models.
-  /// Uses customModelsDirectory if set, otherwise falls back to ~/Library/Caches/models
+  /// Falls back to ~/Library/Caches/models
   private static var hubDownloadDirectory: URL {
-    if let custom = customModelsDirectory {
-      return custom
-    }
     let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
     return cacheDir.appendingPathComponent("models")
   }
 
   /// Legacy models directory (Mistral).
-  /// Uses customModelsDirectory if set, otherwise falls back to ~/.mistral/models (macOS)
-  /// or Application Support/mistral/models (iOS)
+  /// Falls back to ~/.mistral/models (macOS) or Application Support/mistral/models (iOS).
+  /// Sortie 19 replaces this with Acervo.modelDirectory(for:).
   public static var modelsDirectory: URL {
-    if let custom = customModelsDirectory {
-      return custom
-    }
     #if os(macOS)
       let homeDir = FileManager.default.homeDirectoryForCurrentUser
       return homeDir.appendingPathComponent(".mistral").appendingPathComponent("models")
