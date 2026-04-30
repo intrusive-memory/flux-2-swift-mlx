@@ -14,7 +14,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMajor(from: "1.3.0")),
+        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", from: "0.4.2"),
+        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.4"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
@@ -26,8 +27,8 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Transformers", package: "swift-transformers"),
+                .product(name: "Tokenizers", package: "swift-tokenizers"),
+                .product(name: "SwiftAcervo", package: "SwiftAcervo"),
             ]
         ),
         .target(
@@ -39,8 +40,7 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Transformers", package: "swift-transformers"),
+                .product(name: "SwiftAcervo", package: "SwiftAcervo"),
             ]
         ),
         // MARK: - Main Application
