@@ -172,6 +172,27 @@ public class Flux2ModelDownloader: @unchecked Sendable {
         return (true, [])
     }
 
+    /// Total on-disk size of a downloaded model component in bytes.
+    ///
+    /// Returns `nil` if the component is not found on disk.
+    /// Recursively enumerates all files under the component directory so that
+    /// multi-file safetensors shards and ancillary JSON files are all counted.
+    public static func diskSize(for component: ModelRegistry.ModelComponent) -> Int64? {
+        guard let path = findModelPath(for: component) else { return nil }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: path, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) else {
+            return nil
+        }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  values.isRegularFile == true,
+                  let size = values.fileSize else { continue }
+            total += Int64(size)
+        }
+        return total
+    }
+
     // MARK: - Download
 
     /// Download a model component from CDN or HuggingFace
@@ -360,7 +381,7 @@ public class Flux2ModelDownloader: @unchecked Sendable {
                 let delegateSession = URLSession(
                     configuration: config,
                     delegate: delegate,
-                    delegateQueue: nil
+                    delegateQueue: OperationQueue()
                 )
                 delegateSession.downloadTask(with: request).resume()
             }
@@ -480,7 +501,7 @@ public class Flux2ModelDownloader: @unchecked Sendable {
                 let delegateSession = URLSession(
                     configuration: config,
                     delegate: delegate,
-                    delegateQueue: nil
+                    delegateQueue: OperationQueue()
                 )
                 delegateSession.downloadTask(with: request).resume()
             }

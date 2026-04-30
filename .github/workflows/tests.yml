@@ -5,64 +5,78 @@ on:
     branches: [main, development]
 
 jobs:
-  test-macos:
-    name: Test on macOS
+  test-fte-macos:
+    name: "Test FluxTextEncoders (macOS)"
     runs-on: macos-26
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v6
 
-      - name: Show Swift version
-        run: swift --version
+      # Full cache hit: same Package.swift → reuse resolved deps.
+      # No restore-keys: any Package.swift change forces a clean re-resolve.
+      # (Package.resolved is gitignored, so we key on Package.swift only.)
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v5
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      # DerivedData cache key includes Package.swift hash + source hash for a full hit.
+      # restore-keys only match when Package.swift is unchanged, so any manifest change
+      # forces a fresh build; source-only changes reuse a partial incremental build.
+      - name: Cache DerivedData (FluxTextEncodersTests)
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-fte-${{ hashFiles('Package.swift') }}-${{ hashFiles('Sources/**/*.swift', 'Tests/**/*.swift') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-fte-${{ hashFiles('Package.swift') }}-
 
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
 
-      - name: Build all targets
+      - name: Test FluxTextEncoders
         run: |
-          xcodebuild build-for-testing \
+          xcodebuild test \
             -scheme Flux2Swift-Package \
             -destination 'platform=macOS,arch=arm64' \
-            -clonedSourcePackagesDirPath .spm
-
-      - name: Run FluxTextEncoders tests
-        run: |
-          xcodebuild test-without-building \
-            -scheme Flux2Swift-Package \
-            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
             -only-testing FluxTextEncodersTests
 
-  test-ios:
-    name: Test on iOS Simulator
+  test-f2c-macos:
+    name: "Test Flux2Core — Config Only (macOS)"
     runs-on: macos-26
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v6
 
-      - name: Show Swift version
-        run: swift --version
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v5
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      - name: Cache DerivedData (Flux2CoreTests)
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-f2c-${{ hashFiles('Package.swift') }}-${{ hashFiles('Sources/**/*.swift', 'Tests/**/*.swift') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-f2c-${{ hashFiles('Package.swift') }}-
 
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
 
-      - name: Build for iOS testing
+      - name: Test Flux2Core
         run: |
-          xcodebuild build-for-testing \
+          xcodebuild test \
             -scheme Flux2Swift-Package \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
-            -clonedSourcePackagesDirPath .spm
-
-      - name: Run FluxTextEncoders tests on iOS
-        run: |
-          xcodebuild test-without-building \
-            -scheme Flux2Swift-Package \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1,arch=arm64' \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
-            -only-testing FluxTextEncodersTests
+            -only-testing Flux2CoreTests

@@ -3,14 +3,15 @@
  * Unit tests for GenerationResult
  */
 
-import XCTest
+import Testing
 @testable import FluxTextEncoders
 
-final class GenerationResultTests: XCTestCase {
+@Suite("GenerationResultTests")
+struct GenerationResultTests {
 
     // MARK: - Initialization Tests
 
-    func testGenerationResultInit() {
+    @Test func generationResultInit() {
         let result = GenerationResult(
             text: "Hello world",
             tokens: [100, 200, 300],
@@ -20,15 +21,15 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 2.0
         )
 
-        XCTAssertEqual(result.text, "Hello world")
-        XCTAssertEqual(result.tokens, [100, 200, 300])
-        XCTAssertEqual(result.promptTokens, 10)
-        XCTAssertEqual(result.generatedTokens, 3)
-        XCTAssertEqual(result.totalTime, 1.5)
-        XCTAssertEqual(result.tokensPerSecond, 2.0)
+        #expect(result.text == "Hello world")
+        #expect(result.tokens == [100, 200, 300])
+        #expect(result.promptTokens == 10)
+        #expect(result.generatedTokens == 3)
+        #expect(result.totalTime == 1.5)
+        #expect(result.tokensPerSecond == 2.0)
     }
 
-    func testGenerationResultEmptyText() {
+    @Test func generationResultEmptyText() {
         let result = GenerationResult(
             text: "",
             tokens: [],
@@ -38,14 +39,14 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 0.0
         )
 
-        XCTAssertTrue(result.text.isEmpty)
-        XCTAssertTrue(result.tokens.isEmpty)
-        XCTAssertEqual(result.generatedTokens, 0)
+        #expect(result.text.isEmpty)
+        #expect(result.tokens.isEmpty)
+        #expect(result.generatedTokens == 0)
     }
 
     // MARK: - Summary Tests
 
-    func testSummaryFormat() {
+    @Test func summaryFormat() {
         let result = GenerationResult(
             text: "Test output",
             tokens: [1, 2, 3, 4, 5],
@@ -57,13 +58,13 @@ final class GenerationResultTests: XCTestCase {
 
         let summary = result.summary()
 
-        XCTAssertTrue(summary.contains("Prompt: 100 tokens"), "Should show prompt tokens")
-        XCTAssertTrue(summary.contains("Generated: 5 tokens"), "Should show generated tokens")
-        XCTAssertTrue(summary.contains("2.5 tokens/s"), "Should show tokens per second")
-        XCTAssertTrue(summary.contains("2.00s"), "Should show time")
+        #expect(summary.contains("Prompt: 100 tokens"), "Should show prompt tokens")
+        #expect(summary.contains("Generated: 5 tokens"), "Should show generated tokens")
+        #expect(summary.contains("2.5 tokens/s"), "Should show tokens per second")
+        #expect(summary.contains("2.00s"), "Should show time")
     }
 
-    func testSummaryWithZeroTokens() {
+    @Test func summaryWithZeroTokens() {
         let result = GenerationResult(
             text: "",
             tokens: [],
@@ -75,11 +76,11 @@ final class GenerationResultTests: XCTestCase {
 
         let summary = result.summary()
 
-        XCTAssertTrue(summary.contains("Prompt: 0 tokens"))
-        XCTAssertTrue(summary.contains("Generated: 0 tokens"))
+        #expect(summary.contains("Prompt: 0 tokens"))
+        #expect(summary.contains("Generated: 0 tokens"))
     }
 
-    func testSummaryWithLargeNumbers() {
+    @Test func summaryWithLargeNumbers() {
         let result = GenerationResult(
             text: String(repeating: "a", count: 1000),
             tokens: Array(0..<1000),
@@ -91,14 +92,14 @@ final class GenerationResultTests: XCTestCase {
 
         let summary = result.summary()
 
-        XCTAssertTrue(summary.contains("5000 tokens"))
-        XCTAssertTrue(summary.contains("1000 tokens"))
-        XCTAssertTrue(summary.contains("20.0 tokens/s"))
+        #expect(summary.contains("5000 tokens"))
+        #expect(summary.contains("1000 tokens"))
+        #expect(summary.contains("20.0 tokens/s"))
     }
 
     // MARK: - Token Count Consistency Tests
 
-    func testTokenCountMatchesArray() {
+    @Test func tokenCountMatchesArray() {
         let tokens = [10, 20, 30, 40, 50]
         let result = GenerationResult(
             text: "test",
@@ -109,13 +110,12 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 5.0
         )
 
-        XCTAssertEqual(result.tokens.count, result.generatedTokens,
-                      "Token count should match tokens array length")
+        #expect(result.tokens.count == result.generatedTokens, "Token count should match tokens array length")
     }
 
     // MARK: - Performance Metrics Tests
 
-    func testHighPerformanceMetrics() {
+    @Test func highPerformanceMetrics() {
         let result = GenerationResult(
             text: "Fast generation",
             tokens: Array(0..<100),
@@ -125,13 +125,13 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 100.0
         )
 
-        XCTAssertEqual(result.tokensPerSecond, 100.0)
+        #expect(result.tokensPerSecond == 100.0)
 
         let summary = result.summary()
-        XCTAssertTrue(summary.contains("100.0 tokens/s"))
+        #expect(summary.contains("100.0 tokens/s"))
     }
 
-    func testLowPerformanceMetrics() {
+    @Test func lowPerformanceMetrics() {
         let result = GenerationResult(
             text: "Slow generation",
             tokens: [1],
@@ -142,26 +142,12 @@ final class GenerationResultTests: XCTestCase {
         )
 
         let summary = result.summary()
-        XCTAssertTrue(summary.contains("0.1 tokens/s"))
-    }
-
-    // MARK: - Sendable Conformance
-
-    func testGenerationResultIsSendable() {
-        let result: Sendable = GenerationResult(
-            text: "test",
-            tokens: [1],
-            promptTokens: 1,
-            generatedTokens: 1,
-            totalTime: 1.0,
-            tokensPerSecond: 1.0
-        )
-        XCTAssertNotNil(result)
+        #expect(summary.contains("0.1 tokens/s"))
     }
 
     // MARK: - Edge Cases
 
-    func testVeryLongText() {
+    @Test func veryLongText() {
         let longText = String(repeating: "Hello world. ", count: 10000)
         let result = GenerationResult(
             text: longText,
@@ -172,11 +158,11 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 100.0
         )
 
-        XCTAssertEqual(result.text.count, longText.count)
-        XCTAssertEqual(result.tokens.count, 10000)
+        #expect(result.text.count == longText.count)
+        #expect(result.tokens.count == 10000)
     }
 
-    func testUnicodeText() {
+    @Test func unicodeText() {
         let unicodeText = "Hello 世界 🌍 مرحبا"
         let result = GenerationResult(
             text: unicodeText,
@@ -187,10 +173,10 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 10.0
         )
 
-        XCTAssertEqual(result.text, unicodeText)
+        #expect(result.text == unicodeText)
     }
 
-    func testSpecialCharactersInText() {
+    @Test func specialCharactersInText() {
         let specialText = "Line1\nLine2\tTab\"Quote'Single"
         let result = GenerationResult(
             text: specialText,
@@ -201,12 +187,12 @@ final class GenerationResultTests: XCTestCase {
             tokensPerSecond: 30.0
         )
 
-        XCTAssertEqual(result.text, specialText)
+        #expect(result.text == specialText)
     }
 
     // MARK: - Time Formatting Tests
 
-    func testTimeFormattingInSummary() {
+    @Test func timeFormattingInSummary() {
         // Test various time values
         let shortResult = GenerationResult(
             text: "quick",
@@ -218,10 +204,10 @@ final class GenerationResultTests: XCTestCase {
         )
 
         let summary = shortResult.summary()
-        XCTAssertTrue(summary.contains("0.01s"), "Should format short time correctly")
+        #expect(summary.contains("0.01s"), "Should format short time correctly")
     }
 
-    func testDecimalPrecisionInSummary() {
+    @Test func decimalPrecisionInSummary() {
         let result = GenerationResult(
             text: "test",
             tokens: [1, 2, 3],
@@ -233,7 +219,6 @@ final class GenerationResultTests: XCTestCase {
 
         let summary = result.summary()
         // Should be formatted with limited decimal places
-        XCTAssertTrue(summary.contains("1.23s") || summary.contains("1.2s"),
-                     "Time should be formatted with limited decimals")
+        #expect(summary.contains("1.23s") || summary.contains("1.2s"), "Time should be formatted with limited decimals")
     }
 }

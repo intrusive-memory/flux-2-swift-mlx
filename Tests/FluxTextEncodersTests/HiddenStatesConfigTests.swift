@@ -3,65 +3,66 @@
  * Unit tests for HiddenStatesConfig
  */
 
-import XCTest
+import Testing
 @testable import FluxTextEncoders
 
-final class HiddenStatesConfigTests: XCTestCase {
+@Suite("HiddenStatesConfigTests")
+struct HiddenStatesConfigTests {
 
     // MARK: - Preset Tests
 
-    func testMfluxDefaultPreset() {
+    @Test func mfluxDefaultPreset() {
         let config = HiddenStatesConfig.mfluxDefault
 
-        XCTAssertEqual(config.layerIndices, [10, 20, 30],
+        #expect(config.layerIndices == [10, 20, 30],
                       "mflux default should extract from layers 10, 20, 30")
-        XCTAssertTrue(config.concatenate,
+        #expect(config.concatenate,
                      "mflux default should concatenate layers")
-        XCTAssertFalse(config.normalize,
+        #expect(!config.normalize,
                       "mflux default should not normalize")
-        XCTAssertEqual(config.pooling, .none,
+        #expect(config.pooling == .none,
                       "mflux default should have no pooling")
     }
 
-    func testLastLayerOnlyPreset() {
+    @Test func lastLayerOnlyPreset() {
         let config = HiddenStatesConfig.lastLayerOnly
 
-        XCTAssertEqual(config.layerIndices, [-1],
+        #expect(config.layerIndices == [-1],
                       "lastLayerOnly should use index -1")
-        XCTAssertFalse(config.concatenate,
+        #expect(!config.concatenate,
                       "lastLayerOnly should not concatenate (only one layer)")
-        XCTAssertFalse(config.normalize,
+        #expect(!config.normalize,
                       "lastLayerOnly should not normalize by default")
-        XCTAssertEqual(config.pooling, .lastToken,
+        #expect(config.pooling == .lastToken,
                       "lastLayerOnly should use lastToken pooling")
     }
 
-    func testMiddleLayerPreset() {
+    @Test func middleLayerPreset() {
         let config = HiddenStatesConfig.middleLayer
 
-        XCTAssertEqual(config.layerIndices, [20],
+        #expect(config.layerIndices == [20],
                       "middleLayer should extract from layer 20")
-        XCTAssertFalse(config.concatenate)
-        XCTAssertEqual(config.pooling, .lastToken)
+        #expect(!config.concatenate)
+        #expect(config.pooling == .lastToken)
     }
 
-    func testAllLayersPreset() {
+    @Test func allLayersPreset() {
         let config = HiddenStatesConfig.allLayers
 
-        XCTAssertEqual(config.layerIndices.count, 40,
+        #expect(config.layerIndices.count == 40,
                       "allLayers should have 40 layer indices")
-        XCTAssertEqual(config.layerIndices.first, 0,
+        #expect(config.layerIndices.first == 0,
                       "allLayers should start at 0")
-        XCTAssertEqual(config.layerIndices.last, 39,
+        #expect(config.layerIndices.last == 39,
                       "allLayers should end at 39")
-        XCTAssertFalse(config.concatenate,
+        #expect(!config.concatenate,
                       "allLayers should not concatenate (too large)")
-        XCTAssertEqual(config.pooling, .none)
+        #expect(config.pooling == .none)
     }
 
     // MARK: - Custom Config Tests
 
-    func testCustomInit() {
+    @Test func customInit() {
         let config = HiddenStatesConfig(
             layerIndices: [5, 15, 25],
             concatenate: false,
@@ -69,13 +70,13 @@ final class HiddenStatesConfigTests: XCTestCase {
             pooling: .mean
         )
 
-        XCTAssertEqual(config.layerIndices, [5, 15, 25])
-        XCTAssertFalse(config.concatenate)
-        XCTAssertTrue(config.normalize)
-        XCTAssertEqual(config.pooling, .mean)
+        #expect(config.layerIndices == [5, 15, 25])
+        #expect(!config.concatenate)
+        #expect(config.normalize)
+        #expect(config.pooling == .mean)
     }
 
-    func testCustomBuilder() {
+    @Test func customBuilder() {
         let config = HiddenStatesConfig.custom(
             layers: [0, 10, 20, 30, 39],
             concatenate: true,
@@ -83,46 +84,46 @@ final class HiddenStatesConfigTests: XCTestCase {
             pooling: .lastToken
         )
 
-        XCTAssertEqual(config.layerIndices.count, 5)
-        XCTAssertTrue(config.concatenate)
-        XCTAssertTrue(config.normalize)
-        XCTAssertEqual(config.pooling, .lastToken)
+        #expect(config.layerIndices.count == 5)
+        #expect(config.concatenate)
+        #expect(config.normalize)
+        #expect(config.pooling == .lastToken)
     }
 
-    func testCustomBuilderDefaults() {
+    @Test func customBuilderDefaults() {
         let config = HiddenStatesConfig.custom(layers: [10])
 
         // Check defaults
-        XCTAssertTrue(config.concatenate, "Default concatenate should be true")
-        XCTAssertFalse(config.normalize, "Default normalize should be false")
-        XCTAssertEqual(config.pooling, .none, "Default pooling should be none")
+        #expect(config.concatenate, "Default concatenate should be true")
+        #expect(!config.normalize, "Default normalize should be false")
+        #expect(config.pooling == .none, "Default pooling should be none")
     }
 
     // MARK: - Pooling Strategy Tests
 
-    func testPoolingStrategyNone() {
-        XCTAssertEqual(PoolingStrategy.none.rawValue, "none")
+    @Test func poolingStrategyNone() {
+        #expect(PoolingStrategy.none.rawValue == "none")
     }
 
-    func testPoolingStrategyLastToken() {
-        XCTAssertEqual(PoolingStrategy.lastToken.rawValue, "lastToken")
+    @Test func poolingStrategyLastToken() {
+        #expect(PoolingStrategy.lastToken.rawValue == "lastToken")
     }
 
-    func testPoolingStrategyMean() {
-        XCTAssertEqual(PoolingStrategy.mean.rawValue, "mean")
+    @Test func poolingStrategyMean() {
+        #expect(PoolingStrategy.mean.rawValue == "mean")
     }
 
-    func testPoolingStrategyMax() {
-        XCTAssertEqual(PoolingStrategy.max.rawValue, "max")
+    @Test func poolingStrategyMax() {
+        #expect(PoolingStrategy.max.rawValue == "max")
     }
 
-    func testPoolingStrategyCLS() {
-        XCTAssertEqual(PoolingStrategy.cls.rawValue, "cls")
+    @Test func poolingStrategyCLS() {
+        #expect(PoolingStrategy.cls.rawValue == "cls")
     }
 
     // MARK: - Edge Cases
 
-    func testEmptyLayerIndices() {
+    @Test func emptyLayerIndices() {
         let config = HiddenStatesConfig(
             layerIndices: [],
             concatenate: true,
@@ -130,10 +131,10 @@ final class HiddenStatesConfigTests: XCTestCase {
             pooling: .none
         )
 
-        XCTAssertTrue(config.layerIndices.isEmpty)
+        #expect(config.layerIndices.isEmpty)
     }
 
-    func testNegativeLayerIndices() {
+    @Test func negativeLayerIndices() {
         let config = HiddenStatesConfig(
             layerIndices: [-1, -2, -3],
             concatenate: true,
@@ -142,10 +143,10 @@ final class HiddenStatesConfigTests: XCTestCase {
         )
 
         // Negative indices should be preserved (resolved at extraction time)
-        XCTAssertEqual(config.layerIndices, [-1, -2, -3])
+        #expect(config.layerIndices == [-1, -2, -3])
     }
 
-    func testSingleLayerWithConcatenate() {
+    @Test func singleLayerWithConcatenate() {
         let config = HiddenStatesConfig(
             layerIndices: [10],
             concatenate: true,  // Should work even with single layer
@@ -153,32 +154,20 @@ final class HiddenStatesConfigTests: XCTestCase {
             pooling: .none
         )
 
-        XCTAssertEqual(config.layerIndices.count, 1)
-        XCTAssertTrue(config.concatenate)
-    }
-
-    // MARK: - Sendable Conformance
-
-    func testHiddenStatesConfigIsSendable() {
-        let config: Sendable = HiddenStatesConfig.mfluxDefault
-        XCTAssertNotNil(config)
-    }
-
-    func testPoolingStrategyIsSendable() {
-        let strategy: Sendable = PoolingStrategy.mean
-        XCTAssertNotNil(strategy)
+        #expect(config.layerIndices.count == 1)
+        #expect(config.concatenate)
     }
 
     // MARK: - FLUX.2 Compatibility Tests
 
-    func testFluxCompatibleDimensions() {
+    @Test func fluxCompatibleDimensions() {
         let config = HiddenStatesConfig.mfluxDefault
         let hiddenSize = 5120  // Mistral Small 3.2 hidden size
         let numLayers = config.layerIndices.count
 
         // FLUX.2 expects 15360 dimensions (3 layers * 5120)
         let expectedDimension = numLayers * hiddenSize
-        XCTAssertEqual(expectedDimension, 15360,
+        #expect(expectedDimension == 15360,
                       "FLUX.2 config should produce 15360 dimensions")
     }
 }

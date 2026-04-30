@@ -15,10 +15,10 @@ let package = Package(
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.30.2"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0"),
-        .package(url: "https://github.com/huggingface/swift-transformers", from: "1.1.6"),
-        .package(url: "https://github.com/marcprux/universal", from: "5.3.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
+        .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMajor(from: "1.3.0")),
+        .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
         // MARK: - Libraries
@@ -67,14 +67,25 @@ let package = Package(
             name: "Flux2App",
             dependencies: ["FluxTextEncoders", "Flux2Core"]
         ),
+        // MARK: - Test Helpers (regular target so test targets can depend on it)
+        .target(
+            name: "TestHelpers",
+            dependencies: ["Flux2Core", "FluxTextEncoders"],
+            path: "Tests/TestHelpers"
+        ),
         // MARK: - Tests
         .testTarget(
             name: "FluxTextEncodersTests",
-            dependencies: ["FluxTextEncoders"]
+            dependencies: ["FluxTextEncoders", "TestHelpers"]
         ),
         .testTarget(
             name: "Flux2CoreTests",
-            dependencies: ["Flux2Core"]
+            dependencies: ["Flux2Core", "TestHelpers"]
+        ),
+        .testTarget(
+            name: "Flux2GPUTests",
+            dependencies: ["Flux2Core", "FluxTextEncoders", "TestHelpers"],
+            path: "Tests/Flux2GPUTests"
         ),
     ]
 )

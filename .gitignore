@@ -30,6 +30,7 @@ output/
 
 # Package resolution
 Package.resolved
+.spm/
 datasets/
 .build-xcode/
 groot_training_ostris/

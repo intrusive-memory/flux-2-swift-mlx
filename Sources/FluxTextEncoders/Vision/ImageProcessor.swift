@@ -259,7 +259,7 @@ public class ImageProcessor {
     // MARK: - Image loading
 
     /// Load image from file path as CGImage (cross-platform via ImageIO)
-    public func loadImage(from path: String) throws -> CGImage {
+    public func loadImageAsCGImage(from path: String) throws -> CGImage {
         let url = URL(fileURLWithPath: path) as CFURL
         guard let source = CGImageSourceCreateWithURL(url, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
@@ -268,9 +268,17 @@ public class ImageProcessor {
         return cgImage
     }
 
+    #if canImport(AppKit)
+    /// Load image from file path as NSImage (macOS backward compatibility)
+    public func loadImage(from path: String) throws -> NSImage {
+        let cgImage = try loadImageAsCGImage(from: path)
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+    #endif
+
     /// Preprocess image from file path
     public func preprocessFromFile(_ path: String) throws -> MLXArray {
-        let image = try loadImage(from: path)
+        let image = try loadImageAsCGImage(from: path)
         return try preprocess(image)
     }
 
