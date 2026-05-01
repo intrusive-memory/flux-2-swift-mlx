@@ -1,5 +1,21 @@
 // swift-tools-version: 6.2
+
+import Foundation
 import PackageDescription
+
+// In CI we always pin to released remotes. Locally, prefer a sibling checkout
+// at ../<name> if present so in-flight changes can be exercised end-to-end
+// without publishing a release. Falls back to the remote pin if the sibling
+// directory is missing, so fresh clones still build.
+let useLocalSiblings = ProcessInfo.processInfo.environment["CI"] != "true"
+
+func sibling(_ name: String, remote: String, from version: Version) -> Package.Dependency {
+  let localPath = "../\(name)"
+  if useLocalSiblings && FileManager.default.fileExists(atPath: localPath) {
+    return .package(path: localPath)
+  }
+  return .package(url: remote, .upToNextMajor(from: version))
+}
 
 let package = Package(
     name: "Flux2Swift",
@@ -14,8 +30,12 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
-        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", from: "0.4.2"),
-        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.4"),
+        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMajor(from: "0.4.2")),
+        sibling(
+            "SwiftAcervo",
+            remote: "https://github.com/intrusive-memory/SwiftAcervo",
+            from: "0.8.4"
+        ),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [

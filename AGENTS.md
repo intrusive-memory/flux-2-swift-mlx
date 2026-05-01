@@ -11,17 +11,15 @@ This file is the universal source of truth for the project. Agent-specific files
 
 `flux-2-swift-mlx` is a native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image-generation models, running locally on Apple Silicon via [MLX](https://github.com/ml-explore/mlx-swift). This is the `intrusive-memory` fork; the original upstream is `VincentGourbin/flux-2-swift-mlx`.
 
-The package ships two libraries and three executables:
+The package ships two libraries and one demo executable:
 
 | Product | Kind | Purpose |
 |---|---|---|
 | `FluxTextEncoders` | library | Mistral Small 3.2 + Qwen3 text encoders, Pixtral VLM, FLUX.2 embeddings |
 | `Flux2Core` | library | Flux.2 image-generation pipeline (T2I, I2I, multi-image, LoRA, training) |
-| `FluxEncodersCLI` | executable | CLI wrapper for `FluxTextEncoders` |
-| `Flux2CLI` | executable | CLI wrapper for `Flux2Core` (`flux2`) |
 | `Flux2App` | executable | SwiftUI demo macOS app |
 
-Downstream consumers integrate via Swift Package Manager. See `README.md` for end-user usage; this file is for agents working on the codebase.
+The `Flux2CLI` and `FluxEncodersCLI` executables were removed in v3.0.0 (OPERATION FAREWELL EMBRACE) when the project narrowed to a library-only fork. Downstream consumers integrate via Swift Package Manager. See `README.md` for end-user usage; this file is for agents working on the codebase.
 
 ---
 
@@ -42,8 +40,6 @@ Package.swift                    # SPM manifest (single source of truth for prod
 Sources/
   FluxTextEncoders/              # Library: text encoders + tokenizers
   Flux2Core/                     # Library: image-generation pipeline + training
-  FluxEncodersCLI/               # CLI for FluxTextEncoders
-  Flux2CLI/                      # CLI for Flux2Core (binary name: flux2)
   Flux2App/                      # SwiftUI demo app
 Tests/
   FluxTextEncodersTests/         # Unit tests (Swift Testing) — CI-safe, no GPU/models
@@ -56,13 +52,14 @@ docs/                            # User-facing guides + screenshots + mission ar
 TESTING_REQUIREMENTS.md          # Authoritative testing standard — read before adding tests
 ```
 
-**Version strings** are embedded at three call sites:
+**Version strings** are embedded at four call sites:
 
 - `Sources/Flux2Core/Flux2Core.swift` — `Flux2Core.version`
-- `Sources/Flux2Core/Training/Training.swift` — `Training.version` (kept in lockstep)
+- `Sources/Flux2Core/Training/Training.swift` — `Training.version`
 - `Sources/FluxTextEncoders/FluxTextEncoders.swift` — `FluxTextEncoders.version`
+- `Sources/FluxTextEncoders/FluxTextEncoders.swift` — `MistralVersion.version` (Mistral wrapper)
 
-All three must move together. The shipped tag is the truth; the embedded string must match the tag at release time.
+All four must move together. The shipped tag is the truth; the embedded string must match the tag at release time.
 
 ---
 
@@ -156,10 +153,10 @@ This fork **does not produce release binaries**. Only `tests.yml` exists; there 
 Consumers integrate via SwiftPM:
 
 ```swift
-.package(url: "https://github.com/intrusive-memory/flux-2-swift-mlx", .upToNextMajor(from: "2.7.0"))
+.package(url: "https://github.com/intrusive-memory/flux-2-swift-mlx", .upToNextMajor(from: "3.0.0"))
 ```
 
-The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries. The README links pointed there historically; they were corrected to this fork's release URLs in v2.7.0, but the fork itself does not currently host binary artifacts. If the project later adds a `release.yml`, update both the README and this section.
+The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries. The README links pointed there historically; they were corrected to this fork's release URLs in v2.7.0, but the fork itself does not currently host binary artifacts. With the CLI executables removed in v3.0.0, the fork is now SwiftPM-only.
 
 ---
 
@@ -194,4 +191,4 @@ These apply to every agent. Agent-specific rules live in [CLAUDE.md](CLAUDE.md) 
 
 ---
 
-**Last updated**: 2026-04-30 (v2.7.0)
+**Last updated**: 2026-05-01 (v3.0.0)
