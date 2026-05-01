@@ -332,6 +332,16 @@
     func downloadTransformer(_ variant: ModelRegistry.TransformerVariant) async {
       guard !isDownloading else { return }
 
+      // Sortie 19: surface "not yet available" up front for cut variants so
+      // the user gets the eventual-consistency message immediately instead of
+      // a download-failed-shaped error.
+      guard variant.isProvisionedOnCDN else {
+        errorMessage =
+          "\(variant.rawValue) is not yet available on the Acervo CDN. "
+          + "It will be re-enabled in a follow-up CDN provisioning mission."
+        return
+      }
+
       isDownloading = true
       downloadProgress = 0
       downloadMessage = "Starting download of \(variant.rawValue) transformer..."

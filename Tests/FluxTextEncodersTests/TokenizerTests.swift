@@ -78,7 +78,7 @@ struct TokenizerTests {
       ["role": "user", "content": "Hello"]
     ]
 
-    let prompt = tokenizer.applyChatTemplate(messages: messages)
+    let prompt = tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
 
     // Should contain the user message
     #expect(prompt.contains("Hello"), "Chat template should contain user message")
@@ -95,7 +95,7 @@ struct TokenizerTests {
       ["role": "user", "content": "Hi"],
     ]
 
-    let prompt = tokenizer.applyChatTemplate(messages: messages)
+    let prompt = tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
 
     // Should contain both system and user content
     #expect(
@@ -111,7 +111,7 @@ struct TokenizerTests {
       ["role": "user", "content": "How are you?"],
     ]
 
-    let prompt = tokenizer.applyChatTemplate(messages: messages)
+    let prompt = tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
 
     // Should contain all messages
     #expect(prompt.contains("Hello"), "Should contain first user message")

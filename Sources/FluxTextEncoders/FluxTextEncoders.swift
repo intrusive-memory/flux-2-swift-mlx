@@ -204,7 +204,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     // Use from(modelFolder:) for local paths (not from(pretrained:) which treats path as Hub ID)
     print("[Klein] Loading tokenizer from local path...")
     let modelFolderURL = URL(fileURLWithPath: modelPath)
-    qwen3Tokenizer = try await AutoTokenizer.from(modelFolder: modelFolderURL)
+    qwen3Tokenizer = try await AutoTokenizer.from(directory: modelFolderURL)
     print("[Klein] Tokenizer loaded successfully")
 
     // Create Klein embedding extractor and Qwen3 generator

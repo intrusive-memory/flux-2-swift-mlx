@@ -1,29 +1,75 @@
-// ModelDownloader.swift - Download Flux.2 models from HuggingFace
+// ModelDownloader.swift - Download Flux.2 models via SwiftAcervo CDN
 // Copyright 2025 Vincent Gourbin
+//
+// Sortie 19 (OPERATION FAREWELL EMBRACE) replaced the hand-rolled HuggingFace
+// API client (HF tree-listing fetcher, per-file resolve downloads, and the
+// legacy `~/.cache/huggingface/hub` fallback) with `Acervo.ensureAvailable(...)`
+// from SwiftAcervo. The downloader's public API surface is preserved aside
+// from the new `Flux2DownloadError.notProvisionedOnCDN(variant:)` case
+// (Tasks 2 + 5).
 
 import Foundation
+import SwiftAcervo
 
 /// Progress callback for download updates
 public typealias Flux2DownloadProgressCallback = @Sendable (Double, String) -> Void
 
-/// Downloads Flux.2 models from HuggingFace Hub
+/// Downloads Flux.2 models via the Acervo CDN.
+///
+/// Storage location is `Acervo.sharedModelsDirectory` (App Group container or
+/// Application Support fallback). The legacy `ModelRegistry.modelsDirectory`
+/// path is no longer the canonical location — we forward through Acervo.
 public class Flux2ModelDownloader: @unchecked Sendable {
 
-  /// HuggingFace token for gated models
-  private var hfToken: String?
-
-  /// URLSession for downloads
-  private let session: URLSession
+  /// Optional auth token preserved on the type for API stability.
+  /// SwiftAcervo CDN reads are unauthenticated; this field is retained so
+  /// `init(hfToken:)` does not break consumers (legacy callers in
+  /// `ModelManager.swift` still surface it from `HF_TOKEN` env / UserDefaults).
+  private var hfToken: String?  // swift-format-ignore: legacy name preserved
 
   public init(hfToken: String? = nil) {
     self.hfToken = hfToken
     if let token = hfToken {
       setenv("HF_TOKEN", token, 1)
     }
+  }
 
-    let config = URLSessionConfiguration.default
-    config.timeoutIntervalForResource = 3600  // 1 hour for large models
-    self.session = URLSession(configuration: config)
+  // MARK: - Acervo Model IDs
+
+  /// Acervo model ID for a component.
+  ///
+  /// The returned string is an Acervo model ID (slugified internally by
+  /// SwiftAcervo when used as a directory name). It equals the original
+  /// HuggingFace `<org>/<repo>` form because Acervo's CDN ships use the same
+  /// addressing scheme.
+  private static func repoId(for component: ModelRegistry.ModelComponent) -> String {
+    switch component {
+    case .transformer(let variant):
+      return variant.repoId
+    case .textEncoder:
+      // Text encoder downloads are owned by FluxTextEncoders.TextEncoderModelDownloader.
+      // Returned for reference only; this class does not download text encoders.
+      return "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+    case .vae:
+      // VAE ships as part of the Klein-4B repo (NOT gated, and the same VAE
+      // weights apply to every Flux.2 model).
+      return "black-forest-labs/FLUX.2-klein-4B"
+    }
+  }
+
+  /// Subfolder relative to the Acervo model directory where this component's
+  /// safetensors actually live. The Pipeline + VAE loaders expect a directory
+  /// containing the safetensors at depth 0 (`contentsOfDirectory` is non-recursive),
+  /// so we must return the right depth for each variant's manifest layout.
+  private static func subfolder(for component: ModelRegistry.ModelComponent) -> String? {
+    switch component {
+    case .transformer(let variant):
+      return variant.repoSubfolder
+    case .vae:
+      return "vae"
+    case .textEncoder:
+      return nil
+    }
   }
 
   // MARK: - Model Paths
@@ -33,94 +79,52 @@ public class Flux2ModelDownloader: @unchecked Sendable {
     findModelPath(for: component) != nil
   }
 
-  /// Find local path for a model component
+  /// Find local path for a model component within the Acervo shared models
+  /// directory. Returns the directory containing the component's safetensors
+  /// (with the subfolder appended for components like VAE / qint8) only when
+  /// the local files are present and (for sharded models) complete.
+  ///
+  /// Note: We do not use `Acervo.isModelAvailable(_:)` here because that
+  /// helper only probes for `config.json` at the model root. Subfolder-shipped
+  /// repos (e.g., the qint8 transformer at `flux-2-dev/transformer/qint8/`)
+  /// would falsely report unavailable. We instead resolve the model directory
+  /// and probe for the expected layout directly.
   public static func findModelPath(for component: ModelRegistry.ModelComponent) -> URL? {
-    // Check our local models directory
-    let localPath = ModelRegistry.localPath(for: component)
-
-    // Check for config.json OR model_index.json (Klein models use the latter)
-    let hasConfig = FileManager.default.fileExists(
-      atPath: localPath.appendingPathComponent("config.json").path)
-    let hasModelIndex = FileManager.default.fileExists(
-      atPath: localPath.appendingPathComponent("model_index.json").path)
-
-    if hasConfig || hasModelIndex {
-      let verification = verifyModel(at: localPath)
-      if verification.complete {
-        return localPath
-      }
-    }
-
-    // Check configured models directory
     let repoId = repoId(for: component)
-    var path = ModelRegistry.modelsDirectory
-
-    for part in repoId.split(separator: "/") {
-      path = path.appendingPathComponent(String(part))
+    guard let modelDir = try? Acervo.modelDirectory(for: repoId),
+      FileManager.default.fileExists(atPath: modelDir.path)
+    else {
+      return nil
     }
-
-    let cacheHasConfig = FileManager.default.fileExists(
+    var path = modelDir
+    // Components shipped under a subfolder need the suffix so that
+    // `contentsOfDirectory(atPath:)` on the returned URL sees the safetensors
+    // at depth 0 (the weight loaders are non-recursive).
+    if let sub = subfolder(for: component) {
+      let subPath = path.appendingPathComponent(sub)
+      if FileManager.default.fileExists(atPath: subPath.path) {
+        path = subPath
+      }
+    }
+    // Require either config.json or model_index.json at the resolved depth
+    // before declaring the component "found". This mirrors the legacy probe.
+    let hasConfig = FileManager.default.fileExists(
       atPath: path.appendingPathComponent("config.json").path)
-    let cacheHasModelIndex = FileManager.default.fileExists(
+    let hasModelIndex = FileManager.default.fileExists(
       atPath: path.appendingPathComponent("model_index.json").path)
-
-    if cacheHasConfig || cacheHasModelIndex {
-      let verification = verifyModel(at: path)
-      if verification.complete {
-        return path
-      }
+    guard hasConfig || hasModelIndex else {
+      return nil
     }
-
-    // Check legacy HuggingFace cache (macOS only - ~/.cache/huggingface/hub)
-    #if os(macOS)
-      let homeDir = FileManager.default.homeDirectoryForCurrentUser
-      let hubCache =
-        homeDir
-        .appendingPathComponent(".cache")
-        .appendingPathComponent("huggingface")
-        .appendingPathComponent("hub")
-
-      let modelFolder = "models--\(repoId.replacingOccurrences(of: "/", with: "--"))"
-      let snapshotsDir = hubCache.appendingPathComponent(modelFolder).appendingPathComponent(
-        "snapshots")
-
-      if let contents = try? FileManager.default.contentsOfDirectory(atPath: snapshotsDir.path),
-        let latestSnapshot = contents.sorted().last
-      {
-        let modelPath = snapshotsDir.appendingPathComponent(latestSnapshot)
-        let configPath = modelPath.appendingPathComponent("config.json")
-        let modelIndexPath = modelPath.appendingPathComponent("model_index.json")
-
-        if FileManager.default.fileExists(atPath: configPath.path)
-          || FileManager.default.fileExists(atPath: modelIndexPath.path)
-        {
-          // Verify safetensors files are complete
-          let verification = verifyModel(at: modelPath)
-          if verification.complete {
-            return modelPath
-          }
-        }
-      }
-    #endif
-
-    return nil
+    let verification = verifyModel(at: path)
+    return verification.complete ? path : nil
   }
 
-  /// Get HuggingFace repo ID for a component
-  private static func repoId(for component: ModelRegistry.ModelComponent) -> String {
-    switch component {
-    case .transformer(let variant):
-      return variant.huggingFaceRepo
-    case .textEncoder:
-      // Text encoder uses MistralCore's download system
-      return "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
-    case .vae:
-      // Use Klein 4B distilled repo (not gated, same VAE as all Flux.2 models)
-      return "black-forest-labs/FLUX.2-klein-4B"
-    }
-  }
-
-  /// Verify model files are complete
+  /// Verify that a model directory has all required safetensors files.
+  ///
+  /// Acervo's manifest already verifies SHA-256 + size per file. This check is
+  /// retained as a complementary local-side shard-completeness sanity check
+  /// (e.g., to catch a partially-deleted directory): index.json is not
+  /// trusted; the shard filenames themselves declare totals.
   public static func verifyModel(at path: URL) -> (complete: Bool, missing: [String]) {
     let contents = (try? FileManager.default.contentsOfDirectory(atPath: path.path)) ?? []
     let safetensorsFiles = contents.filter { $0.hasSuffix(".safetensors") }
@@ -142,7 +146,7 @@ public class Flux2ModelDownloader: @unchecked Sendable {
       return (false, ["No safetensors files found"])
     }
 
-    // Parse sharded pattern
+    // Parse sharded pattern: model-XXXXX-of-YYYYY.safetensors
     var totalShards: Int?
     var foundIndices: Set<Int> = []
 
@@ -179,14 +183,16 @@ public class Flux2ModelDownloader: @unchecked Sendable {
       }
     }
 
+    // Has some safetensors files but not in standard sharded format — treat as
+    // a custom layout (e.g., quanto qint8 ships) and trust the manifest.
     return (true, [])
   }
 
   /// Total on-disk size of a downloaded model component in bytes.
   ///
-  /// Returns `nil` if the component is not found on disk.
-  /// Recursively enumerates all files under the component directory so that
-  /// multi-file safetensors shards and ancillary JSON files are all counted.
+  /// Returns `nil` if the component is not found on disk. Recursively
+  /// enumerates all files under the component directory so that multi-file
+  /// safetensors shards and ancillary JSON files are all counted.
   public static func diskSize(for component: ModelRegistry.ModelComponent) -> Int64? {
     guard let path = findModelPath(for: component) else { return nil }
     let fm = FileManager.default
@@ -209,350 +215,66 @@ public class Flux2ModelDownloader: @unchecked Sendable {
 
   // MARK: - Download
 
-  /// Download a model component from CDN or HuggingFace
+  /// Download a model component via the Acervo CDN.
+  ///
+  /// Throws `Flux2DownloadError.notProvisionedOnCDN(variant:)` for transformer
+  /// variants intentionally cut from CDN provisioning (Sortie 19, Task 2):
+  /// `bf16`, `klein4B_base_bf16`, `klein9B_base_bf16`, `klein9B_kv_bf16`. UI
+  /// callers that iterate `TransformerVariant.allCases` can pre-filter via
+  /// `TransformerVariant.isProvisionedOnCDN` to avoid this error path.
   public func download(
     _ component: ModelRegistry.ModelComponent,
     progress: Flux2DownloadProgressCallback? = nil
   ) async throws -> URL {
-    // Check if already downloaded
-    if let existingPath = Self.findModelPath(for: component) {
-      let verification = Self.verifyModel(at: existingPath)
-      if verification.complete {
-        progress?(1.0, "Model already downloaded")
-        return existingPath
-      }
+    // Refuse cut variants up front.
+    if case .transformer(let variant) = component, !variant.isProvisionedOnCDN {
+      throw Flux2DownloadError.notProvisionedOnCDN(variant: variant)
     }
 
-    // Try CDN first if configured
-    if let cdnBase = ModelRegistry.cdnBaseURL {
-      do {
-        return try await downloadFromCDN(
-          component,
-          cdnBase: cdnBase,
-          progress: progress
-        )
-      } catch {
-        Flux2Debug.log(
-          "CDN download failed for \(component.displayName): \(error.localizedDescription). Falling back to HuggingFace."
-        )
-      }
+    // Fast path: already present.
+    if let existingPath = Self.findModelPath(for: component) {
+      progress?(1.0, "Model already downloaded")
+      return existingPath
     }
 
     let repoId = Self.repoId(for: component)
-    let subfolder = Self.subfolder(for: component)
-    progress?(0.0, "Fetching file list for \(component.displayName)...")
+    progress?(0.0, "Starting download of \(component.displayName)...")
+    Flux2Debug.log("Downloading \(component.displayName) via Acervo CDN: \(repoId)")
 
-    Flux2Debug.log("Downloading \(component.displayName) from \(repoId)")
-
-    // Get file list from HuggingFace API
-    let allFiles = try await fetchFileList(repoId: repoId, subfolder: subfolder)
-
-    // Filter to only necessary files
-    let filesToDownload = allFiles.filter { file in
-      file.path.hasSuffix(".safetensors") || file.path.hasSuffix(".json")
-        || file.path == "tokenizer.model"
-    }
-
-    guard !filesToDownload.isEmpty else {
-      throw Flux2DownloadError.modelNotFound("No model files found in \(repoId)")
-    }
-
-    // Create destination directory
-    let destDir = ModelRegistry.localPath(for: component)
-    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-    // Download each file with byte-level progress
-    var completedBytes: Int64 = 0
-    let totalBytes = filesToDownload.reduce(Int64(0)) { $0 + $1.size }
-
-    for file in filesToDownload {
-      let fileName = URL(fileURLWithPath: file.path).lastPathComponent
-      let baseBytes = completedBytes
-
-      let fileProgress: ((Int64, Int64) -> Void)? =
-        totalBytes > 0
-        ? { bytesWritten, _ in
-          let overall = Double(baseBytes + bytesWritten) / Double(totalBytes)
-          let downloaded = Self.formatSize(baseBytes + bytesWritten)
-          let total = Self.formatSize(totalBytes)
-          progress?(min(overall, 0.99), "Downloading \(fileName): \(downloaded) / \(total)")
-        } : nil
-
-      let fileURL = try await downloadFile(
-        repoId: repoId,
-        filePath: file.path,
-        to: destDir.appendingPathComponent(fileName),
-        progress: fileProgress
-      )
-
-      if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-        let size = attrs[.size] as? Int64
-      {
-        completedBytes += size
+    // Empty `files: []` instructs Acervo to download every file in the CDN
+    // manifest. The manifest is the authoritative source of truth and was
+    // shipped per WU1 (Sorties 5 / 7 / 11 / 12). For the qint8 subfolder ship
+    // (Sortie 11), the manifest only contains the qint8 files, so no runtime
+    // filter is needed. For the full-repo ships (Klein-4B, Klein-9B,
+    // Klein-4B-int8) every file in the repo is shipped — the VAE component
+    // shares the Klein-4B model directory, so requesting it after the
+    // transformer is a no-op (`isModelAvailable` short-circuits).
+    try await Acervo.ensureAvailable(
+      repoId,
+      files: [],
+      progress: { acervoProgress in
+        let message =
+          "Downloading \(acervoProgress.fileName) "
+          + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+        progress?(acervoProgress.overallProgress, message)
       }
+    )
 
-      Flux2Debug.log("Downloaded \(fileName) (\(Self.formatSize(completedBytes)) total)")
-    }
-
-    progress?(1.0, "Download complete: \(Self.formatSize(completedBytes))")
-    return destDir
-  }
-
-  // MARK: - CDN Download
-
-  /// Download a model component from a CDN using manifest.json
-  private func downloadFromCDN(
-    _ component: ModelRegistry.ModelComponent,
-    cdnBase: URL,
-    progress: Flux2DownloadProgressCallback? = nil
-  ) async throws -> URL {
-    let cdnDir = component.cdnDirectoryName
-    let manifestURL =
-      cdnBase
-      .appendingPathComponent("models")
-      .appendingPathComponent(cdnDir)
-      .appendingPathComponent("manifest.json")
-
-    progress?(0.0, "Fetching manifest for \(component.displayName)...")
-    Flux2Debug.log("Downloading \(component.displayName) from CDN: \(cdnBase)")
-
-    // Fetch manifest
-    let (data, response) = try await session.data(from: manifestURL)
-    guard let httpResponse = response as? HTTPURLResponse,
-      httpResponse.statusCode == 200
-    else {
+    guard let modelPath = Self.findModelPath(for: component) else {
       throw Flux2DownloadError.downloadFailed(
-        "CDN manifest not available for \(cdnDir)"
-      )
+        "Acervo download succeeded but local files for \(component.displayName) "
+          + "could not be located under \(repoId).")
     }
 
-    guard let manifest = try? JSONDecoder().decode(CDNManifest.self, from: data) else {
-      throw Flux2DownloadError.downloadFailed("Invalid CDN manifest for \(cdnDir)")
+    let verification = Self.verifyModel(at: modelPath)
+    if !verification.complete {
+      Flux2Debug.log(
+        "Warning: local shard verification reports missing files for "
+          + "\(component.displayName): \(verification.missing)")
     }
 
-    let filesToDownload = manifest.files.filter { file in
-      file.name.hasSuffix(".safetensors") || file.name.hasSuffix(".json")
-        || file.name == "tokenizer.model"
-    }
-
-    guard !filesToDownload.isEmpty else {
-      throw Flux2DownloadError.modelNotFound("No model files in CDN manifest for \(cdnDir)")
-    }
-
-    // Create destination directory
-    let destDir = ModelRegistry.localPath(for: component)
-    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-
-    // Download each file
-    var completedBytes: Int64 = 0
-    let totalBytes = filesToDownload.reduce(Int64(0)) { $0 + $1.size }
-
-    for file in filesToDownload {
-      let fileURL =
-        cdnBase
-        .appendingPathComponent("models")
-        .appendingPathComponent(cdnDir)
-        .appendingPathComponent(file.name)
-      let destFile = destDir.appendingPathComponent(file.name)
-
-      let baseBytes = completedBytes
-      let fileProgress: ((Int64, Int64) -> Void)? =
-        totalBytes > 0
-        ? { bytesWritten, _ in
-          let overall = Double(baseBytes + bytesWritten) / Double(totalBytes)
-          let downloaded = Self.formatSize(baseBytes + bytesWritten)
-          let total = Self.formatSize(totalBytes)
-          progress?(min(overall, 0.99), "Downloading \(file.name): \(downloaded) / \(total)")
-        } : nil
-
-      let downloadedFile = try await downloadDirectURL(
-        fileURL,
-        to: destFile,
-        progress: fileProgress
-      )
-
-      if let attrs = try? FileManager.default.attributesOfItem(atPath: downloadedFile.path),
-        let size = attrs[.size] as? Int64
-      {
-        completedBytes += size
-      }
-
-      Flux2Debug.log("Downloaded \(file.name) from CDN (\(Self.formatSize(completedBytes)) total)")
-    }
-
-    progress?(1.0, "Download complete: \(Self.formatSize(completedBytes))")
-    return destDir
-  }
-
-  /// Download a file from a direct URL (no auth headers)
-  private func downloadDirectURL(
-    _ url: URL,
-    to destination: URL,
-    progress: ((Int64, Int64) -> Void)? = nil
-  ) async throws -> URL {
-    let request = URLRequest(url: url)
-
-    let tempURL: URL
-    if let progress = progress {
-      tempURL = try await withCheckedThrowingContinuation { continuation in
-        let delegate = FileDownloadDelegate(
-          progressHandler: progress,
-          continuation: continuation
-        )
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForResource = 3600
-        let delegateSession = URLSession(
-          configuration: config,
-          delegate: delegate,
-          delegateQueue: OperationQueue()
-        )
-        delegateSession.downloadTask(with: request).resume()
-      }
-    } else {
-      let (url, response) = try await session.download(for: request)
-      guard let httpResponse = response as? HTTPURLResponse,
-        httpResponse.statusCode == 200
-      else {
-        throw Flux2DownloadError.downloadFailed("Failed to download from CDN")
-      }
-      tempURL = url
-    }
-
-    if FileManager.default.fileExists(atPath: destination.path) {
-      try FileManager.default.removeItem(at: destination)
-    }
-    try FileManager.default.moveItem(at: tempURL, to: destination)
-    return destination
-  }
-
-  // MARK: - HuggingFace Download Helpers
-
-  /// Get subfolder path for component within repo
-  private static func subfolder(for component: ModelRegistry.ModelComponent) -> String? {
-    switch component {
-    case .transformer(let variant):
-      return variant.huggingFaceSubfolder
-    case .vae:
-      return "vae"
-    case .textEncoder:
-      return nil
-    }
-  }
-
-  /// Fetch file list with sizes from HuggingFace API
-  private func fetchFileList(repoId: String, subfolder: String?) async throws -> [(
-    path: String, size: Int64
-  )] {
-    var urlString = "https://huggingface.co/api/models/\(repoId)/tree/main"
-    if let subfolder = subfolder {
-      urlString += "/\(subfolder)"
-    }
-
-    guard let url = URL(string: urlString) else {
-      throw Flux2DownloadError.downloadFailed("Invalid URL: \(urlString)")
-    }
-
-    var request = URLRequest(url: url)
-    if let token = hfToken {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
-
-    let (data, response) = try await session.data(for: request)
-
-    guard let httpResponse = response as? HTTPURLResponse else {
-      throw Flux2DownloadError.downloadFailed("Invalid response")
-    }
-
-    if httpResponse.statusCode == 401 {
-      throw Flux2DownloadError.downloadFailed(
-        "Authentication required. Set HF_TOKEN environment variable or pass token to downloader."
-      )
-    }
-
-    if httpResponse.statusCode == 403 {
-      throw Flux2DownloadError.downloadFailed(
-        "Access denied. You may need to accept the model's license at https://huggingface.co/\(repoId)"
-      )
-    }
-
-    guard httpResponse.statusCode == 200 else {
-      throw Flux2DownloadError.downloadFailed("HTTP \(httpResponse.statusCode)")
-    }
-
-    // Parse JSON response
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-      throw Flux2DownloadError.downloadFailed("Invalid JSON response")
-    }
-
-    var files: [(path: String, size: Int64)] = []
-    for item in json {
-      if let type = item["type"] as? String, type == "file",
-        let path = item["path"] as? String
-      {
-        let size = (item["size"] as? Int64) ?? (item["size"] as? Int).map(Int64.init) ?? 0
-        files.append((path: path, size: size))
-      }
-    }
-
-    return files
-  }
-
-  /// Download a single file from HuggingFace with optional byte-level progress
-  private func downloadFile(
-    repoId: String,
-    filePath: String,
-    to destination: URL,
-    progress: ((Int64, Int64) -> Void)? = nil
-  ) async throws -> URL {
-    let urlString = "https://huggingface.co/\(repoId)/resolve/main/\(filePath)"
-
-    guard
-      let url = URL(
-        string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
-          ?? urlString)
-    else {
-      throw Flux2DownloadError.downloadFailed("Invalid URL: \(urlString)")
-    }
-
-    var request = URLRequest(url: url)
-    if let token = hfToken {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
-
-    let tempURL: URL
-
-    if let progress = progress {
-      tempURL = try await withCheckedThrowingContinuation { continuation in
-        let delegate = FileDownloadDelegate(
-          progressHandler: progress,
-          continuation: continuation
-        )
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForResource = 3600
-        let delegateSession = URLSession(
-          configuration: config,
-          delegate: delegate,
-          delegateQueue: OperationQueue()
-        )
-        delegateSession.downloadTask(with: request).resume()
-      }
-    } else {
-      let (url, response) = try await session.download(for: request)
-      guard let httpResponse = response as? HTTPURLResponse,
-        httpResponse.statusCode == 200
-      else {
-        throw Flux2DownloadError.downloadFailed("Failed to download \(filePath)")
-      }
-      tempURL = url
-    }
-
-    // Move to destination
-    if FileManager.default.fileExists(atPath: destination.path) {
-      try FileManager.default.removeItem(at: destination)
-    }
-    try FileManager.default.moveItem(at: tempURL, to: destination)
-
-    return destination
+    progress?(1.0, "Download complete")
+    return modelPath
   }
 
   /// Download all models for a quantization configuration
@@ -578,7 +300,7 @@ public class Flux2ModelDownloader: @unchecked Sendable {
       _ = try await download(component, progress: componentProgress)
     }
 
-    // Text encoder is handled by MistralCore
+    // Text encoder is handled by FluxTextEncoders / TextEncoderModelDownloader.
     progress?(1.0, "All models downloaded")
   }
 
@@ -592,27 +314,53 @@ public class Flux2ModelDownloader: @unchecked Sendable {
     return formatter.string(fromByteCount: bytes)
   }
 
-  /// Delete a downloaded model
+  /// Delete a downloaded model. Idempotent: returns silently if the model is
+  /// not present locally.
+  ///
+  /// Important: the Acervo model directory may host more than one logical
+  /// component — e.g., `vae(.standard)` and `transformer(.klein4B_bf16)`
+  /// both ship under `black-forest-labs/FLUX.2-klein-4B`. Deleting via the
+  /// component-level entry point removes the entire shared directory; UI
+  /// surfaces that distinguish "delete VAE" from "delete Klein-4B transformer"
+  /// will need additional logic in a follow-up sortie.
   public static func delete(_ component: ModelRegistry.ModelComponent) throws {
-    guard let path = findModelPath(for: component) else {
+    let repoId = repoId(for: component)
+    guard let modelDir = try? Acervo.modelDirectory(for: repoId),
+      FileManager.default.fileExists(atPath: modelDir.path)
+    else {
       return
     }
-
-    try FileManager.default.removeItem(at: path)
-    Flux2Debug.log("Deleted \(component.displayName)")
+    do {
+      try Acervo.deleteModel(repoId)
+      Flux2Debug.log("Deleted \(component.displayName)")
+    } catch {
+      Flux2Debug.log(
+        "Acervo.deleteModel(\(repoId)) raised: \(error.localizedDescription) — treating as deleted")
+    }
   }
 
-  /// Get total size of downloaded models
+  /// Get total size of downloaded models (transformer + VAE).
+  ///
+  /// Iterates only the variants that are provisioned on the CDN; cut variants
+  /// would never have been downloaded by this class so we skip them.
   public static func downloadedSize() -> Int64 {
     var total: Int64 = 0
+    var visitedRepoIds: Set<String> = []
 
-    let components: [ModelRegistry.ModelComponent] = [
-      .transformer(.qint8),
-      .transformer(.bf16),
-      .vae(.standard),
-    ]
+    let provisionedTransformerVariants =
+      ModelRegistry.TransformerVariant.allCases.filter(\.isProvisionedOnCDN)
+    var components: [ModelRegistry.ModelComponent] = provisionedTransformerVariants.map {
+      .transformer($0)
+    }
+    components.append(.vae(.standard))
 
     for component in components {
+      let repoId = repoId(for: component)
+      // Multiple components (e.g., klein4B_bf16 + vae) can share an Acervo
+      // model directory. Count each directory once.
+      if !visitedRepoIds.insert(repoId).inserted {
+        continue
+      }
       if let path = findModelPath(for: component) {
         total += directorySize(at: path)
       }
@@ -640,90 +388,32 @@ public class Flux2ModelDownloader: @unchecked Sendable {
   }
 }
 
-// MARK: - Download Delegate
+// MARK: - TransformerVariant CDN provisioning
 
-/// Bridges URLSessionDownloadDelegate callbacks to async/await with byte-level progress
-private final class FileDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable
-{
-  private let progressHandler: (Int64, Int64) -> Void
-  private let continuation: CheckedContinuation<URL, Error>
-  private var resumed = false
-
-  init(
-    progressHandler: @escaping (Int64, Int64) -> Void,
-    continuation: CheckedContinuation<URL, Error>
-  ) {
-    self.progressHandler = progressHandler
-    self.continuation = continuation
-  }
-
-  func urlSession(
-    _ session: URLSession,
-    downloadTask: URLSessionDownloadTask,
-    didFinishDownloadingTo location: URL
-  ) {
-    guard !resumed else { return }
-
-    // Check HTTP status
-    if let httpResponse = downloadTask.response as? HTTPURLResponse,
-      httpResponse.statusCode != 200
-    {
-      resumed = true
-      continuation.resume(
-        throwing: Flux2DownloadError.downloadFailed(
-          "HTTP \(httpResponse.statusCode)"
-        ))
-      session.finishTasksAndInvalidate()
-      return
+extension ModelRegistry.TransformerVariant {
+  /// Whether this variant is currently provisioned on the Acervo CDN.
+  ///
+  /// Returns `false` for the four cut variants (Sortie 19, Task 3):
+  /// - `.bf16` — 64 GB FLUX.2-dev BF16; qint8 is the canonical production
+  ///   quantization, license redistribution complications cut bf16.
+  /// - `.klein4B_base_bf16` — base (non-distilled) for LoRA training, deferred
+  ///   until LoRA-training is a v1 surface.
+  /// - `.klein9B_base_bf16` — base (non-distilled), LoRA-training only,
+  ///   gated.
+  /// - `.klein9B_kv_bf16` — multi-reference I2I specialty variant, gated.
+  ///
+  /// UI surfaces iterating `allCases` should consult this property to gray
+  /// out (or hide) variants that would otherwise throw
+  /// `Flux2DownloadError.notProvisionedOnCDN(variant:)` from
+  /// `Flux2ModelDownloader.download(_:progress:)`.
+  public var isProvisionedOnCDN: Bool {
+    switch self {
+    case .bf16, .klein4B_base_bf16, .klein9B_base_bf16, .klein9B_kv_bf16:
+      return false
+    case .qint8, .klein4B_bf16, .klein4B_8bit, .klein9B_bf16:
+      return true
     }
-
-    // Copy to a stable temp path (original is deleted after this method returns)
-    let tempFile = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    do {
-      try FileManager.default.copyItem(at: location, to: tempFile)
-      resumed = true
-      continuation.resume(returning: tempFile)
-    } catch {
-      resumed = true
-      continuation.resume(throwing: error)
-    }
-    session.finishTasksAndInvalidate()
   }
-
-  func urlSession(
-    _ session: URLSession,
-    downloadTask: URLSessionDownloadTask,
-    didWriteData bytesWritten: Int64,
-    totalBytesWritten: Int64,
-    totalBytesExpectedToWrite: Int64
-  ) {
-    progressHandler(totalBytesWritten, totalBytesExpectedToWrite)
-  }
-
-  func urlSession(
-    _ session: URLSession,
-    task: URLSessionTask,
-    didCompleteWithError error: Error?
-  ) {
-    guard !resumed, let error = error else { return }
-    resumed = true
-    continuation.resume(throwing: Flux2DownloadError.downloadFailed(error.localizedDescription))
-    session.finishTasksAndInvalidate()
-  }
-}
-
-// MARK: - CDN Manifest
-
-/// Manifest file structure for CDN-hosted models.
-/// Generated by CI and uploaded alongside model files.
-struct CDNManifest: Codable {
-  struct FileEntry: Codable {
-    let name: String
-    let size: Int64
-  }
-
-  let files: [FileEntry]
 }
 
 // MARK: - Errors
@@ -733,6 +423,10 @@ public enum Flux2DownloadError: LocalizedError {
   case downloadFailed(String)
   case verificationFailed([String])
   case insufficientSpace(required: Int64, available: Int64)
+  /// Variant has been intentionally cut from CDN provisioning. The follow-up
+  /// CDN provisioning mission tracked under `docs/missions/` will re-enable
+  /// it.
+  case notProvisionedOnCDN(variant: ModelRegistry.TransformerVariant)
 
   public var errorDescription: String? {
     switch self {
@@ -745,6 +439,10 @@ public enum Flux2DownloadError: LocalizedError {
     case .insufficientSpace(let required, let available):
       return
         "Insufficient disk space: need \(Flux2ModelDownloader.formatSize(required)), have \(Flux2ModelDownloader.formatSize(available))"
+    case .notProvisionedOnCDN(let variant):
+      return
+        "Variant \(variant.rawValue) is not yet provisioned on the Acervo CDN. "
+        + "Track follow-up CDN provisioning mission in docs/missions/."
     }
   }
 }

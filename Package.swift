@@ -8,16 +8,14 @@ let package = Package(
         // Libraries
         .library(name: "FluxTextEncoders", targets: ["FluxTextEncoders"]),
         .library(name: "Flux2Core", targets: ["Flux2Core"]),
-        // CLI Tools
-        .executable(name: "FluxEncodersCLI", targets: ["FluxEncodersCLI"]),
-        .executable(name: "Flux2CLI", targets: ["Flux2CLI"]),
         // Main Application
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMajor(from: "1.3.0")),
+        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", from: "0.4.2"),
+        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.8.4"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
@@ -29,8 +27,8 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Transformers", package: "swift-transformers"),
+                .product(name: "Tokenizers", package: "swift-tokenizers"),
+                .product(name: "SwiftAcervo", package: "SwiftAcervo"),
             ]
         ),
         .target(
@@ -42,24 +40,7 @@ let package = Package(
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
-                .product(name: "Hub", package: "swift-transformers"),
-                .product(name: "Transformers", package: "swift-transformers"),
-            ]
-        ),
-        // MARK: - CLI Tools
-        .executableTarget(
-            name: "FluxEncodersCLI",
-            dependencies: [
-                "FluxTextEncoders",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ]
-        ),
-        .executableTarget(
-            name: "Flux2CLI",
-            dependencies: [
-                "Flux2Core",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "YAML", package: "universal"),
+                .product(name: "SwiftAcervo", package: "SwiftAcervo"),
             ]
         ),
         // MARK: - Main Application

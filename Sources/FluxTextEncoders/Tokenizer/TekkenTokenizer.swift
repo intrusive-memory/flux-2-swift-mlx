@@ -231,7 +231,7 @@ public class TekkenTokenizer {
 
     Task {
       do {
-        result.tokenizer = try await AutoTokenizer.from(modelFolder: folderURL)
+        result.tokenizer = try await AutoTokenizer.from(directory: folderURL)
       } catch {
         result.error = error
       }
@@ -399,7 +399,7 @@ public class TekkenTokenizer {
     // Use HuggingFace tokenizer if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
       // swift-transformers 0.1.14+ doesn't have skipSpecialTokens parameter
-      return tokenizer.decode(tokens: tokens)
+      return tokenizer.decode(tokenIds: tokens)
     }
 
     // Tekken tokenizer - accumulate bytes for proper UTF-8 decoding
@@ -475,9 +475,9 @@ public class TekkenTokenizer {
     // Try using HuggingFace tokenizer's chat template if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
       do {
-        let tokens = try tokenizer.applyChatTemplate(messages: messages)
+        let tokens = try tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
         // Decode and return
-        return tokenizer.decode(tokens: tokens)
+        return tokenizer.decode(tokenIds: tokens)
       } catch {
         FluxDebug.log("HF chat template failed: \(error), using manual format")
       }
@@ -512,7 +512,7 @@ public class TekkenTokenizer {
     // Try using HuggingFace tokenizer's chat template if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
       do {
-        return try tokenizer.applyChatTemplate(messages: messages)
+        return try tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
       } catch {
         FluxDebug.log("HF chat template failed: \(error), using manual format")
       }
