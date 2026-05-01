@@ -102,7 +102,15 @@ public final class Qwen3Generator: @unchecked Sendable {
       if hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
-          let tokenText = tokenizer.decode(tokens: pendingTokens)
+          // NOTE (OPERATION FAREWELL EMBRACE Sortie 21): swift-tokenizers' BPE decoder
+          // inserts a space between successive tokens during decode. Confirmed on the
+          // 7-vocab GPT-2 stub (`<unk> <unk>` instead of `<unk><unk>`). For full Qwen3
+          // vocabularies the impact is unverified — most real text doesn't hit `<unk>`,
+          // but generated output strings may have subtly different whitespace vs the
+          // pre-migration swift-transformers behavior. Validate with an app smoke test
+          // on a real Qwen3 model (post-CDN-ship); if user-visible whitespace drift is
+          // observed, file as a follow-up.
+          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -132,7 +140,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining tokens
     if hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokens: pendingTokens)
+      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -140,7 +148,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokens: generatedTokens)
+    var outputText = tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {
@@ -229,7 +237,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       if stream && hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
-          let tokenText = tokenizer.decode(tokens: pendingTokens)
+          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -258,7 +266,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining pending tokens (streaming mode)
     if stream && hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokens: pendingTokens)
+      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -266,7 +274,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokens: generatedTokens)
+    var outputText = tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {

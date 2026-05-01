@@ -464,6 +464,18 @@ extension LoRATrainingHelper {
       throw LoRATrainingHelperError.failedToEncode("No training variant available for \(modelType)")
     }
 
+    // Sortie 19 (OPERATION FAREWELL EMBRACE): all training-eligible variants
+    // (`bf16`, `klein4B_base_bf16`, `klein9B_base_bf16`) were intentionally
+    // cut from CDN provisioning for v1. Surface the eventual-consistency
+    // message instead of letting the download throw `notProvisionedOnCDN`
+    // mid-flight.
+    guard variant.isProvisionedOnCDN else {
+      throw LoRATrainingHelperError.failedToEncode(
+        "\(variant.rawValue) is not yet provisioned on the Acervo CDN. "
+          + "LoRA training is deferred until the follow-up CDN provisioning "
+          + "mission ships the base/dev variants. Track in docs/missions/.")
+    }
+
     // Check if downloaded, download if needed
     var modelPath = Flux2ModelDownloader.findModelPath(for: .transformer(variant))
 

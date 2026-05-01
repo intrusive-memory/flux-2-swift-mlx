@@ -101,4 +101,4 @@ In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-cr
 
 ---
 
-**Last updated**: 2026-04-30 (v2.7.0)
+**Last updated**: 2026-05-01 (v3.0.0)

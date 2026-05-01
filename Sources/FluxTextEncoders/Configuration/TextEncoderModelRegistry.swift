@@ -79,11 +79,6 @@ public enum ModelVariant: String, CaseIterable, Codable, Sendable {
     }
   }
 
-  /// Full HuggingFace URL for the model
-  public var huggingFaceURL: String {
-    "https://huggingface.co/\(repoId)"
-  }
-
   /// Whether this model requires accepting a license on HuggingFace before downloading
   public var isGated: Bool {
     switch self {
@@ -161,11 +156,6 @@ public enum Qwen3Variant: String, CaseIterable, Codable, Sendable {
     }
   }
 
-  /// Full HuggingFace URL for the model
-  public var huggingFaceURL: String {
-    "https://huggingface.co/\(repoId)"
-  }
-
   /// Whether this model requires accepting a license on HuggingFace before downloading
   /// All Qwen3 models from lmstudio-community are NOT gated
   public var isGated: Bool { false }
@@ -203,11 +193,6 @@ public struct ModelInfo: Codable, Sendable {
   public let modelType: ModelType
   public let isGated: Bool
 
-  /// Full HuggingFace URL for the model
-  public var huggingFaceURL: String {
-    "https://huggingface.co/\(repoId)"
-  }
-
   public init(
     id: String,
     repoId: String,
@@ -241,11 +226,6 @@ public struct Qwen3ModelInfo: Codable, Sendable {
 
   /// Display name (alias for name)
   public var displayName: String { name }
-
-  /// Full HuggingFace URL for the model
-  public var huggingFaceURL: String {
-    "https://huggingface.co/\(repoId)"
-  }
 
   /// Whether this model requires accepting a license on HuggingFace before downloading
   /// All Qwen3 models from lmstudio-community are NOT gated
@@ -366,10 +346,6 @@ public final class TextEncoderModelRegistry {
       ),
     ]
   }
-
-  /// URL for downloading tekken.json from the original Mistral repo
-  public static let tekkenJsonURL =
-    "https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506/resolve/main/tekken.json"
 
   // MARK: - Mistral Models
 

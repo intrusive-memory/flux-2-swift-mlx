@@ -2,7 +2,7 @@
 
 A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image generation models, running locally on Apple Silicon Macs using [MLX](https://github.com/ml-explore/mlx-swift).
 
-> **Fork notice**: This is the `intrusive-memory` fork. It is consumed primarily as a Swift Package Manager library. The original upstream is [VincentGourbin/flux-2-swift-mlx](https://github.com/VincentGourbin/flux-2-swift-mlx), which also publishes pre-built CLI/app binaries. This fork does not currently publish release binaries — see [Build from Source](#build-from-source).
+> **Fork notice**: This is the `intrusive-memory` fork. **As of v3.0.0 it is library-only** — the `Flux2CLI` and `FluxEncodersCLI` executables were removed and the project is now consumed exclusively via Swift Package Manager. The original upstream [VincentGourbin/flux-2-swift-mlx](https://github.com/VincentGourbin/flux-2-swift-mlx) still publishes pre-built CLI/app binaries if you need them.
 
 ## Features
 
@@ -18,7 +18,6 @@ A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image gen
 - **LoRA Support**: Load and apply LoRA adapters for style transfer
 - **LoRA Training**: Train your own LoRAs on Apple Silicon ([guide](docs/examples/TRAINING_GUIDE.md))
 - **Image-to-Image Training**: Train paired I2I LoRAs (e.g. style transfer, image restoration)
-- **CLI Tool**: Full-featured command-line interface (`Flux2CLI`)
 - **macOS App**: Demo SwiftUI application (`Flux2App`) with T2I, I2I, and chat
 
 ### Text Encoders (FluxTextEncoders)
@@ -28,7 +27,6 @@ A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image gen
 - **Interactive Chat**: Multi-turn conversation with chat template support
 - **Vision Analysis**: Image understanding via Pixtral vision encoder (VLM)
 - **FLUX.2 Embeddings**: Extract embeddings compatible with FLUX.2 image generation
-- **CLI Tool**: Complete command-line interface (`FluxEncodersCLI`)
 
 ## Requirements
 
@@ -52,7 +50,7 @@ Add to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/intrusive-memory/flux-2-swift-mlx", .upToNextMajor(from: "2.7.0")),
+    .package(url: "https://github.com/intrusive-memory/flux-2-swift-mlx", .upToNextMajor(from: "3.0.0")),
 ],
 targets: [
     .target(
@@ -77,16 +75,16 @@ cd flux-2-swift-mlx
 Build with Xcode (not `swift build` — see [CLAUDE.md](CLAUDE.md) / [GEMINI.md](GEMINI.md) for the build conventions used in this repository):
 
 1. Open the project in Xcode
-2. Select `Flux2CLI` or `Flux2App` scheme
-3. Build with `Cmd+B` (or `Cmd+R` to run)
+2. Select the `Flux2App` scheme (or build the `Flux2Core` / `FluxTextEncoders` library targets directly)
+3. Build with `Cmd+B` (or `Cmd+R` to run the demo app)
 
 ### Pre-built Binaries
 
-This fork does **not** currently publish CLI or app binaries. If you need a signed CLI/app bundle, the upstream [VincentGourbin/flux-2-swift-mlx releases](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/latest) page has them.
+This fork does **not** publish CLI or app binaries. If you need a signed CLI/app bundle, the upstream [VincentGourbin/flux-2-swift-mlx releases](https://github.com/VincentGourbin/flux-2-swift-mlx/releases/latest) page has them.
 
 ### Download Models
 
-The models are downloaded automatically from HuggingFace on first run.
+As of v3.0.0, models are fetched through the [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) CDN (Cloudflare R2) rather than directly from HuggingFace. This is a breaking change from v2.x, which used a hand-rolled HuggingFace client. Note that not every model is provisioned on the CDN yet — unprovisioned models throw `notProvisionedOnCDN` rather than falling back to HuggingFace.
 
 **For Dev (32B):**
 - Text Encoder: Mistral Small 3.2 (~25GB 8-bit)
@@ -101,44 +99,6 @@ The models are downloaded automatically from HuggingFace on first run.
 Models are cached in `~/Library/Caches/models/` by default (configurable via `--models-dir` or `ModelRegistry.customModelsDirectory` for sandboxed apps).
 
 ## Usage
-
-### CLI
-
-```bash
-# Fast generation with Klein 4B (~26s, commercial OK)
-flux2 t2i "a beaver building a dam" --model klein-4b
-
-# Better quality with Klein 9B (~62s)
-flux2 t2i "a beaver building a dam" --model klein-9b
-
-# Maximum quality with Dev (~35min, requires 64GB+ RAM)
-flux2 t2i "a beautiful sunset over mountains" --model dev
-
-# With custom parameters
-flux2 t2i "a red apple on a white table" \
-  --width 512 \
-  --height 512 \
-  --steps 20 \
-  --guidance 4.0 \
-  --seed 42 \
-  --output apple.png
-
-# Image-to-Image with reference image
-flux2 i2i "transform into a watercolor painting" \
-  --images photo.jpg \
-  --strength 0.7 \
-  --steps 28 \
-  --output watercolor.png
-
-# Multi-image conditioning (combine elements)
-flux2 i2i "a cat wearing this jacket" \
-  --images cat.jpg \
-  --images jacket.jpg \
-  --steps 28 \
-  --output cat_jacket.png
-```
-
-See [CLI Documentation](docs/CLI.md) for all options.
 
 ### As a Library
 
@@ -182,15 +142,7 @@ All models support on-the-fly quantization to reduce transformer memory. No need
 | Klein 9B | 17.3 GB | 9.2 GB | 4.9 GB |
 | Dev (32B) | 61.5 GB | 32.7 GB | 17.3 GB |
 
-```bash
-# Klein 9B with qint8 (fits in 24 GB)
-flux2 t2i "a cat" --model klein-9b --transformer-quant qint8
-
-# Dev with int4 (fits in 32 GB)
-flux2 t2i "a cat" --model dev --transformer-quant int4
-```
-
-See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed measurements and visual comparison.
+Configure quantization on `Flux2Config` (or `Flux2Pipeline.init` overrides) before initializing the pipeline. See [Quantization Benchmark](docs/examples/quantization-benchmark/) for measurements and visual comparison.
 
 ## Documentation
 
@@ -198,10 +150,9 @@ See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed
 
 | Guide | Description |
 |-------|-------------|
-| [CLI Documentation](docs/CLI.md) | Command-line interface — all commands and options |
 | [LoRA Guide](docs/LoRA.md) | Loading and using LoRA adapters |
 | [LoRA Training Guide](docs/examples/TRAINING_GUIDE.md) | Training parameters, DOP, gradient checkpointing, YAML config |
-| [Text Encoders](docs/TextEncoders.md) | FluxTextEncoders library API and CLI |
+| [Text Encoders](docs/TextEncoders.md) | FluxTextEncoders library API |
 | [Custom Model Integration](docs/CustomModelIntegration.md) | Integrating custom MLX-compatible models into the framework |
 | [Flux2App Guide](docs/Flux2App.md) | Demo macOS application |
 
@@ -240,10 +191,36 @@ See [Quantization Benchmark](docs/examples/quantization-benchmark/) for detailed
 
 ## Acknowledgments
 
-- [Black Forest Labs](https://blackforestlabs.ai/) for Flux.2
-- [Vincent Gourbin](https://github.com/VincentGourbin/flux-2-swift-mlx) for the original upstream implementation
-- [Hugging Face Diffusers](https://github.com/huggingface/diffusers) for reference implementation
-- [MLX](https://github.com/ml-explore/mlx) team at Apple for the ML framework
+### Open-source dependencies
+
+| Dependency | License |
+|---|---|
+| [mlx-swift](https://github.com/ml-explore/mlx-swift) | MIT |
+| [swift-argument-parser](https://github.com/apple/swift-argument-parser) | Apache-2.0 |
+| [swift-tokenizers](https://github.com/DePasqualeOrg/swift-tokenizers) | Apache-2.0 |
+| [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) | MIT |
+| [universal](https://github.com/marcprux/universal) | Apache-2.0 |
+| [Black Forest Labs](https://blackforestlabs.ai/) | — (Flux.2 model architecture) |
+| [Vincent Gourbin](https://github.com/VincentGourbin/flux-2-swift-mlx) | MIT (original upstream Swift implementation) |
+| [Hugging Face Diffusers](https://github.com/huggingface/diffusers) | Apache-2.0 (reference implementation) |
+
+### Model weights
+
+Model weights for the variants distributed via this project's Acervo CDN were originally published on HuggingFace by Mistral AI, the Black Forest Labs team, the LM Studio community, and individual contributors (`VincentGOURBIN`, `aydin99`). Intrusive Memory mirrors these weights via Cloudflare R2 for distribution to Flux2Swift users.
+
+| Acervo model ID | HuggingFace origin | License |
+|---|---|---|
+| `lmstudio-community/Qwen3-4B-MLX-8bit` | [huggingface.co/lmstudio-community/Qwen3-4B-MLX-8bit](https://huggingface.co/lmstudio-community/Qwen3-4B-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-4B-MLX-4bit` | [huggingface.co/lmstudio-community/Qwen3-4B-MLX-4bit](https://huggingface.co/lmstudio-community/Qwen3-4B-MLX-4bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-8B-MLX-8bit` | [huggingface.co/lmstudio-community/Qwen3-8B-MLX-8bit](https://huggingface.co/lmstudio-community/Qwen3-8B-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Qwen3-8B-MLX-4bit` | [huggingface.co/lmstudio-community/Qwen3-8B-MLX-4bit](https://huggingface.co/lmstudio-community/Qwen3-8B-MLX-4bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit) | Apache-2.0 |
+| `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` | [huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit](https://huggingface.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit) | Apache-2.0 |
+| `aydin99/FLUX.2-klein-4B-int8` | [huggingface.co/aydin99/FLUX.2-klein-4B-int8](https://huggingface.co/aydin99/FLUX.2-klein-4B-int8) | Apache-2.0 (same as BFL Klein) |
+| `black-forest-labs/FLUX.2-klein-4B` | [huggingface.co/black-forest-labs/FLUX.2-klein-4B](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B) | Apache-2.0 |
+| `black-forest-labs/FLUX.2-klein-9B` | [huggingface.co/black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Gated — FLUX.2 Non-Commercial License |
+| `VincentGOURBIN/flux_qint_8bit` | [huggingface.co/VincentGOURBIN/flux_qint_8bit](https://huggingface.co/VincentGOURBIN/flux_qint_8bit) | Gated — FLUX.2 Non-Commercial License (derived from Dev) |
 
 ## License
 

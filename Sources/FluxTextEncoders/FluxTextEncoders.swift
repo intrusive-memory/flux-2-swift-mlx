@@ -27,7 +27,7 @@ import Tokenizers
 public final class FluxTextEncoders: @unchecked Sendable {
   /// Shared singleton instance
   public static let shared = FluxTextEncoders()
-  public static let version = "2.7.1"
+  public static let version = "3.0.0"
 
   private var model: MistralForCausalLM?
   private var vlmModel: MistralVLM?
@@ -204,7 +204,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     // Use from(modelFolder:) for local paths (not from(pretrained:) which treats path as Hub ID)
     print("[Klein] Loading tokenizer from local path...")
     let modelFolderURL = URL(fileURLWithPath: modelPath)
-    qwen3Tokenizer = try await AutoTokenizer.from(modelFolder: modelFolderURL)
+    qwen3Tokenizer = try await AutoTokenizer.from(directory: modelFolderURL)
     print("[Klein] Tokenizer loaded successfully")
 
     // Create Klein embedding extractor and Qwen3 generator
@@ -977,7 +977,7 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-  public static let version = "2.7.0"
+  public static let version = "3.0.0"
   public static let modelName = "Mistral Small 3.2"
   public static let modelVersion = "24B-Instruct-2506"
 }
