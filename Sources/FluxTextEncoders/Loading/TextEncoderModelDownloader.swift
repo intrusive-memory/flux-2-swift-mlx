@@ -5,6 +5,13 @@
  * Sortie 18 (R2.5): Replaced legacy Hub-based downloads with SwiftAcervo's
  * manifest-driven CDN downloads. Storage location is `Acervo.sharedModelsDirectory`
  * (App Group container or Application Support fallback); no override hook is exposed.
+ *
+ * Manifest-first file selection: passes `files: []` to Acervo so the per-repo
+ * CDN manifest is the sole authoritative source for what gets downloaded.
+ * Hardcoded request lists were retired because upstream repos diverge on
+ * optional files (e.g., 4-bit Mistral has no `chat_template.jinja`; Qwen3
+ * MLX repos ship neither `tokenizer.model` nor `generation_config.json`),
+ * which made the legacy lists throw `AcervoError.fileNotInManifest`.
  */
 
 import Foundation
@@ -15,47 +22,6 @@ public typealias TextEncoderDownloadProgressCallback = @Sendable (Double, String
 
 /// Model downloader backed by SwiftAcervo's CDN manifest pipeline.
 public class TextEncoderModelDownloader {
-
-  // MARK: - File Lists (hardcoded per Sortie 18 plan; eventual-consistency model)
-
-  /// Files to fetch for an lmstudio-community Mistral MLX quant.
-  ///
-  /// Each `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-{4,6,8}bit`
-  /// repo ships these files; the CDN manifest is the authoritative source at
-  /// runtime. The explicit list mirrors the legacy snapshot match patterns
-  /// (`*.json`, `*.safetensors`) plus `tekken.json`, which every
-  /// lmstudio-community MLX quant ships directly (replaces the deleted
-  /// `ensureTekkenJson(...)` fallback).
-  private static let mistralMLXFiles: [String] = [
-    "config.json",
-    "tekken.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "special_tokens_map.json",
-    "generation_config.json",
-    "chat_template.jinja",
-    "model.safetensors",
-    "model.safetensors.index.json",
-  ]
-
-  /// Files to fetch for an lmstudio-community Qwen3 MLX quant.
-  ///
-  /// Mirrors the legacy snapshot match patterns (`*.json`, `*.safetensors`,
-  /// `tokenizer.model`). Acervo's manifest is the authoritative source —
-  /// names not present in the manifest will surface
-  /// `AcervoError.fileNotInManifest` at runtime.
-  private static let qwen3MLXFiles: [String] = [
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "tokenizer.model",
-    "special_tokens_map.json",
-    "added_tokens.json",
-    "generation_config.json",
-    "chat_template.jinja",
-    "model.safetensors",
-    "model.safetensors.index.json",
-  ]
 
   /// Optional auth token preserved on the type for API stability.
   /// SwiftAcervo downloads are unauthenticated CDN reads; this is retained
@@ -178,7 +144,7 @@ public class TextEncoderModelDownloader {
 
     try await Acervo.ensureAvailable(
       model.repoId,
-      files: Self.mistralMLXFiles,
+      files: [],
       progress: { acervoProgress in
         let message =
           "Downloading \(acervoProgress.fileName) "
@@ -232,7 +198,7 @@ public class TextEncoderModelDownloader {
 
     try await Acervo.ensureAvailable(
       model.repoId,
-      files: Self.qwen3MLXFiles,
+      files: [],
       progress: { acervoProgress in
         let message =
           "Downloading \(acervoProgress.fileName) "
@@ -305,11 +271,9 @@ public class TextEncoderModelDownloader {
 
   // MARK: - Direct repo / resolution
 
-  /// Download a model by repo ID directly. The list of files is the union of
-  /// the Mistral + Qwen3 lists; Acervo will skip names not present in the
-  /// repo's manifest only if they are actually absent — extras throw
-  /// `AcervoError.fileNotInManifest`. For known repo IDs prefer `download(_:)`
-  /// or `downloadQwen3(_:)`.
+  /// Download a model by repo ID directly. Defers to the CDN manifest for the
+  /// authoritative file list (`files: []`); the manifest is the sole source
+  /// of truth for what a repo ships.
   public func downloadByRepoId(
     _ repoId: String,
     progress: TextEncoderDownloadProgressCallback? = nil
@@ -317,16 +281,9 @@ public class TextEncoderModelDownloader {
     progress?(0.0, "Starting download...")
     print("\nDownloading via Acervo CDN: \(repoId)")
 
-    let files: [String]
-    if repoId.contains("Qwen3") {
-      files = Self.qwen3MLXFiles
-    } else {
-      files = Self.mistralMLXFiles
-    }
-
     try await Acervo.ensureAvailable(
       repoId,
-      files: files,
+      files: [],
       progress: { acervoProgress in
         let message =
           "Downloading \(acervoProgress.fileName) "
