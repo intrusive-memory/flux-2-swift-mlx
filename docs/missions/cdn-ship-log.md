@@ -3,6 +3,34 @@
 
 ---
 
+## CDN Status Snapshot — 2026-05-01
+
+Probed `${R2_PUBLIC_URL}/models/<slug>/manifest.json` for all 11 planned ships. Last-Modified read from response headers.
+
+| Sortie | Repo | Status | Last-Modified (UTC) |
+|---|---|---|---|
+| 2 | `lmstudio-community/Qwen3-4B-MLX-4bit` | ✅ HTTP 200 | Thu, 30 Apr 2026 13:47:08 |
+| 3 | `lmstudio-community/Qwen3-8B-MLX-4bit` | ✅ HTTP 200 | Thu, 30 Apr 2026 14:26:25 |
+| 4 | `lmstudio-community/Qwen3-4B-MLX-8bit` | ✅ HTTP 200 | Thu, 30 Apr 2026 14:31:31 |
+| 5 | `aydin99/FLUX.2-klein-4B-int8` | ✅ HTTP 200 | Thu, 30 Apr 2026 17:07:45 |
+| 6 | `lmstudio-community/Qwen3-8B-MLX-8bit` | ✅ HTTP 200 | Thu, 30 Apr 2026 23:52:31 |
+| 7 | `black-forest-labs/FLUX.2-klein-4B` | ✅ HTTP 200 | Fri, 01 May 2026 04:06:32 |
+| 8 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` | ⏳ HTTP 404 | — |
+| 9 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` | ⏳ HTTP 404 | — |
+| 10 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` | ⏳ HTTP 404 | — |
+| 11 | `VincentGOURBIN/flux_qint_8bit` (subfolder `flux-2-dev/transformer/qint8/`) | ⏳ HTTP 404 | — |
+| 12 | `black-forest-labs/FLUX.2-klein-9B` (gated) | ⏳ HTTP 404 | — |
+
+**Total: 6 of 11 manifests live.** Detailed ship records for Sorties 2–4 retained below; condensed records for Sorties 5–7 follow. Sorties 8–12 are still in flight via `scripts/wu1-bulk-ship.sh`.
+
+Spot-checked nested-layout reachability for Sortie 7 (klein-4B uses Diffusers layout; no root `config.json`):
+- `model_index.json` → 200
+- `text_encoder/config.json` → 200
+- `tokenizer/tokenizer.json` → 200
+- `scheduler/scheduler_config.json` → 200
+
+---
+
 ## Sortie 2 — lmstudio-community/Qwen3-4B-MLX-4bit
 
 ### Preflight df check
@@ -200,4 +228,75 @@ CDN slug: `lmstudio-community_Qwen3-4B-MLX-8bit` (underscore form — same patte
 All four tokenizer artifacts confirmed present in the CDN manifest. Required artifact `tokenizer.json` is present.
 
 CHECK 6 passed (verified via CDN curl + grep). Sortie 4 COMPLETE (logged retroactively).
+
+---
+
+## Sortie 5 — aydin99/FLUX.2-klein-4B-int8
+
+**Shipped via**: operator-driven `acervo upload` (out-of-band; bulk-ship script's Sortie-5 special case re-used preserved staging at `/tmp/acervo-staging/aydin99_FLUX.2-klein-4B-int8/`).
+
+**CDN slug**: `aydin99_FLUX.2-klein-4B-int8`
+
+**Manifest HTTP status**:
+- `${R2_PUBLIC_URL}/models/aydin99_FLUX.2-klein-4B-int8/manifest.json` → HTTP **200**
+- Last-Modified: Thu, 30 Apr 2026 17:07:45 GMT
+
+**Layout**: nested (Diffusers-style) — manifest contains subdir-prefixed paths under `text_encoder/`, `vae/`, `tokenizer/` plus root-level files. Verified via acervo 0.8.4 (manifest-path bug fix).
+
+Sortie 5 COMPLETE.
+
+---
+
+## Sortie 6 — lmstudio-community/Qwen3-8B-MLX-8bit
+
+**Shipped via**: bulk-ship script (`scripts/wu1-bulk-ship.sh`) in operator's terminal. lmstudio-community → `--no-verify`.
+
+**CDN slug**: `lmstudio-community_Qwen3-8B-MLX-8bit`
+
+**Manifest HTTP status**:
+- `${R2_PUBLIC_URL}/models/lmstudio-community_Qwen3-8B-MLX-8bit/manifest.json` → HTTP **200**
+- Last-Modified: Thu, 30 Apr 2026 23:52:31 GMT
+- `config.json` (root) → HTTP **200**
+
+**Layout**: flat (lmstudio MLX quant; root-level `config.json`, `tokenizer.json`, etc.).
+
+Sortie 6 COMPLETE.
+
+---
+
+## Sortie 7 — black-forest-labs/FLUX.2-klein-4B
+
+**Shipped via**: bulk-ship script.
+
+**CDN slug**: `black-forest-labs_FLUX.2-klein-4B`
+
+**Manifest HTTP status**:
+- `${R2_PUBLIC_URL}/models/black-forest-labs_FLUX.2-klein-4B/manifest.json` → HTTP **200**
+- Last-Modified: Fri, 01 May 2026 04:06:32 GMT
+
+**Layout**: nested (Diffusers-style). Manifest lists 22 paths: root-level `model_index.json` + `flux-2-klein-4b.safetensors` (3.6 GB) + LICENSE/README/preview JPGs, plus subdirs `scheduler/`, `text_encoder/` (2-shard model.safetensors.index), `tokenizer/`. No root `config.json` (expected for Diffusers root).
+
+Spot-checked subdir reachability:
+- `model_index.json` → 200
+- `text_encoder/config.json` → 200
+- `tokenizer/tokenizer.json` → 200
+- `scheduler/scheduler_config.json` → 200
+
+Sortie 7 COMPLETE.
+
+---
+
+## Sorties 8–12 — In flight
+
+Bulk-ship script still running for the remaining 5 ships:
+
+| Sortie | Repo | Approx size | Notes |
+|---|---|---|---|
+| 8 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-4bit` | 13 GB | `--no-verify` |
+| 9 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-6bit` | 19 GB | `--no-verify` |
+| 10 | `lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-MLX-8bit` | 25 GB | `--no-verify` |
+| 11 | `VincentGOURBIN/flux_qint_8bit` | 32 GB | subfolder ship: `flux-2-dev/transformer/qint8/` |
+| 12 | `black-forest-labs/FLUX.2-klein-9B` | 18 GB | gated (license already accepted by operator at Sortie 1) |
+
+At the observed sustained ~2.3 MiB/s, the pending payloads aggregate ≈ 107 GB → ~13 wall-clock hours of upload. As each one lands, this log should grow another condensed entry like Sorties 5–7 above.
 

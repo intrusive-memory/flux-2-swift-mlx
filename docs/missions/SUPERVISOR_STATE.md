@@ -2,15 +2,15 @@
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. A *work unit* groups related sorties.
 
-## 🏁 Mission Status: WU2 COMPLETE; WU1 ships still in flight (operator-driven)
+## 🏁 Mission Status: WU2 COMPLETE; WU1 ships partial — 6 of 11 manifests live (probed 2026-05-01)
 
-**Sortie 22 closed at commit `e5ae8e9`**. Mission branch pushed to remote. Draft PR #8 open against `development`. CI green on the final HEAD. Parity oracle + 24 Sortie-15 fixtures deleted. No `HF_TOKEN` repo secret.
+**Sortie 22 closed at commit `e5ae8e9`**. Mission branch pushed to remote. PR #8 merged into `development` at `109012b`. PR #9 (`development` → `main`) open. CI green on the final HEAD. Parity oracle + 24 Sortie-15 fixtures deleted. No `HF_TOKEN` repo secret.
 
 **WU2 (HF Excision + Code Migration) is fully complete.** All 9 WU2 sorties (14, 15, 16, 17, 18, 19, 20, 21, 22) landed. Library + tests build green. Public API surfaces preserved. README acknowledgments published.
 
-**WU1 (Acervo CDN Provisioning) is still partial** — 1 of 8 manifests live (Sortie 5: aydin99 only). Sorties 6, 7, 8, 9, 10, 11, 12 still in flight via the operator's `scripts/wu1-bulk-ship.sh` in a separate terminal. Sortie 13 (smoke test) was explicitly SKIPPED per operator's eventual-consistency direction.
+**WU1 (Acervo CDN Provisioning) — 6 of 11 manifests live** (Sorties 2, 3, 4, 5, 6, 7). New since prior status update: Sortie 5 (aydin99 — operator-manual upload), Sortie 6 (Qwen3-8B-MLX-8bit), Sortie 7 (FLUX.2-klein-4B). Pending: Sorties 8, 9, 10 (Mistral-Small 4/6/8-bit, ~57 GB combined), 11 (VincentGOURBIN flux_qint_8bit, 32 GB, subfolder), 12 (FLUX.2-klein-9B, 18 GB, gated). Bulk-ship script still in flight; aggregate pending ≈ 107 GB at ~2.3 MiB/s ≈ 13 wall-clock hours. Sortie 13 (smoke test) was explicitly SKIPPED per operator's eventual-consistency direction. See `docs/missions/cdn-ship-log.md` for the per-ship snapshot.
 
-**When the bulk-ship script finishes**: operator runs `/mission-supervisor resume`. Supervisor will probe each of the 7 remaining CDN URLs; for each HTTP 200, dispatch a SERIAL haiku closeout sortie to append a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial (they share `cdn-ship-log.md`).
+**When the bulk-ship script finishes**: operator runs `/mission-supervisor resume`. Supervisor will probe each of the 5 remaining CDN URLs; for each HTTP 200, dispatch a SERIAL haiku closeout sortie to append a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial (they share `cdn-ship-log.md`).
 
 **After all WU1 closeouts land**: mission is ready for `/mission-supervisor brief` (post-mission review + COMPLETE_*.md generation + archive to `docs/complete/`).
 
@@ -184,10 +184,12 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
   - Commit `088b652` — 4 files: Flux2CoreTests.swift + ModelRegistryTests.swift (compile fixes for Sortie 20's symbol renames), TokenizerParityTests.swift (new — tekkenParity only; autoTokenizerParity removed with retrospective header doc), Qwen3Generator.swift (audit comment at line 105 above first decode call site).
   - All FluxTextEncodersTests + Flux2CoreTests pass. tekkenParity test passes (12/12 fixtures match).
   - autoTokenizerParity dropped — Sortie 15's 7-vocab GPT-2 stub fixtures only exercised `<unk>`-serialization edge cases, not real tokenization. Real-vocab parity is post-mission TODO.
-- WU1 ship status (probed at Sortie 22 dispatch time):
-  - Sortie 5 (aydin99): HTTP 200 ✅
-  - Sorties 6, 7, 8, 9, 10, 11, 12: all HTTP 404 — bulk-ship script still in flight.
-  - Sortie 22 does NOT depend on these. CI runs FluxTextEncodersTests (parity uses committed fixtures) + Flux2CoreTests (metadata + ModelRegistry tests, no CDN access) + Flux2GPUTests (environmentally skipped without KLEIN_MODEL_PATH). Once WU1 finishes, runtime user-facing behavior will be available; CI green is independent.
+- WU1 ship status (probed 2026-05-01, post-merge):
+  - Sortie 5 (aydin99/FLUX.2-klein-4B-int8): HTTP 200 ✅ (Last-Modified 2026-04-30 17:07 GMT)
+  - Sortie 6 (lmstudio-community/Qwen3-8B-MLX-8bit): HTTP 200 ✅ (2026-04-30 23:52 GMT)
+  - Sortie 7 (black-forest-labs/FLUX.2-klein-4B): HTTP 200 ✅ (2026-05-01 04:06 GMT)
+  - Sorties 8, 9, 10 (Mistral-Small 4/6/8-bit), 11 (VincentGOURBIN), 12 (klein-9B gated): HTTP 404 — bulk-ship script still in flight.
+  - Sortie 22 did NOT depend on these. CI runs FluxTextEncodersTests (parity uses committed fixtures) + Flux2CoreTests (metadata + ModelRegistry tests, no CDN access) + Flux2GPUTests (environmentally skipped without KLEIN_MODEL_PATH). Runtime user-facing behavior is now partial: 6/11 models reachable; the other 5 still throw `notProvisionedOnCDN` until the bulk-ship script lands them.
 - Notes for Sortie 22:
   - Mission branch is `ahead 14` of `origin/mission/farewell-embrace/01` — agent must push first.
   - Agent uses `gh pr` (allowed per CLAUDE.md). DO NOT auto-merge — operator merges.
@@ -282,18 +284,23 @@ Reason: this operator's shell uses `hf` CLI login (token cached at `~/.cache/hug
 | 2026-04-30 | WU2 | 22 | Model: sonnet | Mechanical work: push branch, open/update PR via `gh pr`, verify no `HF_TOKEN` secret (`gh secret list`), bounded-poll CI status (`gh pr checks` NOT `--watch` to avoid Bash-timeout backgrounding), delete parity oracle + fixture files, push cleanup, update PR description. Score ~10. |
 | 2026-04-30 | WU2 | 22 | Sortie 22 COMPLETE at commit `e5ae8e9`; PR #8 open | Mission branch pushed; draft PR open against `development`. CI green (Test Flux2Core Config-Only macOS, Test FluxTextEncoders macOS). Parity oracle + 24 fixture JSONs deleted. No HF_TOKEN secret. Bounded-poll CI strategy worked — agent didn't get killed by Bash timeout during CI wait. **Plan deviation (acknowledged)**: agent's first push went red because `TokenizerParityTests.swift`'s `#file`-based fixture-path resolution failed under Xcode 26.2's CI sandbox; agent treated the deletion as both the fix (Task 5) and the cleanup (Task 6). Functionally equivalent to plan intent: CI green, parity oracle gone. Tradeoff: CI never proved tekken parity itself; only local proof captured at commit `088b652`. For future missions: parity tests should use `Bundle.module` for test-fixture access, not `#file` arithmetic. |
 | 2026-04-30 | — | — | WU2 COMPLETE | All 9 WU2 sorties landed. PR #8 open as draft. Mission branch ahead of `origin/mission/farewell-embrace/01` by 0 commits. Operator should NOT merge until WU1 ships finish + smoke test passes. |
+| 2026-05-01 | — | — | PR #8 merged into `development` at `109012b`; PR #9 (`development` → `main`) opened | Operator chose to release WU2 to main with WU1 still partial. Failure mode for unprovisioned models is graceful (`notProvisionedOnCDN` thrown at download time, not crash). |
+| 2026-05-01 | WU1 | — | CDN probe: 6 of 11 manifests live | Sorties 5 (aydin99, 2026-04-30 17:07 GMT), 6 (Qwen3-8B-MLX-8bit, 23:52 GMT), 7 (FLUX.2-klein-4B, 2026-05-01 04:06 GMT) all HTTP 200. Sortie 7's klein-4B uses Diffusers nested layout (no root `config.json`); spot-checked `model_index.json`, `text_encoder/config.json`, `tokenizer/tokenizer.json`, `scheduler/scheduler_config.json` all 200. Pending: Sorties 8, 9, 10, 11, 12 (107 GB aggregate). cdn-ship-log.md updated with snapshot table and per-ship records for 5/6/7. |
 
 ## Overall Status
 
-OPERATION FAREWELL EMBRACE — **WU2 COMPLETE**; WU1 ships still in flight. 13 of 22 sorties complete (WU1: 1, 2, 3, 4; WU2: 14, 15, 16, 17, 18, 19, 20, 21, 22). Sortie 13 (CDN smoke test) explicitly skipped per operator's eventual-consistency direction. Sorties 5–12 are running out-of-band via `scripts/wu1-bulk-ship.sh`.
+OPERATION FAREWELL EMBRACE — **WU2 COMPLETE**; WU1 6 of 11 manifests live. 16 of 22 sorties complete (WU1: 1, 2, 3, 4, 5, 6, 7; WU2: 14, 15, 16, 17, 18, 19, 20, 21, 22). Sortie 13 (CDN smoke test) explicitly skipped per operator's eventual-consistency direction. Sorties 8–12 are still running out-of-band via `scripts/wu1-bulk-ship.sh`.
 
-PR: https://github.com/intrusive-memory/flux-2-swift-mlx/pull/8 (draft, base `development`, CI green).
+PRs:
+- #8 (mission → development): MERGED at `109012b`.
+- #9 (development → main): OPEN. https://github.com/intrusive-memory/flux-2-swift-mlx/pull/9
 
 Pending operator-driven completion:
-- WU1 Sorties 5, 6, 7, 8, 9, 10, 11, 12 — bulk-ship script in flight (1/8 manifests live as of this update).
+- WU1 Sorties 8, 9, 10, 11, 12 — bulk-ship script in flight (5 manifests still HTTP 404 as of 2026-05-01 probe).
+- Aggregate pending payload ≈ 107 GB → ≈ 13 wall-clock hours at ~2.3 MiB/s.
 
 When the bulk-ship script finishes:
-- Operator runs `/mission-supervisor resume`. Supervisor probes 7 remaining CDN URLs; for each HTTP 200, dispatches a SERIAL haiku closeout sortie that appends a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial — they share `cdn-ship-log.md`.
+- Operator runs `/mission-supervisor resume`. Supervisor probes 5 remaining CDN URLs; for each HTTP 200, dispatches a SERIAL haiku closeout sortie that appends a Sortie N section to `cdn-ship-log.md` with a path-restricted commit. Closeouts must be serial — they share `cdn-ship-log.md`.
 
 After all WU1 closeouts land:
 - Mission is ready for `/mission-supervisor brief` (post-mission review + archive to `docs/complete/`).
