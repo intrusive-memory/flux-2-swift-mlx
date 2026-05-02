@@ -191,4 +191,4 @@ These apply to every agent. Agent-specific rules live in [CLAUDE.md](CLAUDE.md) 
 
 ---
 
-**Last updated**: 2026-05-01 (v3.0.1)
+**Last updated**: 2026-05-02 (v3.0.2)

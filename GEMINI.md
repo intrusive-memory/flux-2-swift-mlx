@@ -63,4 +63,4 @@ In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-cr
 
 ---
 
-**Last updated**: 2026-05-01 (v3.0.1)
+**Last updated**: 2026-05-02 (v3.0.2)

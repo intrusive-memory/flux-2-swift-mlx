@@ -44,7 +44,7 @@ let package = Package(
         sibling(
             "SwiftAcervo",
             remote: "https://github.com/intrusive-memory/SwiftAcervo",
-            from: "0.8.4"
+            from: "0.9.0"
         ),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
