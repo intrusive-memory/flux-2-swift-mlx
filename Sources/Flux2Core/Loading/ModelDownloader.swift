@@ -16,9 +16,11 @@ public typealias Flux2DownloadProgressCallback = @Sendable (Double, String) -> V
 
 /// Downloads Flux.2 models via the Acervo CDN.
 ///
-/// Storage location is `Acervo.sharedModelsDirectory` (App Group container or
-/// Application Support fallback). The legacy `ModelRegistry.modelsDirectory`
-/// path is no longer the canonical location — we forward through Acervo.
+/// Storage location is `Acervo.sharedModelsDirectory`. As of SwiftAcervo v0.10.0
+/// the directory is resolved via `ACERVO_APP_GROUP_ID` env var or the
+/// `com.apple.security.application-groups` entitlement — there is no silent
+/// fallback. See [AGENTS.md § App Group configuration](../../../AGENTS.md).
+/// The legacy `ModelRegistry.modelsDirectory` path is no longer canonical.
 public class Flux2ModelDownloader: @unchecked Sendable {
 
   /// Optional auth token preserved on the type for API stability.

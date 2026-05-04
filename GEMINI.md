@@ -53,7 +53,11 @@ Discover available simulators with `xcrun simctl list devices available` if a di
 
 ---
 
-## 4. Gemini-Specific Critical Rules
+## 4. App Group Configuration
+
+See [AGENTS.md](./AGENTS.md) § App Group configuration (required).
+
+## 5. Gemini-Specific Critical Rules
 
 In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-critical-rules):
 
