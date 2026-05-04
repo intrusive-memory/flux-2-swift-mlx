@@ -3,8 +3,9 @@
  * Downloads Mistral and Qwen3 models from the intrusive-memory CDN via SwiftAcervo.
  *
  * Sortie 18 (R2.5): Replaced legacy Hub-based downloads with SwiftAcervo's
- * manifest-driven CDN downloads. Storage location is `Acervo.sharedModelsDirectory`
- * (App Group container or Application Support fallback); no override hook is exposed.
+ * manifest-driven CDN downloads. Storage location is `Acervo.sharedModelsDirectory`;
+ * resolved via `ACERVO_APP_GROUP_ID` env var or entitlement (v0.10.0 — no fallback).
+ * No override hook is exposed.
  *
  * Manifest-first file selection: passes `files: []` to Acervo so the per-repo
  * CDN manifest is the sole authoritative source for what gets downloaded.
@@ -30,9 +31,11 @@ public class TextEncoderModelDownloader {
 
   /// Canonical storage directory for downloaded models.
   ///
-  /// Backed by `Acervo.sharedModelsDirectory` (App Group container or
-  /// Application Support fallback). Sortie 14 removed the consumer override
-  /// hook (`customModelsDirectory`); no replacement is exposed.
+  /// Backed by `Acervo.sharedModelsDirectory`. As of SwiftAcervo v0.10.0
+  /// the directory is resolved via `ACERVO_APP_GROUP_ID` env var or the
+  /// `com.apple.security.application-groups` entitlement — no silent fallback.
+  /// Sortie 14 removed the consumer override hook (`customModelsDirectory`);
+  /// no replacement is exposed.
   public static var modelsDirectory: URL {
     Acervo.sharedModelsDirectory
   }
