@@ -91,7 +91,11 @@ The user's global Claude instructions live at `~/.claude/CLAUDE.md`. Key load-be
 
 ---
 
-## 5. Claude-Specific Critical Rules
+## 5. App Group Configuration
+
+See [AGENTS.md](./AGENTS.md) § App Group configuration (required).
+
+## 6. Claude-Specific Critical Rules
 
 In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-critical-rules):
 
