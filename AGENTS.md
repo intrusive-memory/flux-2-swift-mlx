@@ -206,4 +206,4 @@ Without this, `Acervo.sharedModelsDirectory` traps with `fatalError`. See [Swift
 
 ---
 
-**Last updated**: 2026-05-08 (v3.1.1)
+**Last updated**: 2026-05-08 (v3.1.1-dev)
