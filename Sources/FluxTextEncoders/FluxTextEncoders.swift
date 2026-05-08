@@ -27,7 +27,7 @@ import Tokenizers
 public final class FluxTextEncoders: @unchecked Sendable {
   /// Shared singleton instance
   public static let shared = FluxTextEncoders()
-  public static let version = "3.1.0"
+  public static let version = "3.1.1"
 
   private var model: MistralForCausalLM?
   private var vlmModel: MistralVLM?
@@ -575,7 +575,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
       throw FluxEncoderError.vlmNotLoaded
     }
 
-    let image = try processor.loadImage(from: path)
+    let image = try processor.loadImageAsCGImage(from: path)
     return try analyzeImage(
       image: image, prompt: prompt, systemPrompt: systemPrompt, parameters: parameters,
       onToken: onToken)
@@ -870,7 +870,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
       throw FluxEncoderError.vlmNotLoaded
     }
 
-    let image = try processor.loadImage(from: imagePath)
+    let image = try processor.loadImageAsCGImage(from: imagePath)
     return try extractFluxEmbeddingsWithImage(image: image, prompt: prompt)
   }
 
@@ -977,7 +977,7 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-  public static let version = "3.1.0"
+  public static let version = "3.1.1"
   public static let modelName = "Mistral Small 3.2"
   public static let modelVersion = "24B-Instruct-2506"
 }
