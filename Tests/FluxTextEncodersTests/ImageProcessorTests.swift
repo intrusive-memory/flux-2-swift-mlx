@@ -123,7 +123,7 @@ struct ImageProcessorTests {
     let processor = ImageProcessor()
 
     #expect(throws: (any Error).self) {
-      try processor.loadImage(from: "/nonexistent/path/image.jpg")
+      try processor.loadImageAsCGImage(from: "/nonexistent/path/image.jpg")
     }
   }
 

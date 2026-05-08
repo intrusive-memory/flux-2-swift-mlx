@@ -575,7 +575,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
       throw FluxEncoderError.vlmNotLoaded
     }
 
-    let image = try processor.loadImage(from: path)
+    let image = try processor.loadImageAsCGImage(from: path)
     return try analyzeImage(
       image: image, prompt: prompt, systemPrompt: systemPrompt, parameters: parameters,
       onToken: onToken)
@@ -870,7 +870,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
       throw FluxEncoderError.vlmNotLoaded
     }
 
-    let image = try processor.loadImage(from: imagePath)
+    let image = try processor.loadImageAsCGImage(from: imagePath)
     return try extractFluxEmbeddingsWithImage(image: image, prompt: prompt)
   }
 
