@@ -158,6 +158,20 @@ public class Flux2Pipeline: @unchecked Sendable {
     _telemetryLock.withLock { $0 }
   }
 
+  /// Explicitly tear down the pipeline, emitting `pipelineDispose` before clearing owned models.
+  ///
+  /// Hosts (Vinetas) should call dispose() before releasing the pipeline. deinit cannot be async,
+  /// so explicit tear-down is required for telemetry to fire on shutdown.
+  public func dispose() async {
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(.pipelineDispose)
+    }
+    transformer = nil
+    vae = nil
+    textEncoder = nil
+    kleinEncoder = nil
+  }
+
   /// Initialize pipeline
   /// - Parameters:
   ///   - model: Model variant to use (default: .dev)
@@ -185,6 +199,22 @@ public class Flux2Pipeline: @unchecked Sendable {
     self.scheduler = FlowMatchEulerScheduler()
     self.downloader =
       hfToken != nil ? Flux2ModelDownloader(hfToken: hfToken) : Flux2ModelDownloader()
+    // Emit pipelineInit after all components are constructed.
+    // currentTelemetry() returns nil here because no reporter is installed yet at
+    // init time — the host calls setTelemetry(_:) after construction. If a reporter
+    // is somehow pre-installed via the lock this will still fire correctly.
+    if let telemetry = currentTelemetry() {
+      let quantManifest = Flux2TelemetryEvent.QuantizationManifest(
+        textEncoder: quantization.textEncoder.rawValue,
+        transformer: quantization.transformer.rawValue,
+        vae: "fp16"
+      )
+      let capturedModel = model
+      let capturedMemOpt = memoryOptimization
+      Task {
+        await telemetry.capture(.pipelineInit(model: capturedModel.rawValue, quantization: quantManifest, vaeConfig: "standard", memoryOptimization: "\(capturedMemOpt)"))
+      }
+    }
   }
 
   // MARK: - Model Loading
@@ -234,6 +264,18 @@ public class Flux2Pipeline: @unchecked Sendable {
     memoryManager.logMemoryState()
     Flux2Debug.log("Loading text encoder for \(model.displayName)...")
 
+    // Determine component and path for telemetry
+    let teComponent: Flux2TelemetryEvent.WeightComponent
+    switch model {
+    case .dev: teComponent = .textEncoderDev
+    case .klein4B, .klein4BBase, .klein9B, .klein9BBase, .klein9BKV: teComponent = .textEncoderKlein
+    }
+
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(.weightLoadStart(component: teComponent, path: "<model-managed>"))
+    }
+    let teLoadStart = Date()
+
     // Map quantization
     let mistralQuant: MistralQuantization
     switch quantization.textEncoder {
@@ -259,6 +301,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     case .klein9B, .klein9BBase, .klein9BKV:
       kleinEncoder = KleinTextEncoder(variant: .klein9B, quantization: mistralQuant)
       try await kleinEncoder!.load()
+    }
+
+    if let telemetry = currentTelemetry() {
+      let teDuration = Date().timeIntervalSince(teLoadStart)
+      await telemetry.capture(.weightLoadComplete(component: teComponent, paramCount: 0, dtypeHistogram: [:], sizeMB: 0.0, durationSeconds: teDuration))
     }
 
     memoryManager.logMemoryState()
@@ -325,9 +372,19 @@ public class Flux2Pipeline: @unchecked Sendable {
       case .klein9BKV:
         downloadCmd = "flux2 download --model klein-9b-kv"
       }
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.modelNotLoaded(
+          "\(model.displayName) transformer weights not found. Run: \(downloadCmd)")
+        await telemetry.capture(.errorThrown(phase: .modelNotLoaded, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.modelNotLoaded(
         "\(model.displayName) transformer weights not found. Run: \(downloadCmd)")
     }
+
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(.weightLoadStart(component: .transformer, path: modelPath.path))
+    }
+    let transformerLoadStart = Date()
 
     // Create model with appropriate config and memory optimization
     transformer = Flux2Transformer2DModel(
@@ -340,6 +397,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     // For large models (Dev), this can temporarily use 2x memory during mapping
     Flux2Debug.log("Loading transformer weights from disk...")
     var weights = try Flux2WeightLoader.loadWeights(from: modelPath)
+
+    // Build dtype histogram and size BEFORE weights are removed from memory
+    let transformerHistogram = Flux2WeightLoader.dtypeHistogram(weights)
+    let transformerParamCount = weights.values.reduce(0) { $0 + $1.shape.reduce(1, *) }
+    let transformerSizeMB = Double(transformerParamCount * 2) / 1_000_000.0  // approx float16
 
     Flux2Debug.log("Applying weights to model...")
     try Flux2WeightLoader.applyTransformerWeights(&weights, to: transformer!)
@@ -387,6 +449,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Ensure weights are evaluated
     eval(transformer!.parameters())
 
+    if let telemetry = currentTelemetry() {
+      let transformerDuration = Date().timeIntervalSince(transformerLoadStart)
+      await telemetry.capture(.weightLoadComplete(component: .transformer, paramCount: transformerParamCount, dtypeHistogram: transformerHistogram, sizeMB: transformerSizeMB, durationSeconds: transformerDuration))
+    }
+
     memoryManager.logMemoryState()
     Flux2Debug.log("Transformer loaded successfully")
   }
@@ -401,6 +468,13 @@ public class Flux2Pipeline: @unchecked Sendable {
     if loraManager == nil {
       loraManager = LoRAManager()
     }
+
+    let loraName = config.name
+    let loraScale = Double(config.effectiveScale)
+    if let telemetry = currentTelemetry() {
+      Task { await telemetry.capture(.loraLoadStart(name: loraName, scale: loraScale)) }
+    }
+    let loraLoadStart = Date()
 
     let info = try loraManager!.loadLoRA(config)
 
@@ -442,6 +516,13 @@ public class Flux2Pipeline: @unchecked Sendable {
       loraManager!.clearWeightsAfterFusion()
     }
 
+    if let telemetry = currentTelemetry() {
+      let loraDuration = Date().timeIntervalSince(loraLoadStart)
+      Task {
+        await telemetry.capture(.loraLoadComplete(name: loraName, adapterParamCount: info.numParameters, mergedLayerCount: info.numLayers, sizeMB: Double(info.memorySizeMB), durationSeconds: loraDuration))
+      }
+    }
+
     return info
   }
 
@@ -456,6 +537,14 @@ public class Flux2Pipeline: @unchecked Sendable {
 
   /// Unload all LoRAs
   public func unloadAllLoRAs() {
+    // Emit loraUnmerged before clearing. In this codebase LoRA weights are fused into the
+    // transformer at load time (no runtime unmerge), so this event marks that the LoRA
+    // adapter record is being cleared. The restoredLayerCount reflects how many layers were
+    // affected by the now-cleared LoRAs.
+    if let telemetry = currentTelemetry() {
+      let layerCount = loraManager?.loadedLayerPaths.count ?? 0
+      Task { await telemetry.capture(.loraUnmerged(restoredLayerCount: layerCount)) }
+    }
     loraManager?.unloadAll()
     loraSchedulerOverrides = nil
   }
@@ -478,6 +567,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     Flux2Debug.log("Loading VAE...")
 
     guard let modelPath = Flux2ModelDownloader.findModelPath(for: .vae(.standard)) else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.modelNotLoaded("VAE weights not found")
+        await telemetry.capture(.errorThrown(phase: .modelNotLoaded, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.modelNotLoaded("VAE weights not found")
     }
 
@@ -485,15 +578,31 @@ public class Flux2Pipeline: @unchecked Sendable {
     let vaePath = modelPath.appendingPathComponent("vae")
     let weightsPath = FileManager.default.fileExists(atPath: vaePath.path) ? vaePath : modelPath
 
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(.weightLoadStart(component: .vae, path: weightsPath.path))
+    }
+    let vaeLoadStart = Date()
+
     // Create model
     vae = AutoencoderKLFlux2()
 
     // Load weights
     let weights = try Flux2WeightLoader.loadWeights(from: weightsPath)
+
+    // Capture histogram and size BEFORE weights are handed off
+    let vaeHistogram = Flux2WeightLoader.dtypeHistogram(weights)
+    let vaeParamCount = weights.values.reduce(0) { $0 + $1.shape.reduce(1, *) }
+    let vaeSizeMB = Double(vaeParamCount * 2) / 1_000_000.0  // approx float16
+
     try Flux2WeightLoader.applyVAEWeights(weights, to: vae!)
 
     // Ensure weights are evaluated
     eval(vae!.parameters())
+
+    if let telemetry = currentTelemetry() {
+      let vaeDuration = Date().timeIntervalSince(vaeLoadStart)
+      await telemetry.capture(.weightLoadComplete(component: .vae, paramCount: vaeParamCount, dtypeHistogram: vaeHistogram, sizeMB: vaeSizeMB, durationSeconds: vaeDuration))
+    }
 
     Flux2Debug.log("VAE loaded successfully")
   }
@@ -583,6 +692,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> CGImage {
     guard !images.isEmpty && images.count <= 3 else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.invalidConfiguration("Provide 1-3 reference images")
+        await telemetry.capture(.errorThrown(phase: .invalidConfiguration, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -623,8 +736,12 @@ public class Flux2Pipeline: @unchecked Sendable {
     onProgress: Flux2ProgressCallback? = nil,
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> CGImage {
-    let images = try imageData.enumerated().map { index, data in
+    let images = try imageData.enumerated().map { [self] index, data in
       guard let cgImage = Self.cgImage(from: data) else {
+        if let telemetry = self.currentTelemetry() {
+          let errDesc = Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)").localizedDescription
+          Task { await telemetry.capture(.errorThrown(phase: .invalidConfiguration, errorDescription: errDesc, stepIndex: nil)) }
+        }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -695,6 +812,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> Flux2GenerationResult {
     guard !images.isEmpty && images.count <= 3 else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.invalidConfiguration("Provide 1-3 reference images")
+        await telemetry.capture(.errorThrown(phase: .invalidConfiguration, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -735,8 +856,12 @@ public class Flux2Pipeline: @unchecked Sendable {
     onProgress: Flux2ProgressCallback? = nil,
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> Flux2GenerationResult {
-    let images = try imageData.enumerated().map { index, data in
+    let images = try imageData.enumerated().map { [self] index, data in
       guard let cgImage = Self.cgImage(from: data) else {
+        if let telemetry = self.currentTelemetry() {
+          let errDesc = Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)").localizedDescription
+          Task { await telemetry.capture(.errorThrown(phase: .invalidConfiguration, errorDescription: errDesc, stepIndex: nil)) }
+        }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -813,6 +938,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Check image size feasibility
     let sizeCheck = memoryManager.checkImageSize(width: validWidth, height: validHeight)
     if case .insufficientMemory = sizeCheck {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.insufficientMemory(
+          required: 100, available: memoryManager.estimatedAvailableMemoryGB)
+        await telemetry.capture(.errorThrown(phase: .insufficientMemory, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.insufficientMemory(
         required: 100, available: memoryManager.estimatedAvailableMemoryGB)
     }
@@ -1111,6 +1241,9 @@ public class Flux2Pipeline: @unchecked Sendable {
         Flux2Debug.log("Using KV-cached denoising (\(effectiveSteps) steps, ~2.66x speedup)")
 
         guard let transformer = transformer else {
+          if let telemetry = currentTelemetry() {
+            await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: nil))
+          }
           throw Flux2Error.generationCancelled
         }
 
@@ -1220,6 +1353,9 @@ public class Flux2Pipeline: @unchecked Sendable {
 
           // Check transformer is still loaded (may be unloaded during cancellation)
           guard let transformer = transformer else {
+            if let telemetry = currentTelemetry() {
+              await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: stepIdx))
+            }
             throw Flux2Error.generationCancelled
           }
 
@@ -1312,6 +1448,10 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       profiler.start("8. Post-processing")
       guard let image = postprocessVAEOutput(decoded) else {
+        if let telemetry = currentTelemetry() {
+          let err = Flux2Error.generationFailed("Failed to convert VAE output to image")
+          await telemetry.capture(.errorThrown(phase: .generationFailed, errorDescription: err.localizedDescription, stepIndex: nil))
+        }
         throw Flux2Error.generationFailed("Failed to convert VAE output to image")
       }
       profiler.end("8. Post-processing")
@@ -1375,6 +1515,9 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: stepIdx))
+        }
         throw Flux2Error.generationCancelled
       }
 
@@ -1491,6 +1634,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Convert to CGImage
     profiler.start("8. Post-processing")
     guard let image = postprocessVAEOutput(decoded) else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.imageProcessingFailed("Failed to convert output to image")
+        await telemetry.capture(.errorThrown(phase: .other, errorDescription: err.localizedDescription, stepIndex: nil))
+      }
       throw Flux2Error.imageProcessingFailed("Failed to convert output to image")
     }
     profiler.end("8. Post-processing")
@@ -1536,10 +1683,18 @@ public class Flux2Pipeline: @unchecked Sendable {
     width: Int
   ) throws -> (latents: MLXArray, positionIds: MLXArray) {
     guard let vae = vae else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.modelNotLoaded("VAE")
+        Task { await telemetry.capture(.errorThrown(phase: .modelNotLoaded, errorDescription: err.localizedDescription, stepIndex: nil)) }
+      }
       throw Flux2Error.modelNotLoaded("VAE")
     }
 
     guard !images.isEmpty else {
+      if let telemetry = currentTelemetry() {
+        let err = Flux2Error.invalidConfiguration("No reference images provided")
+        Task { await telemetry.capture(.errorThrown(phase: .invalidConfiguration, errorDescription: err.localizedDescription, stepIndex: nil)) }
+      }
       throw Flux2Error.invalidConfiguration("No reference images provided")
     }
 

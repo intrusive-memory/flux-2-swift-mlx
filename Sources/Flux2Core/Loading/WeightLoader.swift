@@ -32,6 +32,46 @@ public class Flux2WeightLoader {
     _telemetryLock.withLock { $0 }
   }
 
+  // MARK: - Dtype Histogram
+
+  /// Build a histogram of parameter dtypes from a loaded params dictionary.
+  ///
+  /// Returns a dictionary mapping dtype string (e.g. `"float16"`, `"float32"`,
+  /// `"int8"`, `"int4"`) to the number of parameters (scalar count) of that dtype.
+  /// This is used in `weightLoadComplete` telemetry events to detect unexpected
+  /// dequantization (e.g. all `float32` when `float16` is expected).
+  ///
+  /// - Parameter params: Dictionary of parameter name → MLXArray as returned by
+  ///   the `loadWeights` family or `mapTransformerWeights`.
+  /// - Returns: `[String: Int]` histogram, keyed by stable dtype strings.
+  static func dtypeHistogram(_ params: [String: MLXArray]) -> [String: Int] {
+    var histogram: [String: Int] = [:]
+    for (_, array) in params {
+      let key = dtypeString(array.dtype)
+      let paramCount = array.shape.reduce(1, *)
+      histogram[key, default: 0] += paramCount
+    }
+    return histogram
+  }
+
+  /// Convert an `MLX.DType` to a stable, human-readable string key.
+  private static func dtypeString(_ dtype: DType) -> String {
+    switch dtype {
+    case .float16:  return "float16"
+    case .float32:  return "float32"
+    case .bfloat16: return "bfloat16"
+    case .int8:     return "int8"
+    case .int4:     return "int4"
+    case .int32:    return "int32"
+    case .int16:    return "int16"
+    case .uint8:    return "uint8"
+    case .uint16:   return "uint16"
+    case .uint32:   return "uint32"
+    case .bool:     return "bool"
+    default:        return "\(dtype)"
+    }
+  }
+
   /// Load all weights from a model directory
   /// - Parameter modelPath: Path to directory containing safetensors files
   /// - Returns: Dictionary of weight name to MLXArray
