@@ -131,6 +131,30 @@ public class FlowMatchEulerScheduler: @unchecked Sendable {
     }
     Flux2Debug.verbose("Sigmas: \(sigmas.prefix(5))... to \(sigmas.suffix(2))")
 
+    // F7: setTimesteps is sync; capture is async. Capture every scalar value as a let
+    // before the Task closure to avoid data-race / Sendable concerns.
+    let _muValue = mu
+    let _imageSeqLen = imageSeqLen ?? 4096
+    let _shift = shift
+    let _numTrain = numTrainTimesteps
+    let _numInfer = numInferenceSteps
+    let _sigmasHead = Array(self.sigmas.prefix(5))
+    let _sigmasTail = Array(self.sigmas.suffix(5))
+    if let telemetry = currentTelemetry() {
+      Task {
+        await telemetry.capture(
+          .schedulerConfigured(
+            numTrainTimesteps: _numTrain,
+            numInferenceSteps: _numInfer,
+            shift: _shift,
+            imageSeqLen: _imageSeqLen,
+            mu: _muValue,
+            sigmasHead: _sigmasHead,
+            sigmasTail: _sigmasTail
+          ))
+      }
+    }
+
     return tStart
   }
 
