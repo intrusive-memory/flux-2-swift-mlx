@@ -1129,6 +1129,9 @@ public class Flux2Pipeline: @unchecked Sendable {
             embeddingStat: stat,
             durationSeconds: Date().timeIntervalSince(encDevI2IStart)
           ))
+          for kind in Flux2AnomalyDetector.anomalies(in: stat, checkZeroLatent: true) {
+            await telemetry.capture(.numericalAnomaly(phase: "textEncoderForwardComplete", kind: kind, stepIndex: nil, stat: stat))
+          }
         }
         textEmbeddings = devI2IEmbeddings
       } else {
@@ -1150,6 +1153,9 @@ public class Flux2Pipeline: @unchecked Sendable {
             embeddingStat: stat,
             durationSeconds: Date().timeIntervalSince(encDevStart)
           ))
+          for kind in Flux2AnomalyDetector.anomalies(in: stat, checkZeroLatent: true) {
+            await telemetry.capture(.numericalAnomaly(phase: "textEncoderForwardComplete", kind: kind, stepIndex: nil, stat: stat))
+          }
         }
         textEmbeddings = embeddings
         finalUsedPrompt = usedPrompt
@@ -1221,6 +1227,9 @@ public class Flux2Pipeline: @unchecked Sendable {
             embeddingStat: stat,
             durationSeconds: Date().timeIntervalSince(encKleinI2IStart)
           ))
+          for kind in Flux2AnomalyDetector.anomalies(in: stat, checkZeroLatent: true) {
+            await telemetry.capture(.numericalAnomaly(phase: "textEncoderForwardComplete", kind: kind, stepIndex: nil, stat: stat))
+          }
         }
         textEmbeddings = kleinI2IEmbeddings
       } else {
@@ -1243,6 +1252,9 @@ public class Flux2Pipeline: @unchecked Sendable {
             embeddingStat: stat,
             durationSeconds: Date().timeIntervalSince(encKleinStart)
           ))
+          for kind in Flux2AnomalyDetector.anomalies(in: stat, checkZeroLatent: true) {
+            await telemetry.capture(.numericalAnomaly(phase: "textEncoderForwardComplete", kind: kind, stepIndex: nil, stat: stat))
+          }
         }
         textEmbeddings = embeddings
         finalUsedPrompt = usedPrompt
@@ -1370,6 +1382,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         guard let transformer = transformer else {
           if let telemetry = currentTelemetry() {
+            await telemetry.capture(.generationCancelled(stepIndex: 0))
             await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: nil))
           }
           throw Flux2Error.generationCancelled
@@ -1482,6 +1495,7 @@ public class Flux2Pipeline: @unchecked Sendable {
           // Check transformer is still loaded (may be unloaded during cancellation)
           guard let transformer = transformer else {
             if let telemetry = currentTelemetry() {
+              await telemetry.capture(.generationCancelled(stepIndex: stepIdx))
               await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: stepIdx))
             }
             throw Flux2Error.generationCancelled
@@ -1562,14 +1576,39 @@ public class Flux2Pipeline: @unchecked Sendable {
         height: validHeight,
         width: validWidth
       )
-      finalPatchified = LatentUtils.denormalizeLatentsWithBatchNorm(
-        finalPatchified,
-        runningMean: vae!.batchNormRunningMean,
-        runningVar: vae!.batchNormRunningVar
-      )
+      if let telemetry = currentTelemetry() {
+        let beforeStat = TuberiaTensorStat.sample(finalPatchified)
+        finalPatchified = LatentUtils.denormalizeLatentsWithBatchNorm(
+          finalPatchified,
+          runningMean: vae!.batchNormRunningMean,
+          runningVar: vae!.batchNormRunningVar
+        )
+        let afterStat = TuberiaTensorStat.sample(finalPatchified)
+        await telemetry.capture(.vaeBatchNormDenormalize(beforeStat: beforeStat, afterStat: afterStat))
+        for kind in Flux2AnomalyDetector.anomalies(in: beforeStat, checkZeroLatent: true) {
+          await telemetry.capture(.numericalAnomaly(phase: "vaeBatchNormDenormalize.before", kind: kind, stepIndex: nil, stat: beforeStat))
+        }
+        for kind in Flux2AnomalyDetector.anomalies(in: afterStat, checkZeroLatent: true) {
+          await telemetry.capture(.numericalAnomaly(phase: "vaeBatchNormDenormalize.after", kind: kind, stepIndex: nil, stat: afterStat))
+        }
+      } else {
+        finalPatchified = LatentUtils.denormalizeLatentsWithBatchNorm(
+          finalPatchified,
+          runningMean: vae!.batchNormRunningMean,
+          runningVar: vae!.batchNormRunningVar
+        )
+      }
       let finalLatents = LatentUtils.unpatchifyLatents(finalPatchified)
       eval(finalLatents)
 
+      if let telemetry = currentTelemetry() {
+        let latentStat = TuberiaTensorStat.sample(finalLatents)
+        await telemetry.capture(.vaeDecodeStart(latentStat: latentStat, scalingFactor: vae!.scalingFactor))
+        for kind in Flux2AnomalyDetector.anomalies(in: latentStat, checkZeroLatent: true) {
+          await telemetry.capture(.numericalAnomaly(phase: "vaeDecodeStart", kind: kind, stepIndex: nil, stat: latentStat))
+        }
+      }
+      let vaeDecodeI2IStart = Date()
       let decoded = vae!.decode(finalLatents)
       eval(decoded)
       profiler.end("7. VAE Decode")
@@ -1581,6 +1620,17 @@ public class Flux2Pipeline: @unchecked Sendable {
           await telemetry.capture(.errorThrown(phase: .generationFailed, errorDescription: err.localizedDescription, stepIndex: nil))
         }
         throw Flux2Error.generationFailed("Failed to convert VAE output to image")
+      }
+      if let telemetry = currentTelemetry() {
+        let pixelStat = TuberiaTensorStat.sample(decoded)
+        await telemetry.capture(.vaeDecodeComplete(
+          pixelStat: pixelStat,
+          outputDims: [image.width, image.height],
+          durationSeconds: Date().timeIntervalSince(vaeDecodeI2IStart)
+        ))
+        for kind in Flux2AnomalyDetector.anomalies(in: pixelStat, checkZeroLatent: false) {
+          await telemetry.capture(.numericalAnomaly(phase: "vaeDecodeComplete", kind: kind, stepIndex: nil, stat: pixelStat))
+        }
       }
       profiler.end("8. Post-processing")
 
@@ -1644,6 +1694,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
         if let telemetry = currentTelemetry() {
+          await telemetry.capture(.generationCancelled(stepIndex: stepIdx))
           await telemetry.capture(.errorThrown(phase: .generationCancelled, errorDescription: Flux2Error.generationCancelled.localizedDescription, stepIndex: stepIdx))
         }
         throw Flux2Error.generationCancelled
@@ -1736,11 +1787,28 @@ public class Flux2Pipeline: @unchecked Sendable {
     // CRITICAL: Denormalize patchified latents with VAE BatchNorm AFTER denoising
     // This reverses the normalization applied before the transformer
     Flux2Debug.log("Denormalizing patchified latents with BatchNorm...")
-    patchifiedFinal = LatentUtils.denormalizeLatentsWithBatchNorm(
-      patchifiedFinal,
-      runningMean: vae!.batchNormRunningMean,
-      runningVar: vae!.batchNormRunningVar
-    )
+    if let telemetry = currentTelemetry() {
+      let beforeStat = TuberiaTensorStat.sample(patchifiedFinal)
+      patchifiedFinal = LatentUtils.denormalizeLatentsWithBatchNorm(
+        patchifiedFinal,
+        runningMean: vae!.batchNormRunningMean,
+        runningVar: vae!.batchNormRunningVar
+      )
+      let afterStat = TuberiaTensorStat.sample(patchifiedFinal)
+      await telemetry.capture(.vaeBatchNormDenormalize(beforeStat: beforeStat, afterStat: afterStat))
+      for kind in Flux2AnomalyDetector.anomalies(in: beforeStat, checkZeroLatent: true) {
+        await telemetry.capture(.numericalAnomaly(phase: "vaeBatchNormDenormalize.before", kind: kind, stepIndex: nil, stat: beforeStat))
+      }
+      for kind in Flux2AnomalyDetector.anomalies(in: afterStat, checkZeroLatent: true) {
+        await telemetry.capture(.numericalAnomaly(phase: "vaeBatchNormDenormalize.after", kind: kind, stepIndex: nil, stat: afterStat))
+      }
+    } else {
+      patchifiedFinal = LatentUtils.denormalizeLatentsWithBatchNorm(
+        patchifiedFinal,
+        runningMean: vae!.batchNormRunningMean,
+        runningVar: vae!.batchNormRunningVar
+      )
+    }
     eval(patchifiedFinal)
 
     // Unpatchify to VAE format [B, 32, H/8, W/8]
@@ -1754,6 +1822,14 @@ public class Flux2Pipeline: @unchecked Sendable {
     // MEMORY OPTIMIZATION: Set cache limit for VAE decoding phase
     MemoryConfig.applyCacheLimit(bytes: phaseLimits.vaeDecoding)
 
+    if let telemetry = currentTelemetry() {
+      let latentStat = TuberiaTensorStat.sample(finalLatents)
+      await telemetry.capture(.vaeDecodeStart(latentStat: latentStat, scalingFactor: vae!.scalingFactor))
+      for kind in Flux2AnomalyDetector.anomalies(in: latentStat, checkZeroLatent: true) {
+        await telemetry.capture(.numericalAnomaly(phase: "vaeDecodeStart", kind: kind, stepIndex: nil, stat: latentStat))
+      }
+    }
+    let vaeDecodeT2IStart = Date()
     profiler.start("7. VAE Decode")
     let decoded = vae!.decode(finalLatents)
     eval(decoded)
@@ -1767,6 +1843,17 @@ public class Flux2Pipeline: @unchecked Sendable {
         await telemetry.capture(.errorThrown(phase: .other, errorDescription: err.localizedDescription, stepIndex: nil))
       }
       throw Flux2Error.imageProcessingFailed("Failed to convert output to image")
+    }
+    if let telemetry = currentTelemetry() {
+      let pixelStat = TuberiaTensorStat.sample(decoded)
+      await telemetry.capture(.vaeDecodeComplete(
+        pixelStat: pixelStat,
+        outputDims: [image.width, image.height],
+        durationSeconds: Date().timeIntervalSince(vaeDecodeT2IStart)
+      ))
+      for kind in Flux2AnomalyDetector.anomalies(in: pixelStat, checkZeroLatent: false) {
+        await telemetry.capture(.numericalAnomaly(phase: "vaeDecodeComplete", kind: kind, stepIndex: nil, stat: pixelStat))
+      }
     }
     profiler.end("8. Post-processing")
 
