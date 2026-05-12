@@ -981,8 +981,23 @@ public class Flux2Pipeline: @unchecked Sendable {
           "Interpreting \(interpretPaths.count) image(s) with VLM for prompt injection...")
         profiler.start("1b. VLM Interpretation")
 
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretStart(
+            imageCount: interpretPaths.count,
+            encoderUsed: "mistral"
+          ))
+        }
+        let vlmInterpretDevStart = Date()
         let descriptions = try await textEncoder!.describeImagePathsForPrompt(
           interpretPaths, context: prompt)
+        if let telemetry = currentTelemetry() {
+          let totalLen = descriptions.reduce(0) { $0 + $1.count }
+          await telemetry.capture(.vlmInterpretComplete(
+            descriptionsProduced: descriptions.count,
+            totalDescriptionLength: totalLen,
+            durationSeconds: Date().timeIntervalSince(vlmInterpretDevStart)
+          ))
+        }
 
         if !descriptions.isEmpty {
           // Build enriched prompt with image descriptions
@@ -1020,8 +1035,23 @@ public class Flux2Pipeline: @unchecked Sendable {
         try await tempMistralForInterpret.load()
 
         // Step 3: VLM interpretation (same logic as Dev)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretStart(
+            imageCount: interpretPaths.count,
+            encoderUsed: "mistral"
+          ))
+        }
+        let vlmInterpretKleinStart = Date()
         let descriptions = try await tempMistralForInterpret.describeImagePathsForPrompt(
           interpretPaths, context: prompt)
+        if let telemetry = currentTelemetry() {
+          let totalLen = descriptions.reduce(0) { $0 + $1.count }
+          await telemetry.capture(.vlmInterpretComplete(
+            descriptionsProduced: descriptions.count,
+            totalDescriptionLength: totalLen,
+            durationSeconds: Date().timeIntervalSince(vlmInterpretKleinStart)
+          ))
+        }
 
         if !descriptions.isEmpty {
           let imageContext = descriptions.enumerated().map { (idx, desc) in
@@ -1064,14 +1094,63 @@ public class Flux2Pipeline: @unchecked Sendable {
       if upsamplePrompt, case .imageToImage(let images) = mode {
         // Use VLM to analyze reference images and enhance prompt
         Flux2Debug.log("Using vision-based prompt upsampling for I2I with \(images.count) image(s)")
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretStart(
+            imageCount: images.count,
+            encoderUsed: "mistral"
+          ))
+        }
+        let vlmUpsampleDevStart = Date()
         let enhancedPrompt = try await textEncoder!.upsamplePromptWithImages(
           enrichedPrompt, images: images)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretComplete(
+            descriptionsProduced: 1,
+            totalDescriptionLength: enhancedPrompt.count,
+            durationSeconds: Date().timeIntervalSince(vlmUpsampleDevStart)
+          ))
+        }
         finalUsedPrompt = enhancedPrompt
         wasPromptUpsampled = true
-        textEmbeddings = try textEncoder!.encode(enhancedPrompt, upsample: false)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.textEncoderForwardStart(
+            encoderName: "mistral",
+            promptLength: enhancedPrompt.count,
+            upsampleRequested: false
+          ))
+        }
+        let encDevI2IStart = Date()
+        let devI2IEmbeddings = try textEncoder!.encode(enhancedPrompt, upsample: false)
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(devI2IEmbeddings)
+          await telemetry.capture(.textEncoderForwardComplete(
+            encoderName: "mistral",
+            finalPromptLength: enhancedPrompt.count,
+            embeddingStat: stat,
+            durationSeconds: Date().timeIntervalSince(encDevI2IStart)
+          ))
+        }
+        textEmbeddings = devI2IEmbeddings
       } else {
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.textEncoderForwardStart(
+            encoderName: "mistral",
+            promptLength: enrichedPrompt.count,
+            upsampleRequested: upsamplePrompt
+          ))
+        }
+        let encDevStart = Date()
         let (embeddings, usedPrompt) = try textEncoder!.encodeWithPrompt(
           enrichedPrompt, upsample: upsamplePrompt)
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(embeddings)
+          await telemetry.capture(.textEncoderForwardComplete(
+            encoderName: "mistral",
+            finalPromptLength: usedPrompt.count,
+            embeddingStat: stat,
+            durationSeconds: Date().timeIntervalSince(encDevStart)
+          ))
+        }
         textEmbeddings = embeddings
         finalUsedPrompt = usedPrompt
         wasPromptUpsampled = upsamplePrompt && (usedPrompt != enrichedPrompt)
@@ -1096,8 +1175,22 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         // Step 3: Upsample prompt with images using Mistral VLM
         Flux2Debug.log("Upsampling prompt with \(images.count) reference image(s)...")
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretStart(
+            imageCount: images.count,
+            encoderUsed: "mistral"
+          ))
+        }
+        let vlmUpsampleKleinStart = Date()
         let enhancedPrompt = try await tempMistralEncoder.upsamplePromptWithImages(
           enrichedPrompt, images: images)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.vlmInterpretComplete(
+            descriptionsProduced: 1,
+            totalDescriptionLength: enhancedPrompt.count,
+            durationSeconds: Date().timeIntervalSince(vlmUpsampleKleinStart)
+          ))
+        }
         finalUsedPrompt = enhancedPrompt
         wasPromptUpsampled = true
 
@@ -1111,11 +1204,46 @@ public class Flux2Pipeline: @unchecked Sendable {
         try await kleinEncoder!.load()
 
         // Step 6: Encode with Qwen3 (already upsampled, so upsample=false)
-        textEmbeddings = try kleinEncoder!.encode(enhancedPrompt, upsample: false)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.textEncoderForwardStart(
+            encoderName: "qwen3",
+            promptLength: enhancedPrompt.count,
+            upsampleRequested: false
+          ))
+        }
+        let encKleinI2IStart = Date()
+        let kleinI2IEmbeddings = try kleinEncoder!.encode(enhancedPrompt, upsample: false)
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(kleinI2IEmbeddings)
+          await telemetry.capture(.textEncoderForwardComplete(
+            encoderName: "qwen3",
+            finalPromptLength: enhancedPrompt.count,
+            embeddingStat: stat,
+            durationSeconds: Date().timeIntervalSince(encKleinI2IStart)
+          ))
+        }
+        textEmbeddings = kleinI2IEmbeddings
       } else {
         // Standard Klein encoding (text-only upsampling if enabled)
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.textEncoderForwardStart(
+            encoderName: "qwen3",
+            promptLength: enrichedPrompt.count,
+            upsampleRequested: upsamplePrompt
+          ))
+        }
+        let encKleinStart = Date()
         let (embeddings, usedPrompt) = try kleinEncoder!.encodeWithPrompt(
           enrichedPrompt, upsample: upsamplePrompt)
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(embeddings)
+          await telemetry.capture(.textEncoderForwardComplete(
+            encoderName: "qwen3",
+            finalPromptLength: usedPrompt.count,
+            embeddingStat: stat,
+            durationSeconds: Date().timeIntervalSince(encKleinStart)
+          ))
+        }
         textEmbeddings = embeddings
         finalUsedPrompt = usedPrompt
         wasPromptUpsampled = upsamplePrompt && (usedPrompt != enrichedPrompt)

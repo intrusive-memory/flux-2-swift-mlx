@@ -87,11 +87,14 @@ public class FlowMatchEulerScheduler: @unchecked Sendable {
   {
     // Compute mu based on image sequence length (Flux.2 specific)
     let mu: Float
+    let resolvedImageSeqLen: Int
     if let seqLen = imageSeqLen {
       mu = computeEmpiricalMu(imageSeqLen: seqLen, numSteps: numInferenceSteps)
+      resolvedImageSeqLen = seqLen
     } else {
       // Default mu for 1024x1024 (4096 latent patches)
       mu = computeEmpiricalMu(imageSeqLen: 4096, numSteps: numInferenceSteps)
+      resolvedImageSeqLen = 4096
     }
 
     // Generate sigmas: linspace(1.0, 1/num_steps, num_steps)
@@ -129,6 +132,29 @@ public class FlowMatchEulerScheduler: @unchecked Sendable {
     let effectiveSteps = sigmas.count - 1
     Flux2Debug.log(
       "Scheduler set: \(effectiveSteps) effective steps (strength=\(clampedStrength), mu=\(mu))")
+
+    // Emit schedulerConfigured exactly once per setTimesteps call, after mu and sigmas are settled.
+    // setTimesteps is synchronous (tests call it without await), so we fire-and-forget the async
+    // capture in a Task. The event is non-hot-path and ordering relative to other emissions is
+    // acceptable: it fires before any denoiseLoopStart because setTimesteps is called before the
+    // loop, and Task scheduling ensures it is enqueued before any subsequent await in the caller.
+    if let telemetry = currentTelemetry() {
+      let head = Array(sigmas.prefix(5))
+      let tail = Array(sigmas.suffix(5))
+      let capturedNumTrainTimesteps = numTrainTimesteps
+      let capturedShift = shift
+      Task {
+        await telemetry.capture(.schedulerConfigured(
+          numTrainTimesteps: capturedNumTrainTimesteps,
+          numInferenceSteps: numInferenceSteps,
+          shift: capturedShift,
+          imageSeqLen: resolvedImageSeqLen,
+          mu: mu,
+          sigmasHead: head,
+          sigmasTail: tail
+        ))
+      }
+    }
     if strength < 1.0 {
       Flux2Debug.log("I2I mode: starting from timestep \(tStart) (skipping \(tStart) steps)")
     }
