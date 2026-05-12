@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -114,6 +115,48 @@ public class Flux2Pipeline: @unchecked Sendable {
 
   /// Clear cache every N denoising steps (0 = disabled)
   public var clearCacheEveryNSteps: Int = 5
+
+  // MARK: - Telemetry
+
+  /// Sendable-safe storage for the optional telemetry reporter.
+  ///
+  /// The lock is the entire reason this class remains `@unchecked Sendable`. A plain
+  /// stored `var` would break Sendable conformance; an `actor` migration would require
+  /// changing every call site to `await`. `OSAllocatedUnfairLock.withLock` is ~10ns
+  /// per acquisition — uncontended in the steady state (single writer at run boundary,
+  /// single reader per denoise step).
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil
+  )
+
+  /// Install (or clear) the telemetry reporter for this pipeline.
+  ///
+  /// Propagates the reporter to every owned subcomponent that has been instantiated
+  /// at call time: `textEncoder`, `kleinEncoder`, `transformer`, `scheduler`, and the
+  /// `Flux2WeightLoader` static surface. The VAE (`AutoencoderKLFlux2`) intentionally
+  /// receives NO reporter — all VAE-related events are emitted from inside this
+  /// pipeline around VAE calls, never from inside the VAE class itself.
+  ///
+  /// Pass `nil` to disable telemetry. Safe to call concurrently with denoise steps;
+  /// the lock guarantees an atomic swap.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+    // Propagate to owned subcomponents. VAE is intentionally excluded (Q3).
+    textEncoder?.setTelemetry(reporter)
+    kleinEncoder?.setTelemetry(reporter)
+    transformer?.setTelemetry(reporter)
+    scheduler.setTelemetry(reporter)
+    Flux2WeightLoader.setTelemetry(reporter)
+  }
+
+  /// Read the currently installed telemetry reporter under the lock.
+  ///
+  /// Hot-path discipline: call this exactly ONCE per denoise step and cache the
+  /// result in a local optional so multiple stat samples within the step body share
+  /// a single lock acquisition.
+  fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Initialize pipeline
   /// - Parameters:

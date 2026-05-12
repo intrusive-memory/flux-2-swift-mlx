@@ -4,9 +4,33 @@
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 /// Utilities for loading Flux.2 model weights from safetensors files
 public class Flux2WeightLoader {
+
+  // MARK: - Telemetry
+
+  /// Sendable-safe storage for the optional telemetry reporter.
+  ///
+  /// `Flux2WeightLoader` exposes only static methods today, so the seam is also
+  /// static. `Flux2Pipeline.setTelemetry` propagates the reporter here via
+  /// `Flux2WeightLoader.setTelemetry`. The lock is the reason this static surface
+  /// is Sendable-safe.
+  private static let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil
+  )
+
+  /// Install (or clear) the telemetry reporter for the static weight loader surface.
+  /// Typically called by `Flux2Pipeline.setTelemetry`, not directly by hosts.
+  public static func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+  }
+
+  /// Read the currently installed telemetry reporter under the lock.
+  fileprivate static func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Load all weights from a model directory
   /// - Parameter modelPath: Path to directory containing safetensors files
