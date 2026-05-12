@@ -30,6 +30,7 @@
 | # | Where | Discrepancy | Resolution |
 |---|-------|-------------|------------|
 | D1 | EXECUTION_PLAN.md Sortie 2 line 116 | Enumerates 6 subcomponents (Klein, Dev, Mistral, Scheduler, WeightLoader, Transformer) but says "5 owned subcomponents = 6 total". Sortie 2 exit criterion #3 says "exactly 6 matches"; correct count from enumeration is 7 (pipeline + 6 subcomponents). REQUIREMENTS §4/§5 confirms all 7 types. | Resolved at Sortie 2: agent followed the enumerated names. Result: 7 lock declarations across 7 files. VAE still excluded per Q3 (0 matches). Future Sorties 3/4/5 should expect 7 lock-bearing types, not 6. |
+| D2 | EXECUTION_PLAN.md Parallelism Structure section + Group C heading | "Group C (Layer 3, non-hot-path emissions): Sortie 3 ∥ Sortie 4 ∥ Sortie 5 — up to 3 sub-agents. Each touches different files." False — all three modify `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` (Sortie 3 at init/load sites + 14 scattered throw sites; Sortie 4 at encoder call sites in `generateWithResult`; Sortie 5 at cancellation/VAE-forward/denormalize/postprocess sites). | Supervisor decision: dispatch Sorties 3/4/5 **sequentially** (3 → 4 → 5), not in parallel. Sequential supervisor verification (grep counts + brief diff inspection) between each. After all three: supervising agent runs `make build` + `make test` as the Group C convergence step. Cost: ~3× wall clock for Layer 3. Benefit: no merge-conflict roulette on the densest production file in the repo. |
 
 ## Work Units
 
@@ -70,24 +71,23 @@
 - Notes: `Flux2WeightLoader` has no `@unchecked Sendable` because it has only static methods; the `static let` lock is `Sendable` by itself. `currentTelemetry()` decls are `fileprivate` and may emit "unused" warnings until Sortie 3+ wires callers — expected.
 
 ### Non-hot-path emissions
-- Work unit state: RUNNING (about to dispatch 3, 4, 5 in parallel)
-- Current sorties: 3, 4, 5 (parallel)
-- Sortie state: PENDING
-- Sortie type: code
-- Model: TBD per sortie
-- Complexity score: TBD per sortie
-- Attempt: 0 of 3
-- Notes: Three sub-agents in parallel after Sortie 2. Sub-agents do NOT run builds. After they all converge, supervising agent runs `make build` + `make test`.
+- Work unit state: COMPLETED
+- Sortie 3: COMPLETED (sonnet, score 10) — commit `1f49082`
+- Sortie 4: COMPLETED (sonnet, score 7) — commit `aa85f41`
+- Sortie 5: COMPLETED (sonnet, score 11) — commit `42562b1`
+- Convergence fixes: `a2d0742` (drop `.int4` DType case) + `f009502` (add `import Tuberia` to Flux2Pipeline.swift)
+- Group C convergence: `make build` ✓, `make test` ✓ (201 tests in 31 suites pass).
+- Final emission count in Flux2Pipeline.swift: 62 (25 + 16 + 21).
 
 ### Hot-path denoise emissions
-- Work unit state: NOT_STARTED
+- Work unit state: RUNNING (about to dispatch)
 - Current sortie: 6 of 1
 - Sortie state: PENDING
 - Sortie type: code
-- Model: TBD (planned: opus — hot path, riskiest emission sortie)
-- Complexity score: TBD
+- Model: opus (force-opus: hot path, plan calls this the riskiest emission sortie)
+- Complexity score: TBD (will compute at dispatch)
 - Attempt: 0 of 3
-- Notes: Pre-read line-range targeting required to keep context bounded.
+- Notes: Pre-read line-range targeting required. Audit-time loop locations were 1105/1169/1327; now drifted. Will re-audit before dispatch.
 
 ### Functional tests
 - Work unit state: NOT_STARTED
@@ -111,7 +111,7 @@
 
 | Work Unit | Sortie | Sortie State | Attempt | Model | Complexity Score | Task ID | Output File | Dispatched At |
 |-----------|--------|-------------|---------|-------|-----------------|---------|-------------|---------------|
-| _none active — about to dispatch Sorties 3, 4, 5 in parallel_ | | | | | | | | |
+| Non-hot-path emissions | 5 | DISPATCHED | 1/3 | sonnet | 11 | a39bef5d76f1fcf7c | (sub-agent transcript — do not Read) | 2026-05-12 |
 
 ## Decisions Log
 
@@ -126,11 +126,24 @@
 | 2026-05-12 | Pipeline lock seam | 2 | Model: opus (score 23) | Force-opus override: foundation=1 AND dependency_depth=8≥5. Also: highest single-piece risk in campaign; `@unchecked Sendable` misuse is famously easy. |
 | 2026-05-12 | Pipeline lock seam | 2 | Sortie 2 COMPLETED first attempt | All functional exit criteria PASS; commit `787cd4c`; 7 types updated; VAE clean. Plan vs. reality discrepancy D1 surfaced and resolved (see table above). |
 | 2026-05-12 | Pipeline lock seam | 2 | Agent error noted: destructive `git checkout SUPERVISOR_STATE.md` | Sortie 2 agent ran `git checkout SUPERVISOR_STATE.md` to keep the supervisor's uncommitted state edits out of its commit. This is a destructive op on a file outside scope. Supervisor re-applied state from current ground truth. Future sortie prompts MUST include "do not run destructive git commands (`git checkout <path>`, `git restore <path>`, `git reset --hard`) on any file outside your scope. Use `git add <specific files>` only for files you explicitly modified — do not run `git add -A` or `git add .`." |
+| 2026-05-12 | Non-hot-path emissions | 3 | Sortie 3 COMPLETED first attempt | All 12 exit criteria PASS (independently re-verified). Commit `1f49082`. 3 weightLoadStart/Complete pairs + 1 loraLoadStart/Complete/Unmerged + 1 pipelineInit + 1 pipelineDispose (inside dispose() async) + 14 errorThrown (matches 14 throw Flux2Error sites) = 25 capture sites in pipeline. dtypeHistogram in WeightLoader. dispose() async at :165. No deinit body. |
+| 2026-05-12 | Non-hot-path emissions | 3 | Deviation: pipelineInit fired via `Task {}` | `init` is sync, `capture` is async — agent dispatched to a detached `Task`. Practical effect: pipelineInit will rarely fire on the first init because hosts call `setTelemetry` after constructing. Acceptable functional limitation. Surface in PR description (Sortie 10) as a known caveat for the Vinetas host. |
+| 2026-05-12 | Non-hot-path emissions | 3 | Deviation: loraUnmerged placed in `unloadAllLoRAs()` | Plan assumed a "deferred LoRA unmerge" exit path that does not exist; codebase fuses LoRA into transformer weights at load time. Agent correctly placed event in `unloadAllLoRAs()` (the actual undo path). Ground truth wins over plan-as-written. |
+| 2026-05-12 | Non-hot-path emissions | 3 | Deviation: `Flux2Error.imageProcessingFailed` → `ErrorPhase.other` | ErrorPhase enum has no specific case for image processing. `.other` is the correct fallback. Could add a specific case in a follow-up. |
+| 2026-05-12 | Non-hot-path emissions | 4 | Sortie 4 COMPLETED first attempt | All 9 exit criteria PASS. Commit `aa85f41`. 4 textEncoderForward pairs + 4 vlmInterpret pairs + 1 schedulerConfigured. Total pipeline emissions: 41. Deviation: schedulerConfigured uses `Task{}` because setTimesteps is sync (used by existing sync tests). Reasonable. |
+| 2026-05-12 | Non-hot-path emissions | 5 | Sortie 5 COMPLETED first attempt | All 10 exit criteria PASS. Commit `42562b1`. 2 vaeDecodeStart + 2 vaeDecodeComplete + 2 vaeBatchNormDenormalize (at lines 1587 and 1798, near `finalPatchified`/`patchifiedFinal` — NOT near mid-loop checkpoints) + 3 generationCancelled + 12 numericalAnomaly + new Flux2AnomalyDetector.swift. Total pipeline emissions: 62. |
+| 2026-05-12 | Non-hot-path emissions | 5 | Deviation: `generationCancelled(stepIndex: 0)` at the pre-loop site | Event signature is `stepIndex: Int` (not `Int?`). Agent used `0` for the pre-loop cancellation. Follow-up candidate for PR: consider changing `generationCancelled.stepIndex` to `Int?` so pre-loop cancellations can use `nil`. |
+| 2026-05-12 | Non-hot-path emissions | 5 | Deviation: anomaly threshold uses `TuberiaTensorStat.defaultOutOfRangeThreshold` (1e6) not 1e4 from my prompt template | Agent correctly referenced the SwiftTuberia constant directly so the two libraries stay in sync. Right call. |
+| 2026-05-12 | Group C convergence | — | BUILD FAILED at convergence | Sortie 3's `dtypeString` switch in WeightLoader.swift:64 referenced `.int4` per the plan's example list (Task 1: `"float16", "float32", "int8", "int4"`), but MLX's `DType` enum has no `.int4` case. Sortie 3 was a sub-agent (no builds), so the error didn't surface until convergence. Dispatching a haiku fix to remove the `.int4` line. The `default:` case at line 71 handles unknown dtypes via `"\(dtype)"` interpolation. Root cause: plan-as-written assumed MLX represents int4 as a first-class dtype; reality is that quantized weights pack into wider int dtypes. |
+| 2026-05-12 | Group C convergence | — | SECOND BUILD FAILURE — missing `import Tuberia` | Sorties 3/4/5 added 12 `TuberiaTensorStat.sample()` call sites to Flux2Pipeline.swift but none added `import Tuberia` to that file. Sortie 1 only added the import to the new files in `Sources/Flux2Core/Telemetry/`. Fixed in commit `f009502` (single line). Lesson: future sortie prompts should explicitly require "verify your file has all needed imports for the symbols you introduce" — sub-agents that don't run builds can miss this. |
+| 2026-05-12 | Pre-Sortie-6 dep audit | — | User-requested: bump Tuberia to latest + standardize on swift-transformers 0.5.0 | Audit result: Tuberia already at `from: "0.7.0"` which is the latest released tag. `swift-tokenizers` (DePasqualeOrg fork — NOT huggingface/swift-transformers) is already pinned `from: "0.5.0"` at `Package.swift:56`. User confirmed both standards are met. No action needed; mission resumed. |
+| 2026-05-12 | Group C convergence | — | CONVERGENCE GREEN | `make build` ✓ and `make test` ✓ (201 tests in 31 suites pass) after the two fix commits. Total mission state: 8 commits on `instrumentation/01`, 62 telemetry capture sites in pipeline, 6 lock-seam types, 1 anomaly detector, 1 dtype histogram helper. Ready to dispatch Sortie 6. |
 
 ## Overall Status
 
-- Phase: Layer 3 (non-hot-path emissions) — about to dispatch
-- Sorties pending: 8 of 10
-- Sorties dispatched: 0 active
-- Sorties completed: 2 of 10 (Sorties 1, 2)
-- Last action: Sortie 2 COMPLETED (commit `787cd4c`). About to dispatch Sorties 3, 4, 5 as three parallel sub-agents.
+- Phase: Layer 4 (hot-path denoise) — about to dispatch Sortie 6
+- Sorties pending: 4 of 10 (Sorties 7a, 7b, 8, 9, 10 — 7a/7b/8 parallelizable after Sortie 6)
+- Sorties dispatched: 0 active (about to dispatch Sortie 6)
+- Sorties completed: 5 of 10 (Sorties 1, 2, 3, 4, 5) + 2 convergence fix commits
+- Build status: Group C convergence GREEN — `make build` ✓, `make test` ✓ (201 tests / 31 suites)
+- Last action: Convergence green at commit `f009502`. Pre-dispatch dep audit complete (Tuberia + swift-tokenizers already at standards). About to dispatch Sortie 6 (hot path, opus).
