@@ -1394,6 +1394,21 @@ public class Flux2Pipeline: @unchecked Sendable {
         let sigma0 = scheduler.sigmas[0]
         let t0 = MLXArray([sigma0])
 
+        // === Sortie 6: KVExtractStep0 one-shot triplet (loopStart) ===
+        let telemetry = currentTelemetry()
+        var kvExtractInitialStat: TuberiaTensorStat? = nil
+        if let telemetry {
+          let stat = TuberiaTensorStat.sample(packedOutputLatents)
+          kvExtractInitialStat = stat
+          await telemetry.capture(.denoiseLoopStart(
+            variant: .imageToImageKVExtractStep0,
+            totalSteps: 1,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: "\(packedOutputLatents.dtype)",
+            initialLatentStat: stat
+          ))
+        }
+
         let (noisePred0, kvCache) = transformer.forwardKVExtract(
           hiddenStates: packedOutputLatents,
           referenceHiddenStates: referenceLatents,
@@ -1419,11 +1434,58 @@ public class Flux2Pipeline: @unchecked Sendable {
           "Step 0 (KV extraction): \(String(format: "%.1f", step0Duration))s, cached \(kvCache.layerCount) layers"
         )
 
+        // === Sortie 6: KVExtractStep0 stepComplete + loopEnd ===
+        if let telemetry, let beforeStat = kvExtractInitialStat {
+          let noisePredStat = TuberiaTensorStat.sample(noisePred0)
+          let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(.denoiseStepComplete(
+            variant: .imageToImageKVExtractStep0,
+            stepIndex: 0,
+            totalSteps: 1,
+            sigma: sigma0,
+            timestep: sigma0,
+            latentBeforeStat: beforeStat,
+            noisePredStat: noisePredStat,
+            latentAfterStat: latentAfterStat,
+            kvCacheLayerCount: kvCache.layerCount,
+            kvCacheHit: nil,
+            durationSeconds: step0Duration
+          ))
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageKVExtractStep0,
+            totalSteps: 1,
+            completedSteps: 1,
+            finalLatentStat: latentAfterStat,
+            durationSeconds: step0Duration
+          ))
+        }
+
+        // === Sortie 6: imageToImageKVCached denoiseLoopStart ===
+        let kvCachedLoopStart = Date()
+        let kvCachedTotalSteps = scheduler.sigmas.count - 2
+        var kvCachedCompletedSteps = 0
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(.denoiseLoopStart(
+            variant: .imageToImageKVCached,
+            totalSteps: kvCachedTotalSteps,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: "\(packedOutputLatents.dtype)",
+            initialLatentStat: stat
+          ))
+        }
+
         // Steps 1+: Cached denoising (no reference tokens in input)
         for stepIdx in 1..<(scheduler.sigmas.count - 1) {
+          let telemetry = currentTelemetry()
           let stepStart = Date()
           let sigma = scheduler.sigmas[stepIdx]
           let t = MLXArray([sigma])
+          var latentBeforeStat: TuberiaTensorStat? = nil
+          if let telemetry {
+            latentBeforeStat = TuberiaTensorStat.sample(packedOutputLatents)
+            _ = telemetry
+          }
 
           let noisePred = transformer.forwardKVCached(
             hiddenStates: packedOutputLatents,
@@ -1450,6 +1512,26 @@ public class Flux2Pipeline: @unchecked Sendable {
           profiler.recordStep(duration: stepDuration)
           onProgress?(stepIdx + 1, effectiveSteps)
           Flux2Debug.verbose("Step \(stepIdx + 1)/\(effectiveSteps) (cached)")
+
+          // === Sortie 6: imageToImageKVCached stepComplete ===
+          if let telemetry, let beforeStat = latentBeforeStat {
+            let noisePredStat = TuberiaTensorStat.sample(noisePred)
+            let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+            await telemetry.capture(.denoiseStepComplete(
+              variant: .imageToImageKVCached,
+              stepIndex: stepIdx,
+              totalSteps: kvCachedTotalSteps,
+              sigma: sigma,
+              timestep: sigma,
+              latentBeforeStat: beforeStat,
+              noisePredStat: noisePredStat,
+              latentAfterStat: latentAfterStat,
+              kvCacheLayerCount: kvCache.layerCount,
+              kvCacheHit: true,
+              durationSeconds: stepDuration
+            ))
+          }
+          kvCachedCompletedSteps += 1
 
           // Checkpoint
           if let interval = checkpointInterval,
@@ -1478,17 +1560,51 @@ public class Flux2Pipeline: @unchecked Sendable {
           }
         }
 
+        // === Sortie 6: imageToImageKVCached denoiseLoopEnd ===
+        if let telemetry = currentTelemetry() {
+          let finalStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageKVCached,
+            totalSteps: kvCachedTotalSteps,
+            completedSteps: kvCachedCompletedSteps,
+            finalLatentStat: finalStat,
+            durationSeconds: Date().timeIntervalSince(kvCachedLoopStart)
+          ))
+        }
+
         // KV cache is freed when it goes out of scope
         Flux2Debug.log("KV-cached denoising complete")
 
       } else {
         // === STANDARD I2I DENOISING PATH ===
 
+        // === Sortie 6: imageToImageFullRecompute denoiseLoopStart ===
+        let fullRecomputeLoopStart = Date()
+        let fullRecomputeTotalSteps = scheduler.sigmas.count - 1
+        var fullRecomputeCompletedSteps = 0
+        if let telemetry = currentTelemetry() {
+          let stat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(.denoiseLoopStart(
+            variant: .imageToImageFullRecompute,
+            totalSteps: fullRecomputeTotalSteps,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: "\(packedOutputLatents.dtype)",
+            initialLatentStat: stat
+          ))
+        }
+
         for stepIdx in 0..<(scheduler.sigmas.count - 1) {
+          let telemetry = currentTelemetry()
           let stepStart = Date()
 
           let sigma = scheduler.sigmas[stepIdx]
           let t = MLXArray([sigma])
+
+          var latentBeforeStat: TuberiaTensorStat? = nil
+          if let telemetry {
+            latentBeforeStat = TuberiaTensorStat.sample(packedOutputLatents)
+            _ = telemetry
+          }
 
           // Concatenate current output latents with reference latents for this step
           let inputLatents = concatenated([packedOutputLatents, referenceLatents], axis: 1)
@@ -1535,6 +1651,26 @@ public class Flux2Pipeline: @unchecked Sendable {
           onProgress?(stepIdx + 1, effectiveSteps)
           Flux2Debug.verbose("Step \(stepIdx + 1)/\(effectiveSteps)")
 
+          // === Sortie 6: imageToImageFullRecompute stepComplete ===
+          if let telemetry, let beforeStat = latentBeforeStat {
+            let noisePredStat = TuberiaTensorStat.sample(outputNoisePred)
+            let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+            await telemetry.capture(.denoiseStepComplete(
+              variant: .imageToImageFullRecompute,
+              stepIndex: stepIdx,
+              totalSteps: fullRecomputeTotalSteps,
+              sigma: sigma,
+              timestep: sigma,
+              latentBeforeStat: beforeStat,
+              noisePredStat: noisePredStat,
+              latentAfterStat: latentAfterStat,
+              kvCacheLayerCount: nil,
+              kvCacheHit: nil,
+              durationSeconds: stepDuration
+            ))
+          }
+          fullRecomputeCompletedSteps += 1
+
           // Checkpoint
           if let interval = checkpointInterval,
             let checkpointCallback = onCheckpoint,
@@ -1564,6 +1700,18 @@ public class Flux2Pipeline: @unchecked Sendable {
           if stepIdx % 10 == 0 {
             memoryManager.clearCache()
           }
+        }
+
+        // === Sortie 6: imageToImageFullRecompute denoiseLoopEnd ===
+        if let telemetry = currentTelemetry() {
+          let finalStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageFullRecompute,
+            totalSteps: fullRecomputeTotalSteps,
+            completedSteps: fullRecomputeCompletedSteps,
+            finalLatentStat: finalStat,
+            durationSeconds: Date().timeIntervalSince(fullRecomputeLoopStart)
+          ))
         }
 
       }  // end else (standard I2I path)
@@ -1685,12 +1833,34 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("6. Denoising Loop")
 
+    // === Sortie 6: textToImage denoiseLoopStart ===
+    let textToImageLoopStart = Date()
+    let textToImageTotalSteps = scheduler.sigmas.count - 1
+    var textToImageCompletedSteps = 0
+    if let telemetry = currentTelemetry() {
+      let stat = TuberiaTensorStat.sample(packedLatents)
+      await telemetry.capture(.denoiseLoopStart(
+        variant: .textToImage,
+        totalSteps: textToImageTotalSteps,
+        latentShape: packedLatents.shape,
+        latentDtype: "\(packedLatents.dtype)",
+        initialLatentStat: stat
+      ))
+    }
+
     // Denoising loop - use sigmas (in [0, 1] range) for transformer
     for stepIdx in 0..<(scheduler.sigmas.count - 1) {
+      let telemetry = currentTelemetry()
       let stepStart = Date()
 
       let sigma = scheduler.sigmas[stepIdx]
       let t = MLXArray([sigma])
+
+      var latentBeforeStat: TuberiaTensorStat? = nil
+      if let telemetry {
+        latentBeforeStat = TuberiaTensorStat.sample(packedLatents)
+        _ = telemetry
+      }
 
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
@@ -1735,6 +1905,26 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       Flux2Debug.verbose("Step \(stepIdx + 1)/\(effectiveSteps)")
 
+      // === Sortie 6: textToImage stepComplete ===
+      if let telemetry, let beforeStat = latentBeforeStat {
+        let noisePredStat = TuberiaTensorStat.sample(noisePred)
+        let latentAfterStat = TuberiaTensorStat.sample(packedLatents)
+        await telemetry.capture(.denoiseStepComplete(
+          variant: .textToImage,
+          stepIndex: stepIdx,
+          totalSteps: textToImageTotalSteps,
+          sigma: sigma,
+          timestep: sigma,
+          latentBeforeStat: beforeStat,
+          noisePredStat: noisePredStat,
+          latentAfterStat: latentAfterStat,
+          kvCacheLayerCount: nil,
+          kvCacheHit: nil,
+          durationSeconds: stepDuration
+        ))
+      }
+      textToImageCompletedSteps += 1
+
       // Generate checkpoint image if requested
       if let interval = checkpointInterval,
         let checkpointCallback = onCheckpoint,
@@ -1771,6 +1961,18 @@ public class Flux2Pipeline: @unchecked Sendable {
       if stepIdx % 10 == 0 {
         memoryManager.clearCache()
       }
+    }
+
+    // === Sortie 6: textToImage denoiseLoopEnd ===
+    if let telemetry = currentTelemetry() {
+      let finalStat = TuberiaTensorStat.sample(packedLatents)
+      await telemetry.capture(.denoiseLoopEnd(
+        variant: .textToImage,
+        totalSteps: textToImageTotalSteps,
+        completedSteps: textToImageCompletedSteps,
+        finalLatentStat: finalStat,
+        durationSeconds: Date().timeIntervalSince(textToImageLoopStart)
+      ))
     }
 
     profiler.end("6. Denoising Loop")
