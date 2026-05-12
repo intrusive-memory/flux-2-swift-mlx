@@ -10,6 +10,7 @@
 // No real weights, no GPU, no Metal required.
 
 import Foundation
+import TestHelpers
 import Testing
 import Tuberia
 
@@ -115,7 +116,7 @@ struct Flux2TelemetryAnomalyTests {
     ///   • Assert both events are recorded and carry consistent data.
     @Test func step2NaNAnomalyFiresBothEvents() async {
         let reporter = MockTelemetryReporter()
-        let anomalyStat = nanStat()
+        let anomalyStat = Self.nanStat()
 
         // The step-2 denoiseStepComplete with a NaN noisePredStat.
         await reporter.capture(
@@ -125,9 +126,9 @@ struct Flux2TelemetryAnomalyTests {
                 totalSteps: 4,
                 sigma: 0.6,
                 timestep: 600.0,
-                latentBeforeStat: normalStat(),
+                latentBeforeStat: Self.normalStat(),
                 noisePredStat: anomalyStat,
-                latentAfterStat: normalStat(),
+                latentAfterStat: Self.normalStat(),
                 kvCacheLayerCount: nil,
                 kvCacheHit: nil,
                 durationSeconds: 0.03
@@ -186,14 +187,14 @@ struct Flux2TelemetryAnomalyTests {
 
     /// Verify that Flux2AnomalyDetector.anomalies(in:) correctly identifies .nan.
     @Test func anomalyDetectorIdentifiesNaN() {
-        let anomalies = Flux2AnomalyDetector.anomalies(in: nanStat())
+        let anomalies = Flux2AnomalyDetector.anomalies(in: Self.nanStat())
         #expect(anomalies.contains(.nan),
                 "Expected .nan in anomalies for a NaN-flagged stat, got \(anomalies)")
     }
 
     /// Verify that Flux2AnomalyDetector.anomalies(in:) correctly identifies .inf.
     @Test func anomalyDetectorIdentifiesInf() {
-        let anomalies = Flux2AnomalyDetector.anomalies(in: infStat())
+        let anomalies = Flux2AnomalyDetector.anomalies(in: Self.infStat())
         #expect(anomalies.contains(.inf),
                 "Expected .inf in anomalies for an Inf-flagged stat, got \(anomalies)")
     }
@@ -201,7 +202,7 @@ struct Flux2TelemetryAnomalyTests {
     /// Verify that Flux2AnomalyDetector.anomalies(in:) correctly identifies .outOfRange
     /// when max exceeds defaultOutOfRangeThreshold (1e6).
     @Test func anomalyDetectorIdentifiesOutOfRange() {
-        let anomalies = Flux2AnomalyDetector.anomalies(in: outOfRangeStat())
+        let anomalies = Flux2AnomalyDetector.anomalies(in: Self.outOfRangeStat())
         #expect(anomalies.contains(.outOfRange),
                 "Expected .outOfRange in anomalies for a stat with |max|>1e6, got \(anomalies)")
     }
@@ -210,7 +211,7 @@ struct Flux2TelemetryAnomalyTests {
     /// .zeroLatent when mean ≈ 0 and std ≈ 0 and checkZeroLatent is true.
     @Test func anomalyDetectorIdentifiesZeroLatent() {
         let anomalies = Flux2AnomalyDetector.anomalies(
-            in: zeroLatentStat(),
+            in: Self.zeroLatentStat(),
             checkZeroLatent: true
         )
         #expect(anomalies.contains(.zeroLatent),
@@ -219,7 +220,7 @@ struct Flux2TelemetryAnomalyTests {
 
     /// Verify that .zeroLatent is NOT reported when checkZeroLatent is false (the default).
     @Test func anomalyDetectorDoesNotReportZeroLatentWhenFlagIsFalse() {
-        let anomalies = Flux2AnomalyDetector.anomalies(in: zeroLatentStat())
+        let anomalies = Flux2AnomalyDetector.anomalies(in: Self.zeroLatentStat())
         #expect(!anomalies.contains(.zeroLatent),
                 ".zeroLatent should not fire when checkZeroLatent is false")
     }
@@ -229,7 +230,7 @@ struct Flux2TelemetryAnomalyTests {
     @Test func anomalyDetectorIdentifiesDTypeUnexpected() {
         // stat carries "float32", but we expect "float16"
         let anomalies = Flux2AnomalyDetector.anomalies(
-            in: dtypeMismatchStat(actual: "float32"),
+            in: Self.dtypeMismatchStat(actual: "float32"),
             expectedDtype: "float16"
         )
         #expect(anomalies.contains(.dtypeUnexpected),
@@ -239,7 +240,7 @@ struct Flux2TelemetryAnomalyTests {
     /// Verify that a normal stat (no anomaly conditions) produces an empty anomalies array.
     @Test func anomalyDetectorProducesNoAnomaliesForNormalStat() {
         let anomalies = Flux2AnomalyDetector.anomalies(
-            in: normalStat(),
+            in: Self.normalStat(),
             checkZeroLatent: true,
             expectedDtype: "float16"
         )

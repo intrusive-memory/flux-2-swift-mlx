@@ -13,6 +13,7 @@
 //     latentBeforeStat at step N+1 (chaining invariant).
 
 import Foundation
+import TestHelpers
 import Testing
 import Tuberia
 
@@ -104,7 +105,7 @@ struct Flux2TelemetryDenoiseStepTests {
     /// Verify the overall event shape: 1× start, 4× step, 1× end.
     @Test func fourStepRunProducesCorrectEventShape() async {
         let reporter = MockTelemetryReporter()
-        await simulateFourStepRun(reporter: reporter)
+        await Self.simulateFourStepRun(reporter: reporter)
 
         let events = await reporter.events()
 
@@ -133,7 +134,7 @@ struct Flux2TelemetryDenoiseStepTests {
     /// Verify stepIndex values are monotone: 0, 1, 2, 3.
     @Test func stepIndicesAreMonotonicallyIncreasing() async {
         let reporter = MockTelemetryReporter()
-        await simulateFourStepRun(reporter: reporter)
+        await Self.simulateFourStepRun(reporter: reporter)
 
         let events = await reporter.events()
         let stepIndices: [Int] = events.compactMap { event -> Int? in
@@ -150,7 +151,7 @@ struct Flux2TelemetryDenoiseStepTests {
     /// Verify latent chaining: latentAfterStat at step N == latentBeforeStat at step N+1.
     @Test func latentStatChainingIsConsistent() async {
         let reporter = MockTelemetryReporter()
-        await simulateFourStepRun(reporter: reporter)
+        await Self.simulateFourStepRun(reporter: reporter)
 
         let events = await reporter.events()
 
@@ -179,7 +180,7 @@ struct Flux2TelemetryDenoiseStepTests {
     /// Verify that the ordering of events is: start, step, step, step, step, end.
     @Test func eventOrderingIsCorrect() async {
         let reporter = MockTelemetryReporter()
-        await simulateFourStepRun(reporter: reporter)
+        await Self.simulateFourStepRun(reporter: reporter)
 
         let events = await reporter.events()
         #expect(events.count == 6,

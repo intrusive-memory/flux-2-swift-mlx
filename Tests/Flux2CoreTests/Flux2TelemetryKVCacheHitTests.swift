@@ -11,6 +11,7 @@
 // All tests are synthetic-event contract tests. No real weights, no GPU, no Metal.
 
 import Foundation
+import TestHelpers
 import Testing
 import Tuberia
 
@@ -78,7 +79,7 @@ struct Flux2TelemetryKVCacheHitTests {
         let kvLayerCount = 38
 
         // Step 0 — extract
-        await captureKlein9BKVStep(
+        await Self.captureKlein9BKVStep(
             reporter: reporter,
             stepIndex: 0,
             variant: .imageToImageKVExtractStep0,
@@ -88,7 +89,7 @@ struct Flux2TelemetryKVCacheHitTests {
 
         // Steps 1–3 — cached
         for stepIndex in 1...3 {
-            await captureKlein9BKVStep(
+            await Self.captureKlein9BKVStep(
                 reporter: reporter,
                 stepIndex: stepIndex,
                 variant: .imageToImageKVCached,
@@ -162,9 +163,9 @@ struct Flux2TelemetryKVCacheHitTests {
                     totalSteps: 4,
                     sigma: Float(1.0 - Double(stepIndex) * 0.2),
                     timestep: Float(1000 - stepIndex * 200),
-                    latentBeforeStat: genericStat(),
-                    noisePredStat: genericStat(),
-                    latentAfterStat: genericStat(),
+                    latentBeforeStat: Self.genericStat(),
+                    noisePredStat: Self.genericStat(),
+                    latentAfterStat: Self.genericStat(),
                     kvCacheLayerCount: nil,
                     kvCacheHit: nil,
                     durationSeconds: 0.01 * Double(stepIndex + 1)
