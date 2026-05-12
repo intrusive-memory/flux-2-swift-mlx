@@ -28,6 +28,38 @@ public class Flux2WeightLoader {
     _telemetryLock.withLock { $0 }
   }
 
+  /// Build a dtype-frequency histogram over a parameters dictionary.
+  ///
+  /// Used by `weightLoadComplete` emissions to surface quantization mismatches.
+  /// F1: `MLX.DType` has no `.int4` case — quantized weights pack into wider int
+  /// dtypes at storage time. The `default:` arm captures any unrecognised dtype
+  /// via `"\(array.dtype)"` string interpolation.
+  public static func dtypeHistogram(_ params: [String: MLXArray]) -> [String: Int] {
+    var histogram: [String: Int] = [:]
+    for (_, array) in params {
+      let key: String
+      switch array.dtype {
+      case .float32: key = "float32"
+      case .float16: key = "float16"
+      case .bfloat16: key = "bfloat16"
+      case .int8: key = "int8"
+      case .int16: key = "int16"
+      case .int32: key = "int32"
+      case .int64: key = "int64"
+      case .uint8: key = "uint8"
+      case .uint16: key = "uint16"
+      case .uint32: key = "uint32"
+      case .uint64: key = "uint64"
+      case .bool: key = "bool"
+      case .complex64: key = "complex64"
+      case .float64: key = "float64"
+      default: key = "\(array.dtype)"  // F1: packed/exotic dtypes via interpolation
+      }
+      histogram[key, default: 0] += 1
+    }
+    return histogram
+  }
+
   /// Load all weights from a model directory
   /// - Parameter modelPath: Path to directory containing safetensors files
   /// - Returns: Dictionary of weight name to MLXArray
