@@ -7,10 +7,12 @@ branch: instrumentation/01
 mission_branch: instrumentation/01
 starting_point_commit: 3d7d64287f8eaeee2fa71cd545ee5951348c1656
 iteration: 1
-state: running
+state: incomplete
 refinement_passes_completed: [atomicity, priority, parallelism, questions, questions-resolved]
 questions_resolved: 2026-05-12
 mission_started: 2026-05-12
+mission_ended: 2026-05-12
+final_outcome: 8 of 10 sorties landed (1-6, 7a, 7b, 8); Sortie 9 + Sortie 10 deferred to iteration 02. See OPERATION_SILICON_STETHOSCOPE_01_BRIEF.md.
 ---
 
 # EXECUTION_PLAN.md — flux-2-swift-mlx Instrumentation

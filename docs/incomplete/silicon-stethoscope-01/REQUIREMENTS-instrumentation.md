@@ -1,3 +1,10 @@
+---
+mission: flux-2-swift-mlx-instrumentation
+feature_name: OPERATION SILICON STETHOSCOPE
+iteration: 1
+state: incomplete
+---
+
 # flux-2-swift-mlx — Instrumentation Requirements
 
 **Status:** Draft, awaiting implementation

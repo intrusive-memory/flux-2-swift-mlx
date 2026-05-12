@@ -1,3 +1,10 @@
+---
+mission: flux-2-swift-mlx-instrumentation
+feature_name: OPERATION SILICON STETHOSCOPE
+iteration: 1
+state: incomplete
+---
+
 # SUPERVISOR_STATE — OPERATION SILICON STETHOSCOPE
 
 > **Terminology**: A *mission* is the definable scope of work. A *sortie* is an atomic agent task within that mission. Work units are groupings of sorties by layer.
@@ -39,8 +46,8 @@
 | Telemetry types & protocol | `Sources/Flux2Core/Telemetry/` | 1 | 1 | none | COMPLETED |
 | Pipeline lock seam | `Sources/Flux2Core/{Pipeline,Loading,Scheduler,Transformer}/` | 2 | 2 | Sortie 1 | COMPLETED |
 | Non-hot-path emissions | `Sources/Flux2Core/{Loading,Scheduler,Pipeline,VAE}/` | 3, 4, 5 | 3 | Sortie 2 | RUNNING (about to dispatch 3/4/5 in parallel) |
-| Hot-path denoise emissions | `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` | 6 | 4 | Sorties 3, 4, 5 | NOT_STARTED |
-| Functional tests | `Tests/Flux2CoreTests/` | 7a, 7b, 8 | 5 | Sortie 6 (7a/7b); Sortie 2 (8) | NOT_STARTED |
+| Hot-path denoise emissions | `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` | 6 | 4 | Sorties 3, 4, 5 | COMPLETED |
+| Functional tests | `Tests/Flux2CoreTests/` | 7a, 7b, 8 | 5 | Sortie 6 (7a/7b); Sortie 2 (8) | RUNNING (7a + 8 parallel; 7b after 7a) |
 | Overhead test | `Tests/Flux2CoreTests/` | 9 | 5b | Sortie 6 | NOT_STARTED |
 | Release | repo root | 10 | 6 | Sorties 7a/7b/8/9 | NOT_STARTED |
 
@@ -80,14 +87,15 @@
 - Final emission count in Flux2Pipeline.swift: 62 (25 + 16 + 21).
 
 ### Hot-path denoise emissions
-- Work unit state: RUNNING (about to dispatch)
-- Current sortie: 6 of 1
-- Sortie state: PENDING
-- Sortie type: code
-- Model: opus (force-opus: hot path, plan calls this the riskiest emission sortie)
-- Complexity score: TBD (will compute at dispatch)
-- Attempt: 0 of 3
-- Notes: Pre-read line-range targeting required. Audit-time loop locations were 1105/1169/1327; now drifted. Will re-audit before dispatch.
+- Work unit state: COMPLETED
+- Sortie 6: COMPLETED (opus, attempt 1/3) — commit `59290c9`. 4 denoiseLoopStart + 4 denoiseStepComplete + 4 denoiseLoopEnd. Pipeline emissions: 62 → 74. `make build` ✓. Three deviations: numericalAnomaly skipped (boundary), kvCacheHit false-detection deferred (allowed), pre-existing slow-path currentTelemetry calls preserved (correct).
+- Hot-path discipline confirmed: cached `currentTelemetry()` once per iteration in each of the 3 loops (at 1480, 1597, 1853) plus once in the KVExtract one-shot at 1398.
+
+### Functional tests
+- Work unit state: RUNNING
+- Dispatch plan: 7a + 8 in parallel (different files, no overlap); 7b after 7a (depends on MockTelemetryReporter)
+- Convergence: supervisor runs `make build` + `make test` + `make test-tsan` after all 3 land
+- Notes: Each writes distinct test files under `Tests/`. Race risk is low because files don't overlap. Sortie 8 is the one allowed Makefile edit in the campaign (adds `make test-tsan` target).
 
 ### Functional tests
 - Work unit state: NOT_STARTED
@@ -111,7 +119,7 @@
 
 | Work Unit | Sortie | Sortie State | Attempt | Model | Complexity Score | Task ID | Output File | Dispatched At |
 |-----------|--------|-------------|---------|-------|-----------------|---------|-------------|---------------|
-| Non-hot-path emissions | 5 | DISPATCHED | 1/3 | sonnet | 11 | a39bef5d76f1fcf7c | (sub-agent transcript — do not Read) | 2026-05-12 |
+| Functional tests | 7b | DISPATCHED | 1/3 | sonnet | 9 | a66dfe8a3a90f112a | (sub-agent transcript) | 2026-05-12 |
 
 ## Decisions Log
 
@@ -138,6 +146,10 @@
 | 2026-05-12 | Group C convergence | — | SECOND BUILD FAILURE — missing `import Tuberia` | Sorties 3/4/5 added 12 `TuberiaTensorStat.sample()` call sites to Flux2Pipeline.swift but none added `import Tuberia` to that file. Sortie 1 only added the import to the new files in `Sources/Flux2Core/Telemetry/`. Fixed in commit `f009502` (single line). Lesson: future sortie prompts should explicitly require "verify your file has all needed imports for the symbols you introduce" — sub-agents that don't run builds can miss this. |
 | 2026-05-12 | Pre-Sortie-6 dep audit | — | User-requested: bump Tuberia to latest + standardize on swift-transformers 0.5.0 | Audit result: Tuberia already at `from: "0.7.0"` which is the latest released tag. `swift-tokenizers` (DePasqualeOrg fork — NOT huggingface/swift-transformers) is already pinned `from: "0.5.0"` at `Package.swift:56`. User confirmed both standards are met. No action needed; mission resumed. |
 | 2026-05-12 | Group C convergence | — | CONVERGENCE GREEN | `make build` ✓ and `make test` ✓ (201 tests in 31 suites pass) after the two fix commits. Total mission state: 8 commits on `instrumentation/01`, 62 telemetry capture sites in pipeline, 6 lock-seam types, 1 anomaly detector, 1 dtype histogram helper. Ready to dispatch Sortie 6. |
+| 2026-05-12 | Hot-path denoise | 6 | Sortie 6 COMPLETED first attempt (opus) | All 10 exit criteria PASS. Commit `59290c9`. 4 denoiseLoopStart + 4 denoiseStepComplete + 4 denoiseLoopEnd. Pipeline emissions: 62 → 74. `make build` ✓. Three deviations: numericalAnomaly retrofit skipped (boundary), kvCacheHit false-detection deferred (allowed), pre-existing slow-path currentTelemetry calls left intact (safety rail correct). Hot-path discipline confirmed at lines 1398/1480/1597/1853. |
+| 2026-05-12 | Functional tests | 7a | Sortie 7a COMPLETED first attempt (sonnet) | Files: MockTelemetryReporter.swift (`public actor`, used by 7b/8), Flux2TelemetryWeightLoadHistogramTests.swift, Flux2TelemetryDenoiseStepTests.swift. Commit `7d67c82`. swift-testing framework. Option A (synthetic-event contract tests). |
+| 2026-05-12 | Functional tests | 8 | Sortie 8 COMPLETED first attempt (sonnet) | 3 lock-contention tests + new `make test-tsan` Makefile target. Commit `6707b93`. The agent's own test file compiles clean. CRITICAL FINDING: `make test-tsan` FAILED at compile because Sortie 7a's `Flux2TelemetryWeightLoadHistogramTests.swift` has MLX API bugs (line 19: `MLXArray(zeros: shape, type:)` is not a real initializer; correct is `MLXArray.zeros(shape, type:)`. Lines 33/44/45/56–58: missing `Self.`/`MLXArray.` qualifier for static method access in Swift 6 strict mode). Supervisor will fix after Sortie 7b lands. |
+| 2026-05-12 | Systemic finding | — | THIRD build-break-at-convergence in this mission | Pattern: `.int4` DType bug (Sortie 3), missing `import Tuberia` (Sorties 3–5), MLXArray syntax in tests (Sortie 7a). All three are sub-agent sorties whose grep-based exit criteria passed but whose code did not compile. Root cause: sub-agents do not run `make build` per plan design; convergence-only build means errors stack. Lesson worth carrying to future missions: high-risk sub-agent sorties should still run a per-sortie compile gate, even if they don't run full builds. Tracking-only — does not block this mission. |
 
 ## Overall Status
 
