@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -114,6 +115,39 @@ public class Flux2Pipeline: @unchecked Sendable {
 
   /// Clear cache every N denoising steps (0 = disabled)
   public var clearCacheEveryNSteps: Int = 5
+
+  // MARK: - Telemetry seam (Sortie 2)
+  //
+  // Stored behind an `OSAllocatedUnfairLock` so `Flux2Pipeline` can remain
+  // `@unchecked Sendable` without a plain stored-property race. The lock is
+  // uncontended in the steady state (single writer at run boundary, single
+  // reader per denoise step). See REQUIREMENTS-instrumentation.md §3.3 / §4.1.
+
+  /// Lock-guarded telemetry reporter (set by hosts via `setTelemetry`).
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  /// Install (or clear) the telemetry reporter for this pipeline and every
+  /// owned subcomponent that has been instantiated at call time.
+  ///
+  /// VAE (`AutoencoderKLFlux2`) is intentionally NOT in this propagation list
+  /// (Q3): future VAE-related events fire from inside `Flux2Pipeline` rather
+  /// than from inside the VAE class.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+    textEncoder?.setTelemetry(reporter)
+    kleinEncoder?.setTelemetry(reporter)
+    transformer?.setTelemetry(reporter)
+    scheduler.setTelemetry(reporter)
+    Flux2WeightLoader.setTelemetry(reporter)
+  }
+
+  /// Cached pointer-read of the current telemetry reporter. Hot-path callers
+  /// should invoke this **exactly once per denoise step** and reuse the
+  /// resulting optional for every emission within the step body.
+  fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Initialize pipeline
   /// - Parameters:

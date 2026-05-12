@@ -3,6 +3,7 @@
 
 import Foundation
 import MLX
+import os.lock
 
 /// Compute empirical mu for Flux.2 time shifting
 /// Ported from diffusers: https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/flux2/pipeline_flux2.py
@@ -53,6 +54,22 @@ public class FlowMatchEulerScheduler: @unchecked Sendable {
   ) {
     self.numTrainTimesteps = numTrainTimesteps
     self.shift = shift
+  }
+
+  // MARK: - Telemetry seam (Sortie 2)
+
+  /// Lock-guarded telemetry reporter. See REQUIREMENTS-instrumentation.md §4.1.
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  /// Install (or clear) the telemetry reporter. Called by `Flux2Pipeline.setTelemetry`.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+  }
+
+  /// Cached pointer-read of the current telemetry reporter for emission sites.
+  fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
   }
 
   /// Set timesteps for inference with Flux.2 specific scheduling

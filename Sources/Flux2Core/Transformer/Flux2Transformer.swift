@@ -4,6 +4,7 @@
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 /// Flux.2 Diffusion Transformer (DiT) Model
 ///
@@ -109,6 +110,22 @@ public class Flux2Transformer2DModel: Module, @unchecked Sendable {
     // Output (no bias to match checkpoint)
     self.normOut = AdaLayerNormContinuous(dim: dim)
     self.projOut = Linear(dim, config.outChannels, bias: false)
+  }
+
+  // MARK: - Telemetry seam (Sortie 2)
+
+  /// Lock-guarded telemetry reporter. See REQUIREMENTS-instrumentation.md §4.1.
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  /// Install (or clear) the telemetry reporter. Called by `Flux2Pipeline.setTelemetry`.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+  }
+
+  /// Cached pointer-read of the current telemetry reporter for emission sites.
+  fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
   }
 
   /// Forward pass

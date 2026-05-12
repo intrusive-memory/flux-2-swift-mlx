@@ -6,6 +6,7 @@ import FluxTextEncoders
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -36,6 +37,22 @@ public class KleinTextEncoder: @unchecked Sendable {
   public init(variant: KleinVariant, quantization: MistralQuantization = .mlx8bit) {
     self.variant = variant
     self.quantization = quantization
+  }
+
+  // MARK: - Telemetry seam (Sortie 2)
+
+  /// Lock-guarded telemetry reporter. See REQUIREMENTS-instrumentation.md §4.1.
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  /// Install (or clear) the telemetry reporter. Called by `Flux2Pipeline.setTelemetry`.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { $0 = reporter }
+  }
+
+  /// Cached pointer-read of the current telemetry reporter for emission sites.
+  fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
   }
 
   // MARK: - Loading
