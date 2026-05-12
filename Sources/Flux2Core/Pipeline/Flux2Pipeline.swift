@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import Tuberia
 import os.lock
 
 #if canImport(AppKit)
