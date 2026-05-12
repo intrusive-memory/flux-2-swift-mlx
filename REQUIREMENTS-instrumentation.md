@@ -63,6 +63,10 @@ import Tuberia  // for TuberiaTensorStat
 public enum Flux2TelemetryEvent: Sendable {
 
     // --- Pipeline lifecycle ---
+    // pipelineInit: emitted from `Flux2Pipeline.init`.
+    // pipelineDispose: emitted from a new `public func dispose() async` method on `Flux2Pipeline`,
+    // NOT from `deinit` (deinit cannot be async). Hosts (Vinetas) must call `dispose()` before
+    // releasing the pipeline if they want a tear-down event.
     case pipelineInit(model: String, quantization: QuantizationManifest, vaeConfig: String, memoryOptimization: String)
     case pipelineDispose
 
@@ -141,10 +145,10 @@ public enum Flux2TelemetryEvent: Sendable {
     }
 
     public enum DenoiseVariant: String, Sendable {
-        case textToImage
-        case imageToImageKVExtractStep0      // ~Flux2Pipeline.swift:1079
-        case imageToImageKVCached            // ~Flux2Pipeline.swift:1105–1167
-        case imageToImageFullRecompute       // ~Flux2Pipeline.swift:1169–1241
+        case textToImage                     // Loop at ~Flux2Pipeline.swift:1327
+        case imageToImageKVExtractStep0      // Single non-loop call at ~Flux2Pipeline.swift:1079 (transformer.forwardKVExtract); emits ONE denoiseStepComplete triplet with stepIndex:0 totalSteps:1
+        case imageToImageKVCached            // Loop at ~Flux2Pipeline.swift:1105 (steps 1..N after extract)
+        case imageToImageFullRecompute       // Loop at ~Flux2Pipeline.swift:1169
     }
 
     public enum AnomalyKind: String, Sendable {
@@ -255,15 +259,15 @@ A migration from `@unchecked Sendable class` to `actor` is the right long-term a
 | `textEncoderForwardStart` / `Complete` | Around `textEncoder!.encodeWithPrompt(...)`, `textEncoder!.encode(...)`, `kleinEncoder!.encode(...)` — at the call sites in `generateWithResult` and the I2I branches | 1–2 per generate. `encoderName` populated from `model` enum value. |
 | `vlmInterpretStart` / `Complete` | Around `textEncoder!.describeImagePathsForPrompt(...)` and `upsamplePromptWithImages(...)` | 0–1 per generate. |
 | `schedulerConfigured` | After `scheduler.setTimesteps(...)` returns | Once per generate. Carry `mu` (computed by `computeEmpiricalMu`), sigmasHead = first 5 + sigmasTail = last 5. |
-| `denoiseLoopStart` | Just before the `for stepIdx in ...` loop (one site per variant: ~`:1105`, `:1169`, `:1327`) | **Memory snapshot.** Carries `initialLatentStat` and `variant`. |
-| `denoiseStepComplete` | After each `noisePred` + scheduler `step` inside the loop body | n per generate (4–50). Carries all four required stats. |
-| `denoiseLoopEnd` | Just after the loop exit (success or break-on-cancel) | **Memory snapshot.** |
+| `denoiseLoopStart` | Just before each of 3 `for stepIdx in ...` loops (~`:1105`, `:1169`, `:1327`) plus one before the KV-extract one-shot at `~:1079`. Total: 4 emission sites, but at most one path runs per generation. | **Memory snapshot.** Carries `initialLatentStat` and `variant`. |
+| `denoiseStepComplete` | For loop variants: after each `noisePred` + scheduler `step` inside the loop body. For `imageToImageKVExtractStep0`: emitted once with `stepIndex:0 totalSteps:1` immediately after the `transformer.forwardKVExtract` call at `~:1079`. | n per generate for loops (4–50); exactly 1 for the KV-extract variant. Carries all four required stats. |
+| `denoiseLoopEnd` | Just after each loop exit (success or break-on-cancel), and immediately after the KV-extract one-shot triplet. | **Memory snapshot.** |
 | `vaeDecodeStart` | Before VAE forward in `decode` path (~`:1252`) | |
-| `vaeBatchNormDenormalize` | At the `CRITICAL: Denormalize patchified latents with VAE BatchNorm AFTER denoising` site (`:1422`) | Stats sampled before & after. **This is the single most load-bearing math step for image quality.** |
+| `vaeBatchNormDenormalize` | Around the FINAL-decode `LatentUtils.denormalizeLatentsWithBatchNorm` call sites (T2I path `:1425`, I2I path `:1258`). The `CRITICAL: Denormalize patchified latents with VAE BatchNorm AFTER denoising` comment at `:1422` anchors the T2I site. Mid-loop checkpoint denormalize sites (`:1146`, `:1226`, `:1385`) do NOT emit this event. | Stats sampled before & after. **This is the single most load-bearing math step for image quality.** Exactly one of the two final-decode sites fires per generation. |
 | `vaeDecodeComplete` | After `postprocessVAEOutput` succeeds | **Memory snapshot.** Carries `pixelStat` (min should be ~0, max ~1 after normalization) and `outputDims`. |
 | `numericalAnomaly` | Fires from inside any `TuberiaTensorStat.sample` whose result has `hasNaN || hasInf || max.magnitude > 1e6` or `(mean.magnitude < 1e-6 && std < 1e-6)` for any latent or embedding event | Side-channel; lives next to the source event in the JSONL. |
 | `generationCancelled` | At every cancellation check site, currently around `:1071` | Carries the step index at cancellation. |
-| `errorThrown` | Every `throw Flux2Error.…` in `Flux2Pipeline.swift` (lines 285, 438, 543, 585, 655, 697, 773, 1071, 1272, and any others) | Fire immediately before throw. |
+| `errorThrown` | Every `throw Flux2Error.…` in `Flux2Pipeline.swift` (audit at 2026-05-12: 14 sites total via `grep -c "throw Flux2Error"`; the enumerated lines 285/438/543/585/655/697/773/1071/1272 are non-exhaustive) | Fire immediately before throw. |
 
 ### Hot-path discipline
 
