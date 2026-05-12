@@ -61,7 +61,6 @@ public class Flux2WeightLoader {
     case .float32:  return "float32"
     case .bfloat16: return "bfloat16"
     case .int8:     return "int8"
-    case .int4:     return "int4"
     case .int32:    return "int32"
     case .int16:    return "int16"
     case .uint8:    return "uint8"
