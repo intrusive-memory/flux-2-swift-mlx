@@ -1482,6 +1482,27 @@ public class Flux2Pipeline: @unchecked Sendable {
         let sigma0 = scheduler.sigmas[0]
         let t0 = MLXArray([sigma0])
 
+        // Sortie 6: KVExtractStep0 is a ONE-SHOT, not a loop (F5). Emit the
+        // denoiseLoopStart triplet wrapped around the single forwardKVExtract
+        // call. Hot-path exception: this one-shot triplet uses up to 3
+        // currentTelemetry() acquisitions (one per event) because each fires
+        // at a different point in time; the "exactly once per step" rule
+        // applies only to the in-loop bodies below.
+        if let telemetry = currentTelemetry() {
+          let initialLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopStart(
+              variant: .imageToImageKVExtractStep0,
+              totalSteps: 1,
+              latentShape: packedOutputLatents.shape,
+              latentDtype: "\(packedOutputLatents.dtype)",
+              initialLatentStat: initialLatentStat
+            ))
+        }
+
+        // Capture latentBefore for the KV-extract one-shot before compute.
+        let kvExtractLatentBefore = packedOutputLatents
+
         let (noisePred0, kvCache) = transformer.forwardKVExtract(
           hiddenStates: packedOutputLatents,
           referenceHiddenStates: referenceLatents,
@@ -1507,11 +1528,95 @@ public class Flux2Pipeline: @unchecked Sendable {
           "Step 0 (KV extraction): \(String(format: "%.1f", step0Duration))s, cached \(kvCache.layerCount) layers"
         )
 
+        // Sortie 6: emit denoiseStepComplete + numericalAnomaly retrofit for
+        // the KVExtractStep0 one-shot.
+        if let telemetry = currentTelemetry() {
+          let latentBeforeStat = TuberiaTensorStat.sample(kvExtractLatentBefore)
+          let noisePredStat = TuberiaTensorStat.sample(noisePred0)
+          let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseStepComplete(
+              variant: .imageToImageKVExtractStep0,
+              stepIndex: 0,
+              totalSteps: 1,
+              sigma: sigma0,
+              timestep: sigma0,
+              latentBeforeStat: latentBeforeStat,
+              noisePredStat: noisePredStat,
+              latentAfterStat: latentAfterStat,
+              kvCacheLayerCount: kvCache.layerCount,
+              kvCacheHit: nil,
+              durationSeconds: step0Duration
+            ))
+          for kind in Flux2AnomalyDetector.anomalies(in: latentBeforeStat, checkZeroLatent: true) {
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: "denoiseStepComplete",
+                kind: kind,
+                stepIndex: 0,
+                stat: latentBeforeStat
+              ))
+          }
+          for kind in Flux2AnomalyDetector.anomalies(in: noisePredStat, checkZeroLatent: true) {
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: "denoiseStepComplete",
+                kind: kind,
+                stepIndex: 0,
+                stat: noisePredStat
+              ))
+          }
+          for kind in Flux2AnomalyDetector.anomalies(in: latentAfterStat, checkZeroLatent: true) {
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: "denoiseStepComplete",
+                kind: kind,
+                stepIndex: 0,
+                stat: latentAfterStat
+              ))
+          }
+        }
+
+        // Sortie 6: KVExtractStep0 one-shot loop end.
+        if let telemetry = currentTelemetry() {
+          let finalLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageKVExtractStep0,
+              totalSteps: 1,
+              completedSteps: 1,
+              finalLatentStat: finalLatentStat,
+              durationSeconds: step0Duration
+            ))
+        }
+
+        // Sortie 6: hot-path denoise emissions — `.imageToImageKVCached` loop
+        // (steps 1..effectiveSteps-1; effectiveSteps-1 iterations).
+        if let telemetry = currentTelemetry() {
+          let initialLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopStart(
+              variant: .imageToImageKVCached,
+              totalSteps: effectiveSteps,
+              latentShape: packedOutputLatents.shape,
+              latentDtype: "\(packedOutputLatents.dtype)",
+              initialLatentStat: initialLatentStat
+            ))
+        }
+        let kvCachedLoopStartedAt = Date()
+
         // Steps 1+: Cached denoising (no reference tokens in input)
         for stepIdx in 1..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
+
+          // Sortie 6: ONE telemetry lock acquisition per step (hot-path discipline).
+          let telemetry = currentTelemetry()
+
           let sigma = scheduler.sigmas[stepIdx]
           let t = MLXArray([sigma])
+
+          // Capture the latent entering this step's compute.
+          let latentBefore = packedOutputLatents
 
           let noisePred = transformer.forwardKVCached(
             hiddenStates: packedOutputLatents,
@@ -1538,6 +1643,55 @@ public class Flux2Pipeline: @unchecked Sendable {
           profiler.recordStep(duration: stepDuration)
           onProgress?(stepIdx + 1, effectiveSteps)
           Flux2Debug.verbose("Step \(stepIdx + 1)/\(effectiveSteps) (cached)")
+
+          // Sortie 6: emit denoiseStepComplete + numericalAnomaly retrofit.
+          if let telemetry {
+            let latentBeforeStat = TuberiaTensorStat.sample(latentBefore)
+            let noisePredStat = TuberiaTensorStat.sample(noisePred)
+            let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+            await telemetry.capture(
+              .denoiseStepComplete(
+                variant: .imageToImageKVCached,
+                stepIndex: stepIdx,
+                totalSteps: effectiveSteps,
+                sigma: sigma,
+                timestep: sigma,
+                latentBeforeStat: latentBeforeStat,
+                noisePredStat: noisePredStat,
+                latentAfterStat: latentAfterStat,
+                kvCacheLayerCount: kvCache.layerCount,
+                kvCacheHit: true,
+                durationSeconds: stepDuration
+              ))
+            for kind in Flux2AnomalyDetector.anomalies(in: latentBeforeStat, checkZeroLatent: true)
+            {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: latentBeforeStat
+                ))
+            }
+            for kind in Flux2AnomalyDetector.anomalies(in: noisePredStat, checkZeroLatent: true) {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: noisePredStat
+                ))
+            }
+            for kind in Flux2AnomalyDetector.anomalies(in: latentAfterStat, checkZeroLatent: true) {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: latentAfterStat
+                ))
+            }
+          }
 
           // Checkpoint
           if let interval = checkpointInterval,
@@ -1566,14 +1720,45 @@ public class Flux2Pipeline: @unchecked Sendable {
           }
         }
 
+        // Sortie 6: KV-cached denoise loop end. completedSteps = effectiveSteps-1
+        // because step 0 was the separate KV-extract one-shot above.
+        if let telemetry = currentTelemetry() {
+          let finalLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageKVCached,
+              totalSteps: effectiveSteps,
+              completedSteps: effectiveSteps - 1,
+              finalLatentStat: finalLatentStat,
+              durationSeconds: Date().timeIntervalSince(kvCachedLoopStartedAt)
+            ))
+        }
+
         // KV cache is freed when it goes out of scope
         Flux2Debug.log("KV-cached denoising complete")
 
       } else {
         // === STANDARD I2I DENOISING PATH ===
 
+        // Sortie 6: hot-path denoise emissions — `.imageToImageFullRecompute`.
+        if let telemetry = currentTelemetry() {
+          let initialLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopStart(
+              variant: .imageToImageFullRecompute,
+              totalSteps: effectiveSteps,
+              latentShape: packedOutputLatents.shape,
+              latentDtype: "\(packedOutputLatents.dtype)",
+              initialLatentStat: initialLatentStat
+            ))
+        }
+        let i2iFullRecomputeLoopStartedAt = Date()
+
         for stepIdx in 0..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
+
+          // Sortie 6: ONE telemetry lock acquisition per step (hot-path discipline).
+          let telemetry = currentTelemetry()
 
           let sigma = scheduler.sigmas[stepIdx]
           let t = MLXArray([sigma])
@@ -1583,7 +1768,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
           // Check transformer is still loaded (may be unloaded during cancellation)
           guard let transformer = transformer else {
-            if let telemetry = currentTelemetry() {
+            if let telemetry {
               // F3: in-loop site — pass the current stepIdx.
               await telemetry.capture(.generationCancelled(stepIndex: stepIdx))
               await telemetry.capture(
@@ -1595,6 +1780,9 @@ public class Flux2Pipeline: @unchecked Sendable {
             }
             throw Flux2Error.generationCancelled
           }
+
+          // Capture the output latent entering this step's compute.
+          let latentBefore = packedOutputLatents
 
           // Run transformer with combined latents
           let noisePred = transformer.callAsFunction(
@@ -1629,6 +1817,57 @@ public class Flux2Pipeline: @unchecked Sendable {
           onProgress?(stepIdx + 1, effectiveSteps)
           Flux2Debug.verbose("Step \(stepIdx + 1)/\(effectiveSteps)")
 
+          // Sortie 6: emit denoiseStepComplete + numericalAnomaly retrofit.
+          // Sample the OUTPUT-only noise prediction (outputNoisePred) so the
+          // stat aligns with the latent dimensions, not the concatenated tensor.
+          if let telemetry {
+            let latentBeforeStat = TuberiaTensorStat.sample(latentBefore)
+            let noisePredStat = TuberiaTensorStat.sample(outputNoisePred)
+            let latentAfterStat = TuberiaTensorStat.sample(packedOutputLatents)
+            await telemetry.capture(
+              .denoiseStepComplete(
+                variant: .imageToImageFullRecompute,
+                stepIndex: stepIdx,
+                totalSteps: effectiveSteps,
+                sigma: sigma,
+                timestep: sigma,
+                latentBeforeStat: latentBeforeStat,
+                noisePredStat: noisePredStat,
+                latentAfterStat: latentAfterStat,
+                kvCacheLayerCount: nil,
+                kvCacheHit: nil,
+                durationSeconds: stepDuration
+              ))
+            for kind in Flux2AnomalyDetector.anomalies(in: latentBeforeStat, checkZeroLatent: true)
+            {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: latentBeforeStat
+                ))
+            }
+            for kind in Flux2AnomalyDetector.anomalies(in: noisePredStat, checkZeroLatent: true) {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: noisePredStat
+                ))
+            }
+            for kind in Flux2AnomalyDetector.anomalies(in: latentAfterStat, checkZeroLatent: true) {
+              await telemetry.capture(
+                .numericalAnomaly(
+                  phase: "denoiseStepComplete",
+                  kind: kind,
+                  stepIndex: stepIdx,
+                  stat: latentAfterStat
+                ))
+            }
+          }
+
           // Checkpoint
           if let interval = checkpointInterval,
             let checkpointCallback = onCheckpoint,
@@ -1658,6 +1897,19 @@ public class Flux2Pipeline: @unchecked Sendable {
           if stepIdx % 10 == 0 {
             memoryManager.clearCache()
           }
+        }
+
+        // Sortie 6: I2I full-recompute denoise loop end.
+        if let telemetry = currentTelemetry() {
+          let finalLatentStat = TuberiaTensorStat.sample(packedOutputLatents)
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageFullRecompute,
+              totalSteps: effectiveSteps,
+              completedSteps: effectiveSteps,
+              finalLatentStat: finalLatentStat,
+              durationSeconds: Date().timeIntervalSince(i2iFullRecomputeLoopStartedAt)
+            ))
         }
 
       }  // end else (standard I2I path)
@@ -1807,16 +2059,36 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("6. Denoising Loop")
 
+    // Sortie 6: hot-path denoise emissions — `.textToImage` variant.
+    // denoiseLoopStart fires once before the loop body; denoiseStepComplete
+    // fires once per step body; denoiseLoopEnd fires once after loop exit.
+    if let telemetry = currentTelemetry() {
+      let initialLatentStat = TuberiaTensorStat.sample(packedLatents)
+      await telemetry.capture(
+        .denoiseLoopStart(
+          variant: .textToImage,
+          totalSteps: effectiveSteps,
+          latentShape: packedLatents.shape,
+          latentDtype: "\(packedLatents.dtype)",
+          initialLatentStat: initialLatentStat
+        ))
+    }
+    let t2iLoopStartedAt = Date()
+
     // Denoising loop - use sigmas (in [0, 1] range) for transformer
     for stepIdx in 0..<(scheduler.sigmas.count - 1) {
       let stepStart = Date()
+
+      // Sortie 6: ONE telemetry lock acquisition per step (hot-path discipline).
+      // All in-body emissions branch on `if let telemetry` using this cached pointer.
+      let telemetry = currentTelemetry()
 
       let sigma = scheduler.sigmas[stepIdx]
       let t = MLXArray([sigma])
 
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
-        if let telemetry = currentTelemetry() {
+        if let telemetry {
           // F3: in-loop site — pass the current stepIdx.
           await telemetry.capture(.generationCancelled(stepIndex: stepIdx))
           await telemetry.capture(
@@ -1828,6 +2100,9 @@ public class Flux2Pipeline: @unchecked Sendable {
         }
         throw Flux2Error.generationCancelled
       }
+
+      // Capture the latent entering this step's compute (pointer copy; no eval).
+      let latentBefore = packedLatents
 
       // Run transformer
       let noisePred = transformer.callAsFunction(
@@ -1857,6 +2132,56 @@ public class Flux2Pipeline: @unchecked Sendable {
       // Record step time
       let stepDuration = Date().timeIntervalSince(stepStart)
       profiler.recordStep(duration: stepDuration)
+
+      // Sortie 6: emit denoiseStepComplete + numericalAnomaly retrofit.
+      // Timing window closes BEFORE capture so telemetry overhead does not
+      // pollute durationSeconds.
+      if let telemetry {
+        let latentBeforeStat = TuberiaTensorStat.sample(latentBefore)
+        let noisePredStat = TuberiaTensorStat.sample(noisePred)
+        let latentAfterStat = TuberiaTensorStat.sample(packedLatents)
+        await telemetry.capture(
+          .denoiseStepComplete(
+            variant: .textToImage,
+            stepIndex: stepIdx,
+            totalSteps: effectiveSteps,
+            sigma: sigma,
+            timestep: sigma,
+            latentBeforeStat: latentBeforeStat,
+            noisePredStat: noisePredStat,
+            latentAfterStat: latentAfterStat,
+            kvCacheLayerCount: nil,
+            kvCacheHit: nil,
+            durationSeconds: stepDuration
+          ))
+        for kind in Flux2AnomalyDetector.anomalies(in: latentBeforeStat, checkZeroLatent: true) {
+          await telemetry.capture(
+            .numericalAnomaly(
+              phase: "denoiseStepComplete",
+              kind: kind,
+              stepIndex: stepIdx,
+              stat: latentBeforeStat
+            ))
+        }
+        for kind in Flux2AnomalyDetector.anomalies(in: noisePredStat, checkZeroLatent: true) {
+          await telemetry.capture(
+            .numericalAnomaly(
+              phase: "denoiseStepComplete",
+              kind: kind,
+              stepIndex: stepIdx,
+              stat: noisePredStat
+            ))
+        }
+        for kind in Flux2AnomalyDetector.anomalies(in: latentAfterStat, checkZeroLatent: true) {
+          await telemetry.capture(
+            .numericalAnomaly(
+              phase: "denoiseStepComplete",
+              kind: kind,
+              stepIndex: stepIdx,
+              stat: latentAfterStat
+            ))
+        }
+      }
 
       // Report progress (using effective steps for I2I)
       onProgress?(stepIdx + 1, effectiveSteps)
@@ -1899,6 +2224,19 @@ public class Flux2Pipeline: @unchecked Sendable {
       if stepIdx % 10 == 0 {
         memoryManager.clearCache()
       }
+    }
+
+    // Sortie 6: T2I denoise loop end.
+    if let telemetry = currentTelemetry() {
+      let finalLatentStat = TuberiaTensorStat.sample(packedLatents)
+      await telemetry.capture(
+        .denoiseLoopEnd(
+          variant: .textToImage,
+          totalSteps: effectiveSteps,
+          completedSteps: effectiveSteps,
+          finalLatentStat: finalLatentStat,
+          durationSeconds: Date().timeIntervalSince(t2iLoopStartedAt)
+        ))
     }
 
     profiler.end("6. Denoising Loop")
