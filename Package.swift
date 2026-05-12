@@ -55,6 +55,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
         .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMajor(from: "0.5.0")),
         sibling("SwiftAcervo", remote: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.12.0"),
+        sibling("SwiftTuberia", remote: "https://github.com/intrusive-memory/SwiftTuberia", from: "0.7.0"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
@@ -80,6 +81,7 @@ let package = Package(
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "MLXOptimizers", package: "mlx-swift"),
                 .product(name: "SwiftAcervo", package: "SwiftAcervo"),
+                .product(name: "Tuberia", package: "SwiftTuberia"),
             ]
         ),
         // MARK: - Main Application
