@@ -1,10 +1,54 @@
 # flux-2-swift-mlx — Instrumentation Requirements
 
-**Status:** Draft, awaiting implementation
+**Status:** Iteration 02 — re-plan after iteration 01 partial salvage.
+**Iteration-01 brief (lessons applied below):** [docs/incomplete/silicon-stethoscope-01/OPERATION_SILICON_STETHOSCOPE_01_BRIEF.md](docs/incomplete/silicon-stethoscope-01/OPERATION_SILICON_STETHOSCOPE_01_BRIEF.md)
 **Pattern source:** [Vinetas `docs/INSTRUMENTATION_PLAN.md`](https://github.com/intrusive-memory/Vinetas/blob/development/docs/INSTRUMENTATION_PLAN.md) + Produciesta `Docs/TELEMETRY_IMPL_PATTERN.md`
 **Host:** Vinetas
 **Depends on:** SwiftTuberia ≥ 0.7.0 (for the shared `TuberiaTensorStat` type — flux re-uses it instead of defining its own)
 **Priority:** **P0** — densest math surface in the Vinetas dep graph; the library that actually produces NaN/Inf when something goes wrong
+
+## Hard-discovery fixes baked into this iteration (vs. iteration 01)
+
+These adjustments come from the iteration-01 brief's Section 1 (Hard Discoveries) and Section 3 (Open Decisions) and are baked into both the §3 event shapes and the iteration-02 EXECUTION_PLAN.md sortie definitions:
+
+| # | Discovery | Iteration-02 fix |
+|---|-----------|------------------|
+| F1 | `MLX.DType` has no `.int4` case (quantized weights pack into wider ints) | Drop `int4` from the dtype bucket example list; rely on the `default:` arm for unrecognized dtypes. |
+| F2 | `Flux2Error.imageProcessingFailed` has no matching `ErrorPhase` case | §3.1 `ErrorPhase` enum adds `case imageProcessingFailed` (do NOT fall back to `.other`). |
+| F3 | `generationCancelled.stepIndex` was `Int`, but pre-loop cancellations need `nil` | §3.1 changes the case to `generationCancelled(stepIndex: Int?)`. Pre-loop sites use `nil`; in-loop sites use `stepIdx`. |
+| F4 | Anomaly threshold value | §5 helper references `TuberiaTensorStat.defaultOutOfRangeThreshold` by name, never by literal value. |
+| F5 | `imageToImageKVExtractStep0` is a single non-loop call, not a loop | EXECUTION_PLAN sortie definitions reflect 3 loops + 1 one-shot triplet (4 emission triplets total). |
+| F6 | 5 BatchNorm denormalize sites; only 2 emit (`finalPatchified` / `patchifiedFinal`) | EXECUTION_PLAN sortie task uses variable-name discrimination, not line numbers. |
+| F7 | `Flux2Pipeline.init` is sync; `capture` is async | §3.2 documents the `Task{}` fire-and-forget caveat for `pipelineInit` and `schedulerConfigured`. Hosts must call `setTelemetry()` before the first generation to avoid losing these events. |
+| F8 | `TestHelpers` requires `import TestHelpers` declaration; target dep alone is insufficient | EXECUTION_PLAN test sorties include `import TestHelpers` in the file-header template. |
+| F9 | `MLXArray.zeros(_:type:)` is a static method, not `MLXArray(zeros:type:)` | EXECUTION_PLAN test sorties must verify the constructor surface against actual MLX-Swift API before use; verification step is part of the sortie task list. |
+| F10 | Swift 6 strict mode rejects implicit static-member access from instance context | EXECUTION_PLAN test sorties require ALL private helpers to be non-static, OR every call site to use `Self.` qualifier. |
+| F11 | TSan + swift-testing + macOS 26.2 SDK crashes xctest at bootstrap | EXECUTION_PLAN sortie 8 (TSan test) is rewritten in classic XCTest to avoid the platform issue. |
+
+## CRITICAL CONSTRAINT — per-sortie compile + test gate (iteration-02 only)
+
+**Every code-touching sortie's exit criteria MUST include both `make build` succeeding AND `make test` (or a scoped equivalent like `make test-core`) succeeding before commit.**
+
+This is the single biggest lesson from iteration 01. Five distinct convergence-time build failures arose because sub-agents skipped builds per the plan's design. Iteration 02 makes the compile+test gate non-negotiable — sub-agents run their own builds. The cost (~30 sec per sortie for incremental rebuilds) is trivial vs the cost of stacked convergence-time failures.
+
+Sortie exit-criteria templates:
+
+- **Production code sortie:** `make build` succeeds + `make test` succeeds. Existing test suite remains green.
+- **Sub-agent emission sortie** (no new tests yet): `make build` succeeds. Existing test suite remains green via the supervisor's final convergence check, but the agent confirms `make build` itself.
+- **Test sortie:** `make build` succeeds + `make test` succeeds, with the new test files counted in the suite total reported by the agent.
+- **Refactor / documentation sortie:** `make build` succeeds (no new tests required).
+
+The supervising agent never carries a build to convergence — every code-touching sortie ships compiling code or it doesn't ship at all.
+
+## Anti-plan-bug checks (also baked into refinement)
+
+From the iteration-01 brief's Section 2 (Process Discoveries):
+
+- **P1 — Verify counts match enumerations.** When a sortie's exit criterion says "exactly N matches," the task list must enumerate exactly N items. Refinement Pass 1 (atomicity) catches arithmetic mismatches.
+- **P2 — Verify parallelism claims.** When the plan says "Sorties X, Y, Z can run in parallel because they touch different files," refinement Pass 3 must grep to confirm. If they share a file, sequentialize.
+- **P3 — Line numbers are audit-time, not load-bearing.** Sortie tasks reference symbol names (`loadTextEncoder`, `for stepIdx in`) primarily; line numbers are advisory and stale by the time a later sortie sees them.
+- **P4 — Verify enum case existence.** Before referencing an enum case in code (e.g., `DType.int4`, `ErrorPhase.foo`), the agent grep-verifies the case exists in the actual definition.
+- **P5 — Document API surface verification.** When a sortie uses an unfamiliar API (e.g., `MLXArray.zeros`), the task list includes "grep the dependency to confirm the call shape" as a step before writing the code.
 
 ---
 
@@ -63,6 +107,10 @@ import Tuberia  // for TuberiaTensorStat
 public enum Flux2TelemetryEvent: Sendable {
 
     // --- Pipeline lifecycle ---
+    // pipelineInit: emitted from `Flux2Pipeline.init`.
+    // pipelineDispose: emitted from a new `public func dispose() async` method on `Flux2Pipeline`,
+    // NOT from `deinit` (deinit cannot be async). Hosts (Vinetas) must call `dispose()` before
+    // releasing the pipeline if they want a tear-down event.
     case pipelineInit(model: String, quantization: QuantizationManifest, vaeConfig: String, memoryOptimization: String)
     case pipelineDispose
 
@@ -117,7 +165,7 @@ public enum Flux2TelemetryEvent: Sendable {
     case numericalAnomaly(phase: String, kind: AnomalyKind, stepIndex: Int?, stat: TuberiaTensorStat)
 
     // --- Cancellation ---
-    case generationCancelled(stepIndex: Int)
+    case generationCancelled(stepIndex: Int?)  // F3: optional — pre-loop cancellation sites use nil
 
     // --- Error side-channel ---
     case errorThrown(phase: ErrorPhase, errorDescription: String, stepIndex: Int?)
@@ -141,10 +189,10 @@ public enum Flux2TelemetryEvent: Sendable {
     }
 
     public enum DenoiseVariant: String, Sendable {
-        case textToImage
-        case imageToImageKVExtractStep0      // ~Flux2Pipeline.swift:1079
-        case imageToImageKVCached            // ~Flux2Pipeline.swift:1105–1167
-        case imageToImageFullRecompute       // ~Flux2Pipeline.swift:1169–1241
+        case textToImage                     // Loop at ~Flux2Pipeline.swift:1327
+        case imageToImageKVExtractStep0      // Single non-loop call at ~Flux2Pipeline.swift:1079 (transformer.forwardKVExtract); emits ONE denoiseStepComplete triplet with stepIndex:0 totalSteps:1
+        case imageToImageKVCached            // Loop at ~Flux2Pipeline.swift:1105 (steps 1..N after extract)
+        case imageToImageFullRecompute       // Loop at ~Flux2Pipeline.swift:1169
     }
 
     public enum AnomalyKind: String, Sendable {
@@ -167,6 +215,7 @@ public enum Flux2TelemetryEvent: Sendable {
         case textEncoderFailed
         case vlmInterpretFailed
         case loraLoadFailed
+        case imageProcessingFailed  // F2: added for Flux2Error.imageProcessingFailed
         case other
     }
 }
@@ -255,15 +304,15 @@ A migration from `@unchecked Sendable class` to `actor` is the right long-term a
 | `textEncoderForwardStart` / `Complete` | Around `textEncoder!.encodeWithPrompt(...)`, `textEncoder!.encode(...)`, `kleinEncoder!.encode(...)` — at the call sites in `generateWithResult` and the I2I branches | 1–2 per generate. `encoderName` populated from `model` enum value. |
 | `vlmInterpretStart` / `Complete` | Around `textEncoder!.describeImagePathsForPrompt(...)` and `upsamplePromptWithImages(...)` | 0–1 per generate. |
 | `schedulerConfigured` | After `scheduler.setTimesteps(...)` returns | Once per generate. Carry `mu` (computed by `computeEmpiricalMu`), sigmasHead = first 5 + sigmasTail = last 5. |
-| `denoiseLoopStart` | Just before the `for stepIdx in ...` loop (one site per variant: ~`:1105`, `:1169`, `:1327`) | **Memory snapshot.** Carries `initialLatentStat` and `variant`. |
-| `denoiseStepComplete` | After each `noisePred` + scheduler `step` inside the loop body | n per generate (4–50). Carries all four required stats. |
-| `denoiseLoopEnd` | Just after the loop exit (success or break-on-cancel) | **Memory snapshot.** |
+| `denoiseLoopStart` | Just before each of 3 `for stepIdx in ...` loops (~`:1105`, `:1169`, `:1327`) plus one before the KV-extract one-shot at `~:1079`. Total: 4 emission sites, but at most one path runs per generation. | **Memory snapshot.** Carries `initialLatentStat` and `variant`. |
+| `denoiseStepComplete` | For loop variants: after each `noisePred` + scheduler `step` inside the loop body. For `imageToImageKVExtractStep0`: emitted once with `stepIndex:0 totalSteps:1` immediately after the `transformer.forwardKVExtract` call at `~:1079`. | n per generate for loops (4–50); exactly 1 for the KV-extract variant. Carries all four required stats. |
+| `denoiseLoopEnd` | Just after each loop exit (success or break-on-cancel), and immediately after the KV-extract one-shot triplet. | **Memory snapshot.** |
 | `vaeDecodeStart` | Before VAE forward in `decode` path (~`:1252`) | |
-| `vaeBatchNormDenormalize` | At the `CRITICAL: Denormalize patchified latents with VAE BatchNorm AFTER denoising` site (`:1422`) | Stats sampled before & after. **This is the single most load-bearing math step for image quality.** |
+| `vaeBatchNormDenormalize` | Around the FINAL-decode `LatentUtils.denormalizeLatentsWithBatchNorm` call sites (T2I path `:1425`, I2I path `:1258`). The `CRITICAL: Denormalize patchified latents with VAE BatchNorm AFTER denoising` comment at `:1422` anchors the T2I site. Mid-loop checkpoint denormalize sites (`:1146`, `:1226`, `:1385`) do NOT emit this event. | Stats sampled before & after. **This is the single most load-bearing math step for image quality.** Exactly one of the two final-decode sites fires per generation. |
 | `vaeDecodeComplete` | After `postprocessVAEOutput` succeeds | **Memory snapshot.** Carries `pixelStat` (min should be ~0, max ~1 after normalization) and `outputDims`. |
 | `numericalAnomaly` | Fires from inside any `TuberiaTensorStat.sample` whose result has `hasNaN || hasInf || max.magnitude > 1e6` or `(mean.magnitude < 1e-6 && std < 1e-6)` for any latent or embedding event | Side-channel; lives next to the source event in the JSONL. |
 | `generationCancelled` | At every cancellation check site, currently around `:1071` | Carries the step index at cancellation. |
-| `errorThrown` | Every `throw Flux2Error.…` in `Flux2Pipeline.swift` (lines 285, 438, 543, 585, 655, 697, 773, 1071, 1272, and any others) | Fire immediately before throw. |
+| `errorThrown` | Every `throw Flux2Error.…` in `Flux2Pipeline.swift` (audit at 2026-05-12: 14 sites total via `grep -c "throw Flux2Error"`; the enumerated lines 285/438/543/585/655/697/773/1071/1272 are non-exhaustive) | Fire immediately before throw. |
 
 ### Hot-path discipline
 
