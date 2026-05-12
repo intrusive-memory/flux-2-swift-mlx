@@ -23,7 +23,7 @@ XCODEBUILD_FLAGS = \
 	-clonedSourcePackagesDirPath $(SPM_DIR)
 
 .PHONY: all build build-ios release install resolve \
-	test test-fte test-core test-gpu \
+	test test-fte test-core test-gpu test-tsan \
 	lint lint-check \
 	clean help
 
@@ -124,6 +124,18 @@ test-gpu: resolve
 		$(XCODEBUILD_FLAGS) \
 		-only-testing Flux2GPUTests
 
+# Run only the lock-contention test under TSan to validate the OSAllocatedUnfairLock-based @unchecked Sendable design.
+test-tsan: resolve
+	xcodebuild test \
+		-scheme $(PACKAGE_SCHEME) \
+		-destination '$(DESTINATION_MAC)' \
+		-skipPackagePluginValidation \
+		-enableThreadSanitizer YES \
+		-only-testing Flux2CoreTests/Flux2TelemetryLockContentionTests \
+		ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+		COMPILER_INDEX_STORE_ENABLE=NO \
+		-clonedSourcePackagesDirPath $(SPM_DIR)
+
 # Run the two CI-required test suites.
 test: test-fte test-core
 	@echo "All CI-safe tests complete."
@@ -168,6 +180,7 @@ help:
 	@echo "  test-fte    - Run FluxTextEncodersTests only"
 	@echo "  test-core   - Run Flux2CoreTests only"
 	@echo "  test-gpu    - Run Flux2GPUTests (local only — needs GPU + models)"
+	@echo "  test-tsan   - Run lock-contention test under TSan (validates @unchecked Sendable design)"
 	@echo ""
 	@echo "Lint targets:"
 	@echo "  lint        - Format Sources/ and Tests/ in place with swift-format"
