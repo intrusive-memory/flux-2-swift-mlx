@@ -11,6 +11,7 @@
 // All tests are synthetic-event contract tests. No real weights, no GPU, no Metal.
 
 import Foundation
+import TestHelpers
 import Testing
 import Tuberia
 
@@ -89,8 +90,8 @@ struct Flux2TelemetryVAEDenormalizationTests {
     ///   • afterStat.std != beforeStat.std (the BatchNorm modified the tensor).
     @Test func vaeBatchNormDenormalizeSingleEventRecorded() async {
         let reporter = MockTelemetryReporter()
-        let before = beforeNormStat()
-        let after  = afterNormStat()
+        let before = Self.beforeNormStat()
+        let after  = Self.afterNormStat()
 
         await reporter.capture(
             .vaeBatchNormDenormalize(beforeStat: before, afterStat: after)
@@ -137,7 +138,7 @@ struct Flux2TelemetryVAEDenormalizationTests {
         // 1. vaeDecodeStart
         await reporter.capture(
             .vaeDecodeStart(
-                latentStat: decodeInputStat(),
+                latentStat: Self.decodeInputStat(),
                 scalingFactor: 0.18215
             )
         )
@@ -145,15 +146,15 @@ struct Flux2TelemetryVAEDenormalizationTests {
         // 2. vaeBatchNormDenormalize
         await reporter.capture(
             .vaeBatchNormDenormalize(
-                beforeStat: beforeNormStat(),
-                afterStat: afterNormStat()
+                beforeStat: Self.beforeNormStat(),
+                afterStat: Self.afterNormStat()
             )
         )
 
         // 3. vaeDecodeComplete
         await reporter.capture(
             .vaeDecodeComplete(
-                pixelStat: pixelOutputStat(),
+                pixelStat: Self.pixelOutputStat(),
                 outputDims: [512, 512],
                 durationSeconds: 0.25
             )

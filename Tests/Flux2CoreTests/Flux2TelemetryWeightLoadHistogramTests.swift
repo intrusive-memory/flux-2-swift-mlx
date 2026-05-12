@@ -15,8 +15,7 @@ struct Flux2TelemetryWeightLoadHistogramTests {
 
     /// Build a small tensor with a given element type and flat size.
     private static func zeros<T: HasDType>(_ shape: [Int], type: T.Type) -> MLXArray {
-        // MLXArray(zeros: shape, type: T.self) is the canonical MLX API.
-        MLXArray(zeros: shape, type: T.self)
+        MLXArray.zeros(shape, type: T.self)
     }
 
     // MARK: - Tests
@@ -30,7 +29,7 @@ struct Flux2TelemetryWeightLoadHistogramTests {
     /// Single float16 tensor of shape [4, 4] → {"float16": 16}.
     @Test func singleFloat16TensorHistogram() {
         let params: [String: MLXArray] = [
-            "layer.weight": zeros([4, 4], type: Float16.self),
+            "layer.weight": Self.zeros([4, 4], type: Float16.self),
         ]
         let result = Flux2WeightLoader.dtypeHistogram(params)
         #expect(result["float16"] == 16, "Expected float16 count 16, got \(result)")
@@ -41,8 +40,8 @@ struct Flux2TelemetryWeightLoadHistogramTests {
     /// → {"float16": 16, "float32": 4}.
     @Test func mixedDtypesHistogram() {
         let params: [String: MLXArray] = [
-            "transformer.weight": zeros([4, 4], type: Float16.self),  // 16 scalars
-            "vae.bias":           zeros([2, 2], type: Float32.self),   //  4 scalars
+            "transformer.weight": Self.zeros([4, 4], type: Float16.self),  // 16 scalars
+            "vae.bias":           Self.zeros([2, 2], type: Float32.self),   //  4 scalars
         ]
         let result = Flux2WeightLoader.dtypeHistogram(params)
         #expect(result["float16"] == 16, "Expected float16 count 16, got \(result)")
@@ -53,9 +52,9 @@ struct Flux2TelemetryWeightLoadHistogramTests {
     /// Multiple tensors of the same dtype accumulate into one bucket.
     @Test func accumulationWithinSameDtype() {
         let params: [String: MLXArray] = [
-            "a": zeros([3],    type: Float16.self),  //  3
-            "b": zeros([5, 2], type: Float16.self),  // 10
-            "c": zeros([1],    type: Float16.self),  //  1
+            "a": Self.zeros([3],    type: Float16.self),  //  3
+            "b": Self.zeros([5, 2], type: Float16.self),  // 10
+            "c": Self.zeros([1],    type: Float16.self),  //  1
         ]
         let result = Flux2WeightLoader.dtypeHistogram(params)
         #expect(result["float16"] == 14, "Expected float16 count 14, got \(result)")
