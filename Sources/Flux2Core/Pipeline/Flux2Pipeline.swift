@@ -1030,6 +1030,14 @@ public class Flux2Pipeline: @unchecked Sendable {
         embeddingStat: embeddingStat,
         durationSeconds: textEncodeDuration
       ))
+      // B10: numericalAnomaly side-channel — textEncode phase
+      if let kind = AnomalyCheck.classify(embeddingStat) {
+        await telemetry.capture(.numericalAnomaly(
+          phase: .textEncode,
+          kind: kind,
+          stat: embeddingStat
+        ))
+      }
     }
 
     Flux2Debug.log("Text embeddings shape: \(textEmbeddings.shape)")
@@ -1193,13 +1201,23 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         // B8: denoiseLoopEnd — imageToImageKVExtractStep0
         let kvExtractFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
-        await currentTelemetry()?.capture(.denoiseLoopEnd(
-          variant: .imageToImageKVExtractStep0,
-          totalSteps: 1,
-          completedSteps: 1,
-          finalLatentStat: kvExtractFinalStat,
-          durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
-        ))
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageKVExtractStep0,
+            totalSteps: 1,
+            completedSteps: 1,
+            finalLatentStat: kvExtractFinalStat,
+            durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
+          ))
+          // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
+          if let kind = AnomalyCheck.classify(kvExtractFinalStat) {
+            await telemetry.capture(.numericalAnomaly(
+              phase: .denoiseLoopEnd,
+              kind: kind,
+              stat: kvExtractFinalStat
+            ))
+          }
+        }
 
         let step0Duration = Date().timeIntervalSince(step0Start)
         profiler.recordStep(duration: step0Duration)
@@ -1282,13 +1300,23 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         // B8: denoiseLoopEnd — imageToImageKVCached
         let kvCachedFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
-        await currentTelemetry()?.capture(.denoiseLoopEnd(
-          variant: .imageToImageKVCached,
-          totalSteps: kvCachedTotalSteps,
-          completedSteps: kvCachedTotalSteps,
-          finalLatentStat: kvCachedFinalStat,
-          durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
-        ))
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageKVCached,
+            totalSteps: kvCachedTotalSteps,
+            completedSteps: kvCachedTotalSteps,
+            finalLatentStat: kvCachedFinalStat,
+            durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
+          ))
+          // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
+          if let kind = AnomalyCheck.classify(kvCachedFinalStat) {
+            await telemetry.capture(.numericalAnomaly(
+              phase: .denoiseLoopEnd,
+              kind: kind,
+              stat: kvCachedFinalStat
+            ))
+          }
+        }
 
       } else {
         // === STANDARD I2I DENOISING PATH ===
@@ -1382,13 +1410,23 @@ public class Flux2Pipeline: @unchecked Sendable {
 
         // B8: denoiseLoopEnd — imageToImageFullRecompute
         let fullRecomputeFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
-        await currentTelemetry()?.capture(.denoiseLoopEnd(
-          variant: .imageToImageFullRecompute,
-          totalSteps: effectiveSteps,
-          completedSteps: effectiveSteps,
-          finalLatentStat: fullRecomputeFinalStat,
-          durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
-        ))
+        if let telemetry = currentTelemetry() {
+          await telemetry.capture(.denoiseLoopEnd(
+            variant: .imageToImageFullRecompute,
+            totalSteps: effectiveSteps,
+            completedSteps: effectiveSteps,
+            finalLatentStat: fullRecomputeFinalStat,
+            durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
+          ))
+          // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
+          if let kind = AnomalyCheck.classify(fullRecomputeFinalStat) {
+            await telemetry.capture(.numericalAnomaly(
+              phase: .denoiseLoopEnd,
+              kind: kind,
+              stat: fullRecomputeFinalStat
+            ))
+          }
+        }
 
       }  // end else (standard I2I path)
 
@@ -1422,6 +1460,14 @@ public class Flux2Pipeline: @unchecked Sendable {
           outputDims: decoded.shape,
           durationSeconds: vaeDecodeDuration
         ))
+        // B10: numericalAnomaly side-channel — vaeDecode phase
+        if let kind = AnomalyCheck.classify(pixelStat) {
+          await telemetry.capture(.numericalAnomaly(
+            phase: .vaeDecode,
+            kind: kind,
+            stat: pixelStat
+          ))
+        }
       }
 
       profiler.start("8. Post-processing")
@@ -1582,13 +1628,23 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     // B8: denoiseLoopEnd — textToImage
     let t2iFinalStat = TuberiaTensorStat.sample(packedLatents)
-    await currentTelemetry()?.capture(.denoiseLoopEnd(
-      variant: .textToImage,
-      totalSteps: effectiveSteps,
-      completedSteps: effectiveSteps,
-      finalLatentStat: t2iFinalStat,
-      durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
-    ))
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(.denoiseLoopEnd(
+        variant: .textToImage,
+        totalSteps: effectiveSteps,
+        completedSteps: effectiveSteps,
+        finalLatentStat: t2iFinalStat,
+        durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
+      ))
+      // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
+      if let kind = AnomalyCheck.classify(t2iFinalStat) {
+        await telemetry.capture(.numericalAnomaly(
+          phase: .denoiseLoopEnd,
+          kind: kind,
+          stat: t2iFinalStat
+        ))
+      }
+    }
 
     profiler.end("6. Denoising Loop")
 
@@ -1637,6 +1693,14 @@ public class Flux2Pipeline: @unchecked Sendable {
         outputDims: decoded.shape,
         durationSeconds: vaeDecodeDuration
       ))
+      // B10: numericalAnomaly side-channel — vaeDecode phase
+      if let kind = AnomalyCheck.classify(pixelStat) {
+        await telemetry.capture(.numericalAnomaly(
+          phase: .vaeDecode,
+          kind: kind,
+          stat: pixelStat
+        ))
+      }
     }
 
     // Convert to CGImage
