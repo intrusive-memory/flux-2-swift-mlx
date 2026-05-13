@@ -167,6 +167,27 @@ public class Flux2Pipeline: @unchecked Sendable {
     self.scheduler = FlowMatchEulerScheduler()
     self.downloader =
       hfToken != nil ? Flux2ModelDownloader(hfToken: hfToken) : Flux2ModelDownloader()
+
+    // Emit pipelineInit via a detached Task because init is sync.
+    // model: uses Flux2Model.rawValue (e.g. "dev", "klein-4b") — the authoritative model identifier.
+    // quantization: combines transformer quant rawValue + fixed groupSize-64 (e.g. "qint8-g64").
+    // vaeConfig: "autoencoder-kl-flux2" — static name; pipeline holds no named VAE config property.
+    // Q3 resolution: no single model-identifier string property exists; Flux2Model.rawValue is used as proxy.
+    Task { [weak self] in
+      guard let self else { return }
+      await self.currentTelemetry()?.capture(.pipelineInit(
+        model: self.model.rawValue,
+        quantization: "\(self.quantization.transformer.rawValue)-g\(self.quantization.transformer.groupSize)",
+        vaeConfig: "autoencoder-kl-flux2"
+      ))
+    }
+  }
+
+  /// Emit `.pipelineDispose` telemetry when the pipeline is torn down.
+  /// Callers are responsible for invoking this before releasing the pipeline.
+  /// (deinit cannot be async; this must be a host-driven explicit call.)
+  public func dispose() async {
+    await currentTelemetry()?.capture(.pipelineDispose)
   }
 
   // MARK: - Model Loading
