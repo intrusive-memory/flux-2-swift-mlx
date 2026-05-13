@@ -53,7 +53,13 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
-        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMajor(from: "0.5.0")),
+        // Pinned to 0.5.x. swift-tokenizers 0.6.0 switched to a UniFFI-based
+        // Rust artifactbundle that has known Xcode module-map / compile
+        // issues (the 0.6.2 tag ships an explicit "Temporary fix for Xcode
+        // builds" commit, 37f999a, the maintainer flagged as a possible
+        // Xcode bug). Wait for a stable 0.6.x release without these Xcode
+        // compile issues before bumping past 0.5.x.
+        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.5.0")),
         sibling("SwiftAcervo", remote: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.12.0"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
