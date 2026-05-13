@@ -1268,8 +1268,18 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
+            let vaeDecodeStart = Date()
             let checkpointDecoded = vae!.decode(checkpointLatents)
             eval(checkpointDecoded)
+            let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
+            if let telemetry = currentTelemetry() {
+              let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
+              await telemetry.capture(.vaeDecodeComplete(
+                pixelStat: pixelStat,
+                outputDims: checkpointDecoded.shape,
+                durationSeconds: vaeDecodeDuration
+              ))
+            }
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
               checkpointCallback(stepIdx + 1, checkpointImage)
@@ -1367,8 +1377,18 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
+            let vaeDecodeStart = Date()
             let checkpointDecoded = vae!.decode(checkpointLatents)
             eval(checkpointDecoded)
+            let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
+            if let telemetry = currentTelemetry() {
+              let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
+              await telemetry.capture(.vaeDecodeComplete(
+                pixelStat: pixelStat,
+                outputDims: checkpointDecoded.shape,
+                durationSeconds: vaeDecodeDuration
+              ))
+            }
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
               checkpointCallback(stepIdx + 1, checkpointImage)
@@ -1409,9 +1429,20 @@ public class Flux2Pipeline: @unchecked Sendable {
       let finalLatents = LatentUtils.unpatchifyLatents(finalPatchified)
       eval(finalLatents)
 
+      let vaeDecodeStart = Date()
       let decoded = vae!.decode(finalLatents)
       eval(decoded)
+      let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
       profiler.end("7. VAE Decode")
+
+      if let telemetry = currentTelemetry() {
+        let pixelStat = TuberiaTensorStat.sample(decoded)
+        await telemetry.capture(.vaeDecodeComplete(
+          pixelStat: pixelStat,
+          outputDims: decoded.shape,
+          durationSeconds: vaeDecodeDuration
+        ))
+      }
 
       profiler.start("8. Post-processing")
       guard let image = postprocessVAEOutput(decoded) else {
@@ -1552,9 +1583,20 @@ public class Flux2Pipeline: @unchecked Sendable {
         let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
         eval(checkpointLatents)
 
+        let vaeDecodeStart = Date()
         let checkpointDecoded = vae!.decode(checkpointLatents)
         eval(checkpointDecoded)
+        let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
         Flux2Debug.verbose("Checkpoint VAE output shape: \(checkpointDecoded.shape)")
+
+        if let telemetry = currentTelemetry() {
+          let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
+          await telemetry.capture(.vaeDecodeComplete(
+            pixelStat: pixelStat,
+            outputDims: checkpointDecoded.shape,
+            durationSeconds: vaeDecodeDuration
+          ))
+        }
 
         if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
           checkpointCallback(stepIdx + 1, checkpointImage)
@@ -1613,9 +1655,20 @@ public class Flux2Pipeline: @unchecked Sendable {
     MemoryConfig.applyCacheLimit(bytes: phaseLimits.vaeDecoding)
 
     profiler.start("7. VAE Decode")
+    let vaeDecodeStart = Date()
     let decoded = vae!.decode(finalLatents)
     eval(decoded)
+    let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
     profiler.end("7. VAE Decode")
+
+    if let telemetry = currentTelemetry() {
+      let pixelStat = TuberiaTensorStat.sample(decoded)
+      await telemetry.capture(.vaeDecodeComplete(
+        pixelStat: pixelStat,
+        outputDims: decoded.shape,
+        durationSeconds: vaeDecodeDuration
+      ))
+    }
 
     // Convert to CGImage
     profiler.start("8. Post-processing")
