@@ -41,6 +41,12 @@ public protocol TrainingTextEncoder: AnyObject, Sendable {
 }
 
 // MARK: - KleinTextEncoder Conformance
+//
+// B5 / iteration 03: WeightComponent.textEncoderTraining is deferred to a follow-up
+// iteration — no current load entry point emits it. These conformance wrappers
+// delegate to load(from: nil), which already emits .textEncoderKlein / .textEncoderDev.
+// If training-specific telemetry is needed later, add a separate training-entry-point
+// wrapper that emits .textEncoderTraining alongside the concrete encoder's emit.
 
 extension KleinTextEncoder: TrainingTextEncoder {
   /// Load the model (protocol conformance wrapper)

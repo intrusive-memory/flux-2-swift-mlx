@@ -52,6 +52,11 @@ public class DevTextEncoder: @unchecked Sendable {
   /// - Parameter modelPath: Path to model directory (or nil to auto-download)
   @MainActor
   public func load(from modelPath: URL? = nil) async throws {
+    // P5-verified: paramCount uses an architectural constant because the underlying
+    // MistralForCausalLM module is private inside FluxTextEncoders.shared.
+    // Mistral Small 3.2 has 24B parameters regardless of quantization.
+    let loadStart = Date()
+
     Flux2Debug.log("Loading Dev text encoder (Mistral, \(quantization.displayName))...")
 
     if let path = modelPath {
@@ -68,6 +73,16 @@ public class DevTextEncoder: @unchecked Sendable {
     }
 
     Flux2Debug.log("Dev text encoder loaded successfully")
+
+    // Emit weightLoadComplete on success path only (errorThrown precedes any throw — B11).
+    let loadDuration = Date().timeIntervalSince(loadStart)
+    if let telemetry = currentTelemetry() {
+      await telemetry.capture(
+        .weightLoadComplete(
+          component: .textEncoderDev,
+          paramCount: 24_000_000_000,  // Mistral Small 3.2: 24B parameters
+          durationSeconds: loadDuration))
+    }
   }
 
   /// Map MistralQuantization to ModelVariant
