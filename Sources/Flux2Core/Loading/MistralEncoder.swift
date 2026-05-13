@@ -6,6 +6,7 @@ import FluxTextEncoders
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -18,6 +19,21 @@ import MLXNN
 /// Uses Mistral Small 3.2 to extract hidden states from layers [10, 20, 30]
 /// producing embeddings with shape [1, 512, 15360] for Flux.2 conditioning.
 public class Flux2TextEncoder: @unchecked Sendable {
+
+  // MARK: - Telemetry Seam
+
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { state in
+      state = reporter
+    }
+  }
+
+  public func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Quantization level
   public let quantization: MistralQuantization

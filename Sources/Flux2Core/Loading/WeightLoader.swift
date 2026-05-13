@@ -4,9 +4,31 @@
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 /// Utilities for loading Flux.2 model weights from safetensors files
 public class Flux2WeightLoader {
+
+  // MARK: - Telemetry Seam
+  //
+  // `Flux2WeightLoader` has no instance state — every public entry point is a
+  // `static` method. To preserve the cross-library seam shape (per
+  // AGENTS.md §11 / REQUIREMENTS-instrumentation.md), the lock + setters are
+  // also `static`. Callers (e.g. `Flux2Pipeline.setTelemetry`) invoke
+  // `Flux2WeightLoader.setTelemetry(reporter)` directly.
+
+  private static let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  public static func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { state in
+      state = reporter
+    }
+  }
+
+  public static func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Load all weights from a model directory
   /// - Parameter modelPath: Path to directory containing safetensors files

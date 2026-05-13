@@ -5,6 +5,7 @@ import FluxTextEncoders
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 /// Wrapper for Mistral text encoding for Flux.2 Dev models
 ///
@@ -13,6 +14,21 @@ import MLXNN
 ///
 /// This is similar to KleinTextEncoder but for Dev model which uses Mistral instead of Qwen3.
 public class DevTextEncoder: @unchecked Sendable {
+
+  // MARK: - Telemetry Seam
+
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { state in
+      state = reporter
+    }
+  }
+
+  public func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Quantization level for Mistral
   public let quantization: MistralQuantization

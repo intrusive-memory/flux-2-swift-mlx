@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -70,6 +71,30 @@ public struct Flux2GenerationResult: Sendable {
 /// 1. Text encoding (unloaded after use)
 /// 2. Image generation with Transformer + VAE
 public class Flux2Pipeline: @unchecked Sendable {
+
+  // MARK: - Telemetry Seam
+
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  /// Inject a telemetry reporter and propagate it to every owned subcomponent.
+  /// Pass `nil` to detach.
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { state in
+      state = reporter
+    }
+    // Propagate to owned subcomponents.
+    textEncoder?.setTelemetry(reporter)
+    kleinEncoder?.setTelemetry(reporter)
+    transformer?.setTelemetry(reporter)
+    scheduler.setTelemetry(reporter)
+    Flux2WeightLoader.setTelemetry(reporter)
+  }
+
+  public func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
+
   /// Model variant (dev, klein-4b, klein-9b)
   public let model: Flux2Model
 

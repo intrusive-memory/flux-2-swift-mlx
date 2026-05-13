@@ -6,6 +6,7 @@ import FluxTextEncoders
 import Foundation
 import MLX
 import MLXNN
+import os.lock
 
 #if canImport(AppKit)
   import AppKit
@@ -20,6 +21,21 @@ import MLXNN
 /// - Klein 4B: [1, 512, 7680]
 /// - Klein 9B: [1, 512, 12288]
 public class KleinTextEncoder: @unchecked Sendable {
+
+  // MARK: - Telemetry Seam
+
+  private let _telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(
+    initialState: nil)
+
+  public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?) {
+    _telemetryLock.withLock { state in
+      state = reporter
+    }
+  }
+
+  public func currentTelemetry() -> (any Flux2TelemetryReporter)? {
+    _telemetryLock.withLock { $0 }
+  }
 
   /// Klein variant (4B or 9B)
   public let variant: KleinVariant
