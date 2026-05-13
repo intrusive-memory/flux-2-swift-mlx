@@ -1164,6 +1164,15 @@ public class Flux2Pipeline: @unchecked Sendable {
         let sigma0 = scheduler.sigmas[0]
         let t0 = MLXArray([sigma0])
 
+        // B8: denoiseLoopStart — imageToImageKVExtractStep0 (single non-loop call)
+        let kvExtractDenoiseStart = Date()
+        await currentTelemetry()?.capture(.denoiseLoopStart(
+          variant: .imageToImageKVExtractStep0,
+          totalSteps: 1,
+          latentShape: packedOutputLatents.shape,
+          latentDtype: String(describing: packedOutputLatents.dtype)
+        ))
+
         let (noisePred0, kvCache) = transformer.forwardKVExtract(
           hiddenStates: packedOutputLatents,
           referenceHiddenStates: referenceLatents,
@@ -1182,6 +1191,16 @@ public class Flux2Pipeline: @unchecked Sendable {
         )
         eval(packedOutputLatents)
 
+        // B8: denoiseLoopEnd — imageToImageKVExtractStep0
+        let kvExtractFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
+        await currentTelemetry()?.capture(.denoiseLoopEnd(
+          variant: .imageToImageKVExtractStep0,
+          totalSteps: 1,
+          completedSteps: 1,
+          finalLatentStat: kvExtractFinalStat,
+          durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
+        ))
+
         let step0Duration = Date().timeIntervalSince(step0Start)
         profiler.recordStep(duration: step0Duration)
         onProgress?(1, effectiveSteps)
@@ -1190,6 +1209,16 @@ public class Flux2Pipeline: @unchecked Sendable {
         )
 
         // Steps 1+: Cached denoising (no reference tokens in input)
+        // B8: denoiseLoopStart — imageToImageKVCached (steps 1+ after KV extraction)
+        let kvCachedDenoiseStart = Date()
+        let kvCachedTotalSteps = effectiveSteps - 1
+        await currentTelemetry()?.capture(.denoiseLoopStart(
+          variant: .imageToImageKVCached,
+          totalSteps: kvCachedTotalSteps,
+          latentShape: packedOutputLatents.shape,
+          latentDtype: String(describing: packedOutputLatents.dtype)
+        ))
+
         for stepIdx in 1..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
           let sigma = scheduler.sigmas[stepIdx]
@@ -1251,8 +1280,27 @@ public class Flux2Pipeline: @unchecked Sendable {
         // KV cache is freed when it goes out of scope
         Flux2Debug.log("KV-cached denoising complete")
 
+        // B8: denoiseLoopEnd — imageToImageKVCached
+        let kvCachedFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
+        await currentTelemetry()?.capture(.denoiseLoopEnd(
+          variant: .imageToImageKVCached,
+          totalSteps: kvCachedTotalSteps,
+          completedSteps: kvCachedTotalSteps,
+          finalLatentStat: kvCachedFinalStat,
+          durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
+        ))
+
       } else {
         // === STANDARD I2I DENOISING PATH ===
+
+        // B8: denoiseLoopStart — imageToImageFullRecompute
+        let fullRecomputeDenoiseStart = Date()
+        await currentTelemetry()?.capture(.denoiseLoopStart(
+          variant: .imageToImageFullRecompute,
+          totalSteps: effectiveSteps,
+          latentShape: packedOutputLatents.shape,
+          latentDtype: String(describing: packedOutputLatents.dtype)
+        ))
 
         for stepIdx in 0..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
@@ -1331,6 +1379,16 @@ public class Flux2Pipeline: @unchecked Sendable {
             memoryManager.clearCache()
           }
         }
+
+        // B8: denoiseLoopEnd — imageToImageFullRecompute
+        let fullRecomputeFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
+        await currentTelemetry()?.capture(.denoiseLoopEnd(
+          variant: .imageToImageFullRecompute,
+          totalSteps: effectiveSteps,
+          completedSteps: effectiveSteps,
+          finalLatentStat: fullRecomputeFinalStat,
+          durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
+        ))
 
       }  // end else (standard I2I path)
 
@@ -1418,6 +1476,15 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("6. Denoising Loop")
 
+    // B8: denoiseLoopStart — textToImage
+    let t2iDenoiseStart = Date()
+    await currentTelemetry()?.capture(.denoiseLoopStart(
+      variant: .textToImage,
+      totalSteps: effectiveSteps,
+      latentShape: packedLatents.shape,
+      latentDtype: String(describing: packedLatents.dtype)
+    ))
+
     // Denoising loop - use sigmas (in [0, 1] range) for transformer
     for stepIdx in 0..<(scheduler.sigmas.count - 1) {
       let stepStart = Date()
@@ -1501,6 +1568,16 @@ public class Flux2Pipeline: @unchecked Sendable {
         memoryManager.clearCache()
       }
     }
+
+    // B8: denoiseLoopEnd — textToImage
+    let t2iFinalStat = TuberiaTensorStat.sample(packedLatents)
+    await currentTelemetry()?.capture(.denoiseLoopEnd(
+      variant: .textToImage,
+      totalSteps: effectiveSteps,
+      completedSteps: effectiveSteps,
+      finalLatentStat: t2iFinalStat,
+      durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
+    ))
 
     profiler.end("6. Denoising Loop")
 
