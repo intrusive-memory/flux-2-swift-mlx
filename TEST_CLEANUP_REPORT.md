@@ -1,3 +1,10 @@
+---
+mission: flux-2-swift-mlx-instrumentation
+feature_name: OPERATION SILICON STETHOSCOPE
+iteration: 2
+state: incomplete
+---
+
 # Test Cleanup Report — OPERATION SILICON STETHOSCOPE Iteration 02
 
 ## Summary

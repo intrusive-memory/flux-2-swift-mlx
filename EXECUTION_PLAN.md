@@ -6,9 +6,12 @@ prior_iteration_brief: docs/incomplete/silicon-stethoscope-01/OPERATION_SILICON_
 host: Vinetas
 branch: instrumentation/02
 iteration: 2
-state: ready
+state: incomplete
 refinement_passes_completed: [atomicity, priority, parallelism, questions, questions-resolved]
 hard_discovery_fixes_applied: [F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11]
+final_commit: ddcc5b01c76a9f79309d6cfe64b556b312b16acb
+rollback_verdict: ROLLBACK
+brief_archived_at: docs/incomplete/silicon-stethoscope-02/OPERATION_SILICON_STETHOSCOPE_02_BRIEF.md
 ---
 
 # EXECUTION_PLAN.md — flux-2-swift-mlx Instrumentation (Iteration 02)
