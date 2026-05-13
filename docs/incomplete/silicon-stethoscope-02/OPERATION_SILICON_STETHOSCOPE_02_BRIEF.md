@@ -278,3 +278,43 @@ The single most important thing iter-02 proved is that the **per-sortie compile+
   3. **Plan templates that name "every X site" must be validated by grep during refinement.** "Every throw site," "every cancellation site," "every load function" — each gets a grep audit in the refinement output, not at dispatch time. Catches Hard Discovery 3 (cancellation guard pattern) before dispatch.
 
 The verdict token in the header (`ROLLBACK`) and in this section (`ROLLBACK`) agree.
+
+---
+
+## Addendum — Post-Rollback Scope Revision (2026-05-12, on `instrumentation/03`)
+
+After the rollback completed and `instrumentation/03` was created, the user asked a question that should have been asked before iter-01 ever existed: **"Why do we need TSan? None of the other projects need it."**
+
+The honest answer is that we don't.
+
+- `OSAllocatedUnfairLock<T>` is Apple's standard primitive for making `@unchecked Sendable` pointer state safe. Atomic read-modify-write, memory barriers, the entire contract is documented and guaranteed.
+- Swift 6 strict concurrency (`swift-tools-version: 6.2`) statically verifies that everything else in `Flux2Pipeline` is properly `Sendable`. The `@unchecked Sendable` annotation only applies because of the lock.
+- The functional contract tests from Sorties 7a/7b verify the event surface (ordering, anomaly retrofits, kvCacheHit policy).
+- The lock-contention tests written for the deferred Sortie 8 (`SeamUnderTest` mirror, 3 cases) pass cleanly in <5ms **without TSan**. They verify observable correctness (last-writer-wins, no torn reads, no crashes under high concurrency) via behavior — which is the actual contract hosts care about.
+
+**TSan would prove nothing the existing pieces don't already prove.** It was carry-over from iter-01's plan, never load-bearing. The whole reason this iteration rolled back was a platform bug in a tool we don't actually need.
+
+### Revised plan for iter-03 (supersedes Section 8 recommendation #1)
+
+1. **Sortie 8 becomes**: lift `Flux2TelemetryLockContentionTests` from the iter-02 agent transcript at `/private/tmp/claude-501/-Users-stovak-Projects-flux-2-swift-mlx/eade37ec-207c-433b-96d5-573a20658c03/tasks/af22f0a227d79304d.output` and ship as plain swift-testing tests in `Tests/Flux2CoreTests/`. **No TSan flag, no `make test-tsan` target, no standalone executable, no separate Makefile work.** The tests run in CI under the regular `make test` target.
+2. **Sortie 10's PR description cites Apple's `OSAllocatedUnfairLock` formal guarantees as the correctness claim.** No platform-bug caveat needed because we're not using xctest+TSan anymore.
+3. **Carry-overs from iter-02's other lessons remain valid**:
+   - Refinement adds a spec↔plan cross-reference pass (Hard Discoveries 2, 5, 6).
+   - "Every X site" templates get grep-validated during refinement (Hard Discovery 3).
+   - Per-sortie compile+test gate is retained (the headline success of iter-02 structure).
+   - Exit-criteria grep patterns use anchored forms like `\.eventName(` instead of brittle `eventName(.` (process discovery 2.5).
+   - Spec erratum for `pipelineDispose(model: String)` is applied to REQUIREMENTS-instrumentation.md before breakdown (Hard Discovery 2).
+
+### Iter-03 sortie count
+
+Was 10. Becomes **9** — same scope minus the TSan target.
+
+### Iter-03 critical path
+
+Was `1 → 2 → 6 → 7a → 10` (5 sorties). Unchanged.
+
+### Why this addendum exists rather than rewriting Section 8
+
+Section 8's reasoning is correct given its premise. The premise itself ("we need TSan coverage") was wrong, and that's worth recording transparently. Iter-03's `breakdown`/`refine` will produce a new `EXECUTION_PLAN.md` that bakes this scope revision in; this addendum is the bridge.
+
+This addendum was written **on `instrumentation/03`** after the rollback ritual. The copy of this brief on `instrumentation/02` (the archived original) does **not** contain this addendum — it remains the contemporaneous iter-02 debrief. Both copies are correct for their respective contexts.
