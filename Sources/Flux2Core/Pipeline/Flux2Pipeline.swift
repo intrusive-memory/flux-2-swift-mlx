@@ -329,6 +329,10 @@ public class Flux2Pipeline: @unchecked Sendable {
       case .klein9BKV:
         downloadCmd = "flux2 download --model klein-9b-kv"
       }
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .modelNotLoaded,
+        errorDescription: "\(model.displayName) transformer weights not found. Run: \(downloadCmd)"
+      ))
       throw Flux2Error.modelNotLoaded(
         "\(model.displayName) transformer weights not found. Run: \(downloadCmd)")
     }
@@ -482,6 +486,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     Flux2Debug.log("Loading VAE...")
 
     guard let modelPath = Flux2ModelDownloader.findModelPath(for: .vae(.standard)) else {
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .modelNotLoaded,
+        errorDescription: "VAE weights not found"
+      ))
       throw Flux2Error.modelNotLoaded("VAE weights not found")
     }
 
@@ -598,6 +606,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> CGImage {
     guard !images.isEmpty && images.count <= 3 else {
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .invalidConfiguration,
+        errorDescription: "Provide 1-3 reference images"
+      ))
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -640,6 +652,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   ) async throws -> CGImage {
     let images = try imageData.enumerated().map { index, data in
       guard let cgImage = Self.cgImage(from: data) else {
+        Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
+          phase: .invalidConfiguration,
+          errorDescription: "Failed to decode image data at index \(index)"
+        )) }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -710,6 +726,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> Flux2GenerationResult {
     guard !images.isEmpty && images.count <= 3 else {
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .invalidConfiguration,
+        errorDescription: "Provide 1-3 reference images"
+      ))
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -752,6 +772,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   ) async throws -> Flux2GenerationResult {
     let images = try imageData.enumerated().map { index, data in
       guard let cgImage = Self.cgImage(from: data) else {
+        Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
+          phase: .invalidConfiguration,
+          errorDescription: "Failed to decode image data at index \(index)"
+        )) }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -828,6 +852,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Check image size feasibility
     let sizeCheck = memoryManager.checkImageSize(width: validWidth, height: validHeight)
     if case .insufficientMemory = sizeCheck {
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .insufficientMemory,
+        errorDescription: "Insufficient memory: required 100GB, available \(memoryManager.estimatedAvailableMemoryGB)GB"
+      ))
       throw Flux2Error.insufficientMemory(
         required: 100, available: memoryManager.estimatedAvailableMemoryGB)
     }
@@ -1164,6 +1192,10 @@ public class Flux2Pipeline: @unchecked Sendable {
         Flux2Debug.log("Using KV-cached denoising (\(effectiveSteps) steps, ~2.66x speedup)")
 
         guard let transformer = transformer else {
+          await currentTelemetry()?.capture(.errorThrown(
+            phase: .generationCancelled,
+            errorDescription: "generationCancelled"
+          ))
           throw Flux2Error.generationCancelled
         }
 
@@ -1172,6 +1204,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         let sigma0 = scheduler.sigmas[0]
         let t0 = MLXArray([sigma0])
 
+        // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
         // B8: denoiseLoopStart — imageToImageKVExtractStep0 (single non-loop call)
         let kvExtractDenoiseStart = Date()
         await currentTelemetry()?.capture(.denoiseLoopStart(
@@ -1227,6 +1260,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         )
 
         // Steps 1+: Cached denoising (no reference tokens in input)
+        // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
         // B8: denoiseLoopStart — imageToImageKVCached (steps 1+ after KV extraction)
         let kvCachedDenoiseStart = Date()
         let kvCachedTotalSteps = effectiveSteps - 1
@@ -1321,6 +1355,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       } else {
         // === STANDARD I2I DENOISING PATH ===
 
+        // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
         // B8: denoiseLoopStart — imageToImageFullRecompute
         let fullRecomputeDenoiseStart = Date()
         await currentTelemetry()?.capture(.denoiseLoopStart(
@@ -1341,6 +1376,10 @@ public class Flux2Pipeline: @unchecked Sendable {
 
           // Check transformer is still loaded (may be unloaded during cancellation)
           guard let transformer = transformer else {
+            await currentTelemetry()?.capture(.errorThrown(
+              phase: .generationCancelled,
+              errorDescription: "generationCancelled"
+            ))
             throw Flux2Error.generationCancelled
           }
 
@@ -1472,6 +1511,10 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       profiler.start("8. Post-processing")
       guard let image = postprocessVAEOutput(decoded) else {
+        await currentTelemetry()?.capture(.errorThrown(
+          phase: .generationFailed,
+          errorDescription: "Failed to convert VAE output to image"
+        ))
         throw Flux2Error.generationFailed("Failed to convert VAE output to image")
       }
       profiler.end("8. Post-processing")
@@ -1533,6 +1576,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("6. Denoising Loop")
 
+    // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
     // B8: denoiseLoopStart — textToImage
     let t2iDenoiseStart = Date()
     await currentTelemetry()?.capture(.denoiseLoopStart(
@@ -1551,6 +1595,10 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
+        await currentTelemetry()?.capture(.errorThrown(
+          phase: .generationCancelled,
+          errorDescription: "generationCancelled"
+        ))
         throw Flux2Error.generationCancelled
       }
 
@@ -1706,6 +1754,10 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Convert to CGImage
     profiler.start("8. Post-processing")
     guard let image = postprocessVAEOutput(decoded) else {
+      await currentTelemetry()?.capture(.errorThrown(
+        phase: .imageProcessingFailed,
+        errorDescription: "Failed to convert output to image"
+      ))
       throw Flux2Error.imageProcessingFailed("Failed to convert output to image")
     }
     profiler.end("8. Post-processing")
@@ -1751,10 +1803,18 @@ public class Flux2Pipeline: @unchecked Sendable {
     width: Int
   ) throws -> (latents: MLXArray, positionIds: MLXArray) {
     guard let vae = vae else {
+      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
+        phase: .modelNotLoaded,
+        errorDescription: "VAE"
+      )) }
       throw Flux2Error.modelNotLoaded("VAE")
     }
 
     guard !images.isEmpty else {
+      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
+        phase: .invalidConfiguration,
+        errorDescription: "No reference images provided"
+      )) }
       throw Flux2Error.invalidConfiguration("No reference images provided")
     }
 
