@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import Tuberia
 import os.lock
 
 #if canImport(AppKit)
@@ -491,12 +492,23 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Create model
     vae = AutoencoderKLFlux2()
 
-    // Load weights
+    // Load weights — capture start time for .weightLoadComplete(.vae) telemetry (B5-deferred to B6).
+    let vaeLoadStart = Date()
     let weights = try Flux2WeightLoader.loadWeights(from: weightsPath)
+    let vaeLoadDuration = Date().timeIntervalSince(vaeLoadStart)
+    let vaeParamCount = weights.values.reduce(0) { $0 + $1.size }
     try Flux2WeightLoader.applyVAEWeights(weights, to: vae!)
 
     // Ensure weights are evaluated
     eval(vae!.parameters())
+
+    // Emit weightLoadComplete for VAE (B5-deferred: loadWeights is component-agnostic;
+    // the VAE call site lives here in Pipeline.swift so B6 owns this emit).
+    await currentTelemetry()?.capture(.weightLoadComplete(
+      component: .vae,
+      paramCount: vaeParamCount,
+      durationSeconds: vaeLoadDuration
+    ))
 
     Flux2Debug.log("VAE loaded successfully")
   }
@@ -932,8 +944,15 @@ public class Flux2Pipeline: @unchecked Sendable {
     var finalUsedPrompt: String = enrichedPrompt
     var wasPromptUpsampled: Bool = false
 
+    // B6: capture start time and encoder name for textEncodeComplete telemetry.
+    // encoderName is set in each branch below; "dev" for Flux2TextEncoder (Mistral),
+    // "klein" for KleinTextEncoder (Qwen3).
+    let textEncodeStart = Date()
+    var textEncodeEncoderName: String = "unknown"
+
     switch model {
     case .dev:
+      textEncodeEncoderName = "dev"
       if upsamplePrompt, case .imageToImage(let images) = mode {
         // Use VLM to analyze reference images and enhance prompt
         Flux2Debug.log("Using vision-based prompt upsampling for I2I with \(images.count) image(s)")
@@ -951,6 +970,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       }
 
     case .klein4B, .klein4BBase, .klein9B, .klein9BBase, .klein9BKV:
+      textEncodeEncoderName = "klein"
       // Klein I2I with upsampling: load Mistral VLM temporarily to see reference images
       // This matches the official flux2 implementation which loads Mistral for Klein I2I upsampling
       if upsamplePrompt, case .imageToImage(let images) = mode {
@@ -996,6 +1016,21 @@ public class Flux2Pipeline: @unchecked Sendable {
     }
     eval(textEmbeddings)
     profiler.end("2. Text Encoding")
+
+    // B6: emit textEncodeComplete once per generation after all encoder branches.
+    // finalPromptLength uses textEmbeddings.shape[1] (the sequence/token dimension)
+    // as a proxy — the encoder APIs don't surface an explicit token count.
+    // TuberiaTensorStat.sample(_:) is guarded by the telemetry nil-check per P5.
+    if let telemetry = currentTelemetry() {
+      let textEncodeDuration = Date().timeIntervalSince(textEncodeStart)
+      let embeddingStat = TuberiaTensorStat.sample(textEmbeddings)
+      await telemetry.capture(.textEncodeComplete(
+        encoderName: textEncodeEncoderName,
+        finalPromptLength: textEmbeddings.shape[1],
+        embeddingStat: embeddingStat,
+        durationSeconds: textEncodeDuration
+      ))
+    }
 
     Flux2Debug.log("Text embeddings shape: \(textEmbeddings.shape)")
 
