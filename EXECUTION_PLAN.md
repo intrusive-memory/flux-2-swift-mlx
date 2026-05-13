@@ -1,559 +1,524 @@
----
-mission: flux-2-swift-mlx-instrumentation
-feature_name: OPERATION SILICON STETHOSCOPE
-source: REQUIREMENTS-instrumentation.md
-prior_iteration_brief: docs/incomplete/silicon-stethoscope-02/OPERATION_SILICON_STETHOSCOPE_02_BRIEF.md
-host: Vinetas
-branch: instrumentation/03
-iteration: 3
-state: draft
-refinement_passes_completed: []
-hard_discovery_fixes_applied: [F1, F2, F3, F4, F5, F6, F7, F8, F9, F10]
-hard_discovery_fixes_dropped: [F11]
-tsan_in_scope: false
-spec_errata_applied:
-  - "pipelineDispose case carries model: String (was bare case in REQUIREMENTS §3.1 line 115; iter-01/02 emission sites need the payload)"
-  - "F11 dropped: REQUIREMENTS §F11 prescribes TSan via classic XCTest; iter-02 proved that fails on macOS 26.2 SDK at xctest bootstrap, AND the user has set project policy that TSan is out of scope. OSAllocatedUnfairLock's correctness is established by Apple API guarantees; Swift 6 strict concurrency covers the rest."
-  - "Cancellation sites in Flux2Pipeline.swift are guard-based (`guard let transformer = transformer else { throw .generationCancelled }`), NOT `Task.checkCancellation()`. 3 such sites. Iter-02 Hard Discovery 3."
----
+# EXECUTION_PLAN.md — Boundary Telemetry for flux-2-swift-mlx + pixart-swift-mlx
 
-# EXECUTION_PLAN.md — flux-2-swift-mlx Instrumentation (Iteration 03)
-
-Produces a `Flux2TelemetryEvent` / `Flux2TelemetryReporter` surface inside `flux-2-swift-mlx` so the Vinetas host can correlate every numerical anomaly (NaN/Inf, gray images, oversaturation, dtype-mismatch artifacts) back to the specific kernel and step that produced it.
-
-This is iteration **03** of the mission. Iteration 02 reached 9/10 sortie completion (commits `85e8ade..ddcc5b0` preserved on `instrumentation/02`) but rolled back because iter-01's F11 hypothesis was wrong — `TSan + xctest + macOS 26.2 SDK` crashes the runner bootstrap regardless of test framework. Post-rollback the user clarified that **TSan was never load-bearing** for this project: `OSAllocatedUnfairLock` has formal Apple API guarantees, and the project's existing Swift-6 strict concurrency + functional contract tests cover the actual correctness claim.
-
-**Iteration 03 drops TSan entirely.** The lock-contention test ships as a plain test (no `-enableThreadSanitizer`, no `make test-tsan` target). Otherwise the plan inherits iter-02's structure — which was 90% correct — and applies the brief's lessons.
+**Source requirements:** [`REQUIREMENTS-instrumentation.md`](REQUIREMENTS-instrumentation.md) (this repo) + [`../pixart-swift-mlx/REQUIREMENTS-instrumentation.md`](../pixart-swift-mlx/REQUIREMENTS-instrumentation.md)
+**Cross-library convention:** [`AGENTS.md §11`](AGENTS.md#11-telemetry-chokepoint-convention-cross-library)
+**Generated:** 2026-05-13 (fresh breakdown — disregards all prior plans)
 
 ## Terminology
 
 > **Mission** — A definable, testable scope of work. Defines scope, acceptance criteria, and dependency structure.
+
 > **Sortie** — An atomic, testable unit of work executed by a single autonomous AI agent in one dispatch. One aircraft, one mission, one return.
+
 > **Work Unit** — A grouping of sorties (package, component, phase).
 
-## Cross-repo context
+## Mission scope
 
-- This plan is the flux-2-swift-mlx slice of `/Users/stovak/Projects/Vinetas/EXECUTION_PLAN.md`.
-- Source spec: `REQUIREMENTS-instrumentation.md` at repo root.
-- Lessons input: `docs/incomplete/silicon-stethoscope-02/OPERATION_SILICON_STETHOSCOPE_02_BRIEF.md` (including the post-rollback addendum that drops TSan).
-- §6 of the spec (Vinetas-host adapter mapping) is OUT OF SCOPE — it ships in the Vinetas repo.
+Two sibling MLX-Swift image-generation libraries — `flux-2-swift-mlx` and `pixart-swift-mlx` — must expose **boundary-only** telemetry that initializes through the same `setTelemetry`-on-top-level-type seam and returns chokepoint events from the same catalog defined in [AGENTS.md §11](AGENTS.md#11-telemetry-chokepoint-convention-cross-library).
 
-## Spec ↔ plan reconciliation (iter-02 carry-forward)
+Asymmetric starting state:
 
-REQUIREMENTS-instrumentation.md currently contains F11 (TSan via classic XCTest) and a bare `case pipelineDispose` in §3.1. This plan supersedes both:
+| Library | Implementation | REQUIREMENTS doc |
+|---|---|---|
+| `pixart-swift-mlx` | **Live.** `PixArtTelemetryEvent`/`PixArtTelemetryReporter` ship; `OSAllocatedUnfairLock`-backed `setTelemetry` on `PixArtDiT`; emission sites in `PixArtDiT.swift`, `PixArtRecipe.swift`, `PixArtFP16Recipe.swift`; 4 telemetry test files; `MockReporter` helper. | **Stale** — 18 KB verbose draft predating the minimal-boundary decision. |
+| `flux-2-swift-mlx` | **Zero code.** No telemetry directory, no setters, no dep on SwiftTuberia. | **Current** — slim iteration-03 spec. |
 
-- **F11 (DROP):** Spec says "Sortie 8 TSan test in classic XCTest." Iter-02 evidence: classic XCTest also crashes at xctest bootstrap with `-enableThreadSanitizer YES` on macOS 26.2 SDK. User policy: no TSan. This plan replaces Sortie 8 with a **plain lock-contention behavioral test** — no TSan flag, no Makefile target, runs under the regular `make test`. Carry this erratum into a REQUIREMENTS update before iter-04 if anyone ever runs it.
-- **pipelineDispose (FIX):** Spec §3.1 line 115 declares `case pipelineDispose` (bare). The emission sites in §5 imply a model identifier. Iter-02 resolved this by making the case `case pipelineDispose(model: String)`. Iter-03 inherits that resolution.
-- **Cancellation pattern (FIX):** Spec §5 says cancellation fires "at every cancellation check site, currently around line 1071." In practice, the existing code uses guard-based patterns (`guard let transformer = transformer else { throw .generationCancelled }`), not `Task.checkCancellation()`. 3 such sites. Iter-03's Sortie 5 task list bakes this in instead of leaving it as a discovery for the agent.
+Therefore pixart is the **canonical pattern source**. Sortie agents implementing flux MUST read the matching pixart files for the exact lock-and-emit shape before writing flux code (per P5: verify API surface before use).
 
-## Repo constraints (bake into every sortie)
+## Mandatory constraints (apply to every sortie)
 
-### **CRITICAL — per-sortie compile + test gate**
-
-**Every code-touching sortie ends with both `make build` AND `make test` (or `make test-core`) passing.** No exceptions. Sub-agents run their own builds. The supervising agent does NOT carry a build to a convergence step. This was iter-02's headline structural improvement and ships unchanged into iter-03.
-
-Exit-criteria templates per sortie type:
-- **Production code sortie (no new tests):** `make build` succeeds + existing `make test` remains green.
-- **Test sortie:** `make build` succeeds + `make test` succeeds with the new test count reported.
-- **Refactor / documentation sortie:** `make build` succeeds.
-
-If `make build` fails, the sortie does NOT commit. The agent diagnoses and fixes, OR reports the failure and STOPS without committing.
-
-### Build tools
-
-- Never `swift build` / `swift test`. Use `make build` / `make test` / `make test-core`. XcodeBuildMCP `swift_package_build` / `swift_package_test` as fallback. Raw `xcodebuild` is CI-only.
-- `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` — non-negotiable (MLX has no x86_64 path).
-
-### Dependencies
-
-- **SwiftTuberia `from: "0.7.0"`** — confirmed latest released tag; mirror the existing `SwiftAcervo` sibling pattern at `Package.swift:57`.
-- **swift-tokenizers `from: "0.5.0"`** — already pinned. No changes.
-- All other deps unchanged.
-
-### Branch + release
-
-- All work lands on `instrumentation/03`.
-- Sortie 9 (release) cuts our next minor release version (additive change) for SwiftVinetas to pin to.
-
-### Sendable seam
-
-- `Flux2Pipeline` stays `public class … @unchecked Sendable`.
-- Telemetry storage uses `OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>` — NO plain stored property, NO actor migration.
-- Hot-path discipline: the denoise-loop `currentTelemetry()` call acquires the lock EXACTLY ONCE per step; multiple stat samples within the step body share the cached pointer.
-
-### `@autoclosure` boundaries (Q2)
-
-The spec uses an `if let telemetry { let stat = … ; await telemetry.capture(...) }` pattern, NOT `@autoclosure`-based deferred evaluation. Every `TuberiaTensorStat.sample` MUST be lexically inside an `if let telemetry` guard.
-
-### No TSan
-
-Confirming for clarity: **iter-03 ships zero TSan-related artifacts.** No `make test-tsan`. No `-enableThreadSanitizer YES`. No standalone TSan executable. No swift-testing-vs-XCTest distinction motivated by TSan. The lock-contention test is plain swift-testing, runs under `make test` in CI, asserts observable behavior (last-writer-wins, no torn reads, no crashes under high concurrency). Lock-correctness claim is delegated to Apple's `OSAllocatedUnfairLock` API guarantees.
-
-## Iteration-02 brief lessons applied (carry-forward)
-
-| Source | Lesson | How iteration 03 applies it |
-|--------|--------|----------------------------|
-| Iter-02 brief HD1 | F11 hypothesis wrong; xctest+TSan crashes on macOS 26.2 SDK regardless of framework | TSan dropped from scope. Sortie 8 is plain swift-testing lock-contention test. |
-| Iter-02 brief HD2 | Spec ↔ plan disagree on `pipelineDispose` signature | Plan uses `case pipelineDispose(model: String)`. Refinement pass adds spec↔plan cross-reference step. |
-| Iter-02 brief HD3 | Cancellation pattern is guard-based, not `Task.checkCancellation()` | Sortie 5 task list says guard sites, lists 3 known locations. |
-| Iter-02 brief HD4 | Q10 no-work baseline made +1%/+5% bounds structurally impossible | Sortie 7c (overhead test) uses a calibrated CPU-spin stub in EVERY cohort, not just the telemetry ones. |
-| Iter-02 brief HD5 | TuberiaTensorStat init order is `(shape, dtype, min, max, mean, std, hasNaN, hasInf)` | Test templates use this order. Refinement pass verifies against source. |
-| Iter-02 brief HD6 | `denoiseStepComplete` sigma/timestep are `Float`, not `Double` | Test templates use Float. |
-| Iter-02 brief HD7 | Sub-agents reverted supervisor frontmatter edits to `EXECUTION_PLAN.md` | Sortie prompts include "preserve pre-existing unstaged edits" clause. Supervisor commits mission metadata before dispatching Sortie 1. |
-| Iter-02 brief PD2.1 | Per-sortie compile+test gate worked — zero convergence build-breaks | Preserved verbatim. |
-| Iter-02 brief PD2.5 | Multi-line emission formatting breaks literal-grep exit criteria | Exit criteria use anchored patterns like `\.eventName(` or `eventName(`, never `telemetry.capture(.eventName`. |
-| Iter-01 brief §1 F1 | `DType.int4` doesn't exist | Sortie 3 task list drops `int4` from dtype bucket examples. |
-| Iter-01 brief §1 F2 | `ErrorPhase.imageProcessingFailed` missing | Sortie 1 creates the enum WITH this case. |
-| Iter-01 brief §1 F3 | `generationCancelled.stepIndex` should be optional | Sortie 1 creates the case as `stepIndex: Int?`. |
-| Iter-01 brief §1 F4 | Anomaly threshold by name | Sortie 5 references `TuberiaTensorStat.defaultOutOfRangeThreshold` directly. |
-| Iter-01 brief §1 F5 | KVExtractStep0 is a single call, not a loop | Sortie 6 emits 3 loop triplets + 1 one-shot triplet = 4 total. |
-| Iter-01 brief §1 F6 | 5 denormalize sites; only 2 emit | Sortie 5 uses variable-name discrimination (`finalPatchified`/`patchifiedFinal` emit; `checkpointPatchified` does NOT). |
-| Iter-01 brief §1 F7 | Sync init / sync setTimesteps → `Task{}` caveat | Sorties 3 and 4 use `Task{}` wrapper explicitly. |
-| Iter-01 brief §1 F8 | `import TestHelpers` required | Sortie 7a + 7b test file templates include the import. |
-| Iter-01 brief §1 F9 | `MLXArray.zeros(_:type:)` is static | Sortie 7a task list includes API-surface verification step. |
-| Iter-01 brief §1 F10 | Swift 6 strict static-member access | Sortie 7a + 7b templates require non-static helpers OR explicit `Self.` qualifier. |
-
-## Parallelism Structure
-
-**Critical path:** Sortie 1 → Sortie 2 → Sortie 6 → Sortie 7a → Sortie 9 (5 sorties).
-
-**Execution groups:**
-- **Group A (Layer 1, foundation):** Sortie 1 — sub-agent. Runs `make build` + `make test` before commit.
-- **Group B (Layer 2, seam):** Sortie 2 — sub-agent. Runs `make build` + `make test` before commit.
-- **Group C (Layer 3, non-hot-path emissions):** Sortie 3 → Sortie 4 → Sortie 5 sequentially (NOT parallel — all 3 modify `Flux2Pipeline.swift`; iter-01 brief decision D2 + iter-02 confirmation).
-- **Group D (Layer 4, hot path):** Sortie 6 — sub-agent. Pre-read line-range targeting.
-- **Group E (Layer 5, tests):** Sortie 7a → {Sortie 7b ∥ Sortie 8} after Sortie 7a's `MockTelemetryReporter` is in place. 7b writes 3 contract test files, 8 writes the lock-contention test. Disjoint files.
-- **Group F (Layer 5b, overhead test):** Sortie 7c — sub-agent, ARM64 hardware required, runs alone for timing fidelity.
-- **Group G (Layer 6, release):** Sortie 9 — supervising agent.
-
-**Agent constraints:**
-- Sorties 1-7c are sub-agents.
-- Sortie 9 (release) is the only supervising-agent-only sortie.
-- Group C is sequential (D2 lesson).
-- Group E: 7b and 8 can run in parallel after 7a. Sortie 7c (overhead) runs alone.
+- **Per-sortie compile + test gate.** Every code-touching sortie's exit criteria include `make build` succeeding AND `make test` succeeding (CI-safe suites) before commit. No sortie ships uncompiling code.
+- **No `swift build` / `swift test`.** Use `make` targets locally; `xcodebuild` with `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` in CI.
+- **P1–P5 anti-plan-bug checks** ([REQUIREMENTS-instrumentation.md §Anti-plan-bug checks](REQUIREMENTS-instrumentation.md)): match counts to enumerations, verify parallelism claims, treat line numbers as advisory, grep-verify enum cases before reference, verify unfamiliar APIs against the dependency.
+- **Naming convention.** All new event cases, enums, and adapter sink phases follow [AGENTS.md §11.2](AGENTS.md#112-naming-rules).
+- **No new pixart event cases without first updating pixart's REQUIREMENTS doc and AGENTS.md §11 catalog.** Stability of the cross-library event surface is the point of this mission.
 
 ## Work Units
 
 | Work Unit | Directory | Sorties | Layer | Dependencies |
 |-----------|-----------|---------|-------|--------------|
-| Telemetry types & protocol | `Sources/Flux2Core/Telemetry/` | 1 | 1 | none |
-| Pipeline lock seam | `Sources/Flux2Core/{Pipeline,Loading,Scheduler,Transformer}/` | 2 | 2 | Sortie 1 |
-| Non-hot-path emissions | `Sources/Flux2Core/{Loading,Scheduler,Pipeline,VAE}/` | 3, 4, 5 | 3 | Sortie 2 (sequential within layer) |
-| Hot-path denoise emissions | `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` (denoise loop bodies) | 6 | 4 | Sortie 5 |
-| Functional + contention tests | `Tests/Flux2CoreTests/`, `Tests/TestHelpers/` | 7a, 7b, 8 | 5 | 7a: Sortie 6; 7b: Sortie 7a; 8: Sortie 7a |
-| Overhead test | `Tests/Flux2CoreTests/` | 7c | 5b | Sorties 7a, 7b, 8 |
-| Release | repo root | 9 | 6 | Sortie 7c |
+| A. PixArt doc alignment | `../pixart-swift-mlx/` | 1 | 0 | none |
+| B. Flux2 boundary telemetry | `Sources/Flux2Core/` + `Tests/Flux2CoreTests/` + `Tests/TestHelpers/` | 15 | 1 | none (Layer-0 A and Layer-1 B can run in parallel because they touch disjoint repos) |
 
-Layers gate execution: a sortie in layer N+1 may not dispatch until every sortie in layer ≤N is COMPLETED.
+Layer 0 work units gate Layer 1 only when dependencies are declared. Here, A and B touch disjoint repos and share no source files, so they may run in parallel — but the **cross-library consistency check** in Sortie B16 audits both at the end, so A must complete before B16.
 
 ---
 
-### Sortie 1: Add telemetry types and reporter protocol
+## Work Unit A — PixArt doc alignment
 
-**Agent assignment**: sub-agent.
+Pixart's implementation is the canonical §11 pattern. The REQUIREMENTS-instrumentation.md on disk is stale and contradicts the live code (per-step events specified in the doc were never built; the live events are boundary-only). One sortie brings the doc into line with reality.
+
+### Sortie A1: Rewrite pixart REQUIREMENTS-instrumentation.md to reflect live implementation
+
+**Priority**: 4.5 — independent repo, gates only B16; can run any time during Work Unit B execution.
 
 **Entry criteria**:
-- [ ] Branch `instrumentation/03` is current.
-- [ ] `make build` is green on a clean checkout before any changes.
-- [ ] `make test` is green before any changes (baseline = 201 tests / 31 suites at branch HEAD `16adef2`).
+- [ ] First sortie — no prerequisites
 
 **Tasks**:
-1. Add `sibling("SwiftTuberia", remote: "https://github.com/intrusive-memory/SwiftTuberia", from: "0.7.0")` to the `dependencies:` array in `Package.swift` (mirror the existing `SwiftAcervo` entry). Add `.product(name: "Tuberia", package: "SwiftTuberia")` to the `Flux2Core` target dependencies.
-2. Create directory `Sources/Flux2Core/Telemetry/`.
-3. Create `Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` per REQUIREMENTS §3.1. **Critical:**
-   - `case generationCancelled(stepIndex: Int?)` — note the `?` (F3).
-   - `ErrorPhase` enum includes `case imageProcessingFailed` (F2).
-   - `case pipelineDispose(model: String)` — spec erratum, carries model name (iter-02 HD2).
-4. Create `Sources/Flux2Core/Telemetry/Flux2TelemetryReporter.swift` per §3.2 (protocol + `NoopFlux2TelemetryReporter` struct).
-5. Imports: `import Tuberia`; `@preconcurrency import MLX`; `import Foundation`. Do NOT redefine `TuberiaTensorStat` locally.
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] Files `Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` and `Sources/Flux2Core/Telemetry/Flux2TelemetryReporter.swift` exist.
-- [ ] `Package.swift` contains the `SwiftTuberia` sibling entry pinned `from: "0.7.0"` and the `Flux2Core` target depends on `.product(name: "Tuberia", package: "SwiftTuberia")`.
-- [ ] `grep -c "case imageProcessingFailed" Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` returns 1 (F2 baked in).
-- [ ] `grep -c "case generationCancelled(stepIndex: Int?)" Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` returns 1 (F3 baked in).
-- [ ] `grep -c "case pipelineDispose(model: String)" Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` returns 1 (HD2 erratum applied).
-- [ ] `grep -R "struct TuberiaTensorStat" Sources/Flux2Core/Telemetry/` returns nothing.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds (no new tests; existing suite still green).**
-- [ ] Commit message starts with `sortie 1:`.
-
----
-
-### Sortie 2: Add `@unchecked Sendable`-safe lock seam and reporter propagation
-
-**Agent assignment**: sub-agent.
-
-**Entry criteria**:
-- [ ] Sortie 1 COMPLETED.
-
-**Tasks**:
-1. In `Flux2Pipeline.swift`, add `import os.lock` and a private `_telemetryLock = OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>(initialState: nil)`.
-2. Add `public func setTelemetry(_ reporter: (any Flux2TelemetryReporter)?)` that takes the lock, stores the reporter, AND propagates to every owned subcomponent that has been instantiated at call time: `textEncoder`, `kleinEncoder`, `transformer`, `scheduler`, and `Flux2WeightLoader` static surface. **VAE (`AutoencoderKLFlux2`) is intentionally NOT in the propagation list (Q3).**
-3. Add `fileprivate func currentTelemetry() -> (any Flux2TelemetryReporter)?` that reads the lock.
-4. Add the same lock + setter + `currentTelemetry()` to **7 types total** (pipeline + 6 owned subcomponents):
-   - `Flux2Pipeline` (Pipeline/Flux2Pipeline.swift)
-   - `KleinTextEncoder` (Loading/KleinTextEncoder.swift)
-   - `DevTextEncoder` (Loading/DevTextEncoder.swift)
-   - `Flux2TextEncoder` / Mistral (Loading/MistralEncoder.swift)
-   - `FlowMatchEulerScheduler` (Scheduler/FlowMatchEulerScheduler.swift)
-   - `Flux2WeightLoader` (Loading/WeightLoader.swift) — static surface only
-   - top-level transformer class (Transformer/Flux2Transformer.swift — contains `Flux2Transformer2DModel`)
-5. NO emission sites are wired in this sortie.
-6. Verify all types still declare `@unchecked Sendable` (lock is the reason we keep the annotation). `Flux2WeightLoader` has no Sendable annotation because it has only static methods — that's correct.
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] `grep -R "OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>" Sources/Flux2Core/ | wc -l` returns **exactly 7** (pipeline + 6 subcomponents, VAE excluded).
-- [ ] `grep -R "func setTelemetry" Sources/Flux2Core/ | wc -l` returns **exactly 7**.
-- [ ] `grep -R "func currentTelemetry()" Sources/Flux2Core/ | wc -l` returns **exactly 7**.
-- [ ] `grep -R "setTelemetry\|OSAllocatedUnfairLock" Sources/Flux2Core/VAE/` returns **0 matches** (VAE clean per Q3).
-- [ ] `Flux2Pipeline.setTelemetry` body calls `setTelemetry` on each of `textEncoder?`, `kleinEncoder?`, `transformer?`, `scheduler`, and `Flux2WeightLoader` (record line numbers in commit message).
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds (no new tests).**
-- [ ] Commit message starts with `sortie 2:` and lists the 7 modified files.
-
----
-
-### Sortie 3: Wire weight-load, LoRA, init, dispose, error emissions
-
-**Agent assignment**: sub-agent.
-
-**Entry criteria**:
-- [ ] Sortie 2 COMPLETED.
-
-**Tasks**:
-1. In `WeightLoader.swift`, implement a `static func dtypeHistogram(_ params: [String: MLXArray]) -> [String: Int]` builder. Bucket by dtype string. **Use only dtype cases that exist in `MLX.DType`** — DO NOT include `int4` (F1). The `default:` arm handles unknown dtypes via `"\(dtype)"` interpolation.
-2. Around `loadTextEncoder`, `loadTransformer`, `loadVAE` (find via grep, ignore plan line numbers — they drift): emit `weightLoadStart(component:, path:)` before, `weightLoadComplete(component:, paramCount:, dtypeHistogram:, sizeMB:, durationSeconds:)` after.
-3. Around `loadLoRA(_:)`: emit `loraLoadStart` / `loraLoadComplete`.
-4. In `unloadAllLoRAs()`: emit `loraUnmerged(restoredLayerCount:)`.
-5. At the END of `Flux2Pipeline.init` body: emit `pipelineInit(model:, quantization:, vaeConfig:, memoryOptimization:)` via `Task { await telemetry.capture(...) }` (F7). Add code-comment: `// F7: init is sync, capture is async. Hosts should call setTelemetry() before the first generation to receive this event.`
-6. Add `public func dispose() async` to `Flux2Pipeline`. Body emits `pipelineDispose(model: <modelString>)` then clears `transformer`, `vae`, `textEncoder`, `kleinEncoder` to nil. **Note `pipelineDispose(model:)` carries the model identifier per HD2 erratum.** Doc-comment: `/// Hosts (Vinetas) should call dispose() before releasing the pipeline. deinit cannot be async, so explicit tear-down is required for pipelineDispose to fire.`
-7. Every `throw Flux2Error.…` site in `Flux2Pipeline.swift` (~14 sites; verify with grep) — emit `errorThrown(phase:, errorDescription:, stepIndex:)` IMMEDIATELY before the throw. `phase` maps from `Flux2Error.…` to `ErrorPhase.…` (use `.imageProcessingFailed` for `Flux2Error.imageProcessingFailed` — F2). `stepIndex` is `nil` outside denoise loops; `stepIdx` inside denoise-loop throws.
-8. Emission template MUST be: `if let telemetry = currentTelemetry() { ... let stat = TuberiaTensorStat.sample(…); await telemetry.capture(.…(…)) }`. NO bare `await reporter.capture(...)` outside an `if let` guard.
-
-**Exit criteria** (sortie runs all of these before commit, using anchored grep patterns):
-- [ ] `grep -c "weightLoadStart" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift Sources/Flux2Core/Loading/WeightLoader.swift | awk -F: '{s+=$2} END {print s}'` returns ≥ 3 sites total.
-- [ ] `grep -c "weightLoadComplete" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift Sources/Flux2Core/Loading/WeightLoader.swift | awk -F: '{s+=$2} END {print s}'` returns the same count as `weightLoadStart`.
-- [ ] `grep -c "throw Flux2Error" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` equals `grep -c "errorThrown" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift`. Record both counts in commit message.
-- [ ] `grep -c "pipelineInit" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 1 emission site.
-- [ ] `grep -c "pipelineDispose" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 1 emission site, INSIDE a `public func dispose() async` block.
-- [ ] `grep -n "deinit" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` — if `deinit` exists, its body must NOT contain `telemetry.capture` or `await` calls.
-- [ ] `grep -c "phase: .imageProcessingFailed" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 1 (F2 in use).
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds (existing suite still green).**
-- [ ] Commit message starts with `sortie 3:`.
-
----
-
-### Sortie 4: Wire text-encoder, VLM, and scheduler emissions
-
-**Agent assignment**: sub-agent.
-
-**Entry criteria**:
-- [ ] Sortie 3 COMPLETED.
-
-**Tasks**:
-1. Around `textEncoder!.encodeWithPrompt(...)`, `textEncoder!.encode(...)`, and `kleinEncoder!.encode(...)` call sites in `generateWithResult` and the I2I branches: emit `textEncoderForwardStart(encoderName:, promptLength:, upsampleRequested:)` before, `textEncoderForwardComplete(encoderName:, finalPromptLength:, embeddingStat:, durationSeconds:)` after.
-   - **Encoder name mapping (Q5):** `Flux2TextEncoder` (Mistral) → `"mistral"`; `KleinTextEncoder` (Qwen3) → `"qwen3"`; `TrainingTextEncoder` → `"qwen3-training"` (only if it's actually called from Flux2Pipeline; iter-02 confirmed it's NOT — skip that mapping unless the agent finds a callsite).
-2. Around `textEncoder!.describeImagePathsForPrompt(...)` and `upsamplePromptWithImages(...)`: emit `vlmInterpretStart(imageCount:, encoderUsed:)` and `vlmInterpretComplete(descriptionsProduced:, totalDescriptionLength:, durationSeconds:)`.
-3. Inside `FlowMatchEulerScheduler.setTimesteps(...)`, AFTER `mu` is computed and `sigmas` populated: emit `schedulerConfigured(numTrainTimesteps:, numInferenceSteps:, shift:, imageSeqLen:, mu:, sigmasHead: Array(sigmas.prefix(5)), sigmasTail: Array(sigmas.suffix(5)))` exactly once per call.
-   - **F7:** `setTimesteps` is sync. Use `Task { await telemetry.capture(...) }`. Capture all scalar values into local `let` constants before the closure to avoid data-race concerns.
-4. Use the same `if let telemetry = currentTelemetry()` template; sample `embeddingStat` only inside the guard.
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] `grep -c "textEncoderForwardStart" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` equals `grep -c "textEncoderForwardComplete" ...`, both ≥ 3.
-- [ ] `grep -c "vlmInterpretStart" ...` equals `grep -c "vlmInterpretComplete" ...`, both ≥ 1.
-- [ ] `grep -c "schedulerConfigured" Sources/Flux2Core/Scheduler/FlowMatchEulerScheduler.swift` returns exactly 1.
-- [ ] `grep -nE '"mistral"|"qwen3"' Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns matches in new emission sites.
-- [ ] Sortie 3's emissions unchanged: `grep -c "errorThrown" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` unchanged from Sortie 3.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds.**
-- [ ] Commit message starts with `sortie 4:`.
-
----
-
-### Sortie 5: Wire VAE-decode, anomaly detector, and cancellation emissions
-
-**Agent assignment**: sub-agent.
-
-**Entry criteria**:
-- [ ] Sortie 4 COMPLETED.
-
-**Tasks**:
-1. **Variable-name discrimination (F6):** the 5 `LatentUtils.denormalizeLatentsWithBatchNorm(...)` call sites in `Flux2Pipeline.swift` divide cleanly:
-   - Sites where the target variable is named `checkpointPatchified` (3 sites — mid-loop user-facing checkpoint previews): **emit NOTHING.**
-   - Sites where the target variable is named `finalPatchified` or `patchifiedFinal` (2 sites — final-decode for T2I and I2I): **emit `vaeBatchNormDenormalize(beforeStat:, afterStat:)`.** Sample both stats inside an `if let telemetry` guard.
-2. Before final VAE forward (`vae!.decode(finalLatents)` at the 2 final-decode paths only): emit `vaeDecodeStart(latentStat:, scalingFactor:)`.
-3. After `postprocessVAEOutput(decoded)` succeeds at the 2 final-decode paths: emit `vaeDecodeComplete(pixelStat:, outputDims:, durationSeconds:)`.
-4. **Implement `Flux2AnomalyDetector` (Q6):** create `Sources/Flux2Core/Telemetry/Flux2AnomalyDetector.swift` exporting `enum Flux2AnomalyDetector { static func anomalies(in stat: TuberiaTensorStat, checkZeroLatent: Bool = false, expectedDtype: String? = nil) -> [Flux2TelemetryEvent.AnomalyKind] }`. Returns `.nan` when `stat.hasNaN`, `.inf` when `stat.hasInf`, `.outOfRange` when `abs(stat.max) > TuberiaTensorStat.defaultOutOfRangeThreshold || abs(stat.min) > defaultOutOfRangeThreshold` (F4: reference the constant by name, never literal), `.zeroLatent` when `checkZeroLatent && abs(stat.mean) < 1e-6 && stat.std < 1e-6`, `.dtypeUnexpected` when `expectedDtype != nil && stat.dtype != expectedDtype`.
-5. After every stat-carrying emission this sortie introduces (vaeDecodeStart, vaeBatchNormDenormalize × 2 stats each, vaeDecodeComplete) AND after Sortie 4's 4 `textEncoderForwardComplete` emissions: add a loop `for kind in Flux2AnomalyDetector.anomalies(in: <stat>, checkZeroLatent: <true for latents, false for pixels>) { await telemetry.capture(.numericalAnomaly(phase: "<sourceEvent>", kind: kind, stepIndex: nil, stat: <stat>)) }` inside the same `if let telemetry` block. Total numericalAnomaly emission points: at least 12.
-6. **Cancellation sites are guard-based, not `Task.checkCancellation()` (iter-02 HD3).** 3 known sites in `Flux2Pipeline.swift` with the pattern `guard let transformer = transformer else { throw Flux2Error.generationCancelled }`:
-   - Pre-KV-extract site: emit `generationCancelled(stepIndex: nil)`
-   - I2I in-loop site: emit `generationCancelled(stepIndex: stepIdx)`
-   - T2I in-loop site: emit `generationCancelled(stepIndex: stepIdx)`
-   Emit inside `if let telemetry = currentTelemetry() { await telemetry.capture(...) }` BEFORE the throw. Each site already has a Sortie-3 `errorThrown(.generationCancelled, ...)` emission; preserve that and ADD the `.generationCancelled` emission ahead of it. **F3:** the case signature is `stepIndex: Int?` — never use sentinel values like `0` or `-1`.
-
-**Exit criteria** (sortie runs all of these before commit, using anchored grep patterns):
-- [ ] `Sources/Flux2Core/Telemetry/Flux2AnomalyDetector.swift` exists with the `anomalies(in:)` helper.
-- [ ] `grep -c '\.vaeBatchNormDenormalize(' Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns **exactly 2** emission sites. Verify by reading the lines: each must be near a `finalPatchified` or `patchifiedFinal` variable, NEVER near `checkpointPatchified`.
-- [ ] `grep -c '\.vaeDecodeStart(' ...` returns exactly 2 emission sites.
-- [ ] `grep -c '\.vaeDecodeComplete(' ...` returns exactly 2 emission sites.
-- [ ] `grep -c '\.numericalAnomaly(' Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 12.
-- [ ] `grep -c '\.generationCancelled(' Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 3 (≥1 with `stepIndex: nil`, F3 in use).
-- [ ] `grep -c "TuberiaTensorStat.defaultOutOfRangeThreshold" Sources/Flux2Core/Telemetry/Flux2AnomalyDetector.swift` returns at least 1 (F4 in use).
-- [ ] Sortie 3/4 emissions unchanged.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds.**
-- [ ] Commit message starts with `sortie 5:`.
-
----
-
-### Sortie 6: Wire the HOT-PATH `denoiseStepComplete` and loop-boundary emissions
-
-**Agent assignment**: sub-agent (opus — hot path; +1%/+5% overhead budget depends on this).
-
-**Entry criteria**:
-- [ ] Sortie 5 COMPLETED.
-
-**Pre-read targeting (context discipline)**: Read ONLY these regions in `Flux2Pipeline.swift`:
-- The `transformer.forwardKVExtract(...)` one-shot site (±25 lines).
-- Each of the 3 `for stepIdx in …` loop bodies (±30 lines each).
-- Lines around `_telemetryLock` / `currentTelemetry()` declarations (top of class).
-- One of Sortie 4's existing `if let telemetry { sample + capture }` blocks (reference for emission style).
-- DO NOT read transformer block source. DO NOT read VAE source.
-
-**Tasks**:
-1. Identify the 3 `for stepIdx in` loops + 1 `transformer.forwardKVExtract` one-shot by grep. **F5: there are exactly 3 loops + 1 one-shot, NOT 4 loops.** If grep finds different counts, STOP and report.
-2. For each of the **3 loops** (`imageToImageKVCached`, `imageToImageFullRecompute`, `textToImage`):
-   - Immediately BEFORE the `for stepIdx in …` line: emit `denoiseLoopStart(variant:, totalSteps:, latentShape:, latentDtype:, initialLatentStat:)`.
-   - At the TOP of the loop body: add `let telemetry = currentTelemetry()` — **exactly one lock acquisition per step**. All stat samples within the body use this cached optional via `if let telemetry { ... }`.
-   - At the BOTTOM of each step body (after `noisePred` is computed AND `scheduler.step` has run): if `let telemetry`, sample `latentBeforeStat`, `noisePredStat`, `latentAfterStat`, then emit `.denoiseStepComplete(variant:, stepIndex:, totalSteps:, sigma:, timestep:, latentBeforeStat:, noisePredStat:, latentAfterStat:, kvCacheLayerCount:, kvCacheHit:, durationSeconds:)`. **Note: `sigma` and `timestep` are `Float`, NOT `Double` (iter-02 HD6).**
-   - Immediately after the loop closing brace: emit `denoiseLoopEnd(variant:, totalSteps:, completedSteps:, finalLatentStat:, durationSeconds:)`.
-3. For the **KVExtractStep0 one-shot** (single non-loop call to `transformer.forwardKVExtract(...)`): emit a triplet of events around the call (denoiseLoopStart with totalSteps:1 + denoiseStepComplete with stepIndex:0/totalSteps:1 + denoiseLoopEnd with totalSteps:1/completedSteps:1). The one-shot is allowed up to 3 `currentTelemetry()` calls (one per event); the once-per-step discipline only applies to in-loop bodies.
-4. **`kvCacheLayerCount` / `kvCacheHit` policy (Q7):**
-   - `textToImage`: both `nil`.
-   - `imageToImageKVExtractStep0`: layerCount = `kvCache.layerCount`, hit = `nil`.
-   - `imageToImageKVCached`: layerCount = `kvCache.layerCount`, hit = `true` (hardcoded; false-detection is a follow-up).
-   - `imageToImageFullRecompute`: both `nil`.
-5. **NumericalAnomaly retrofit:** Inside each loop's `denoiseStepComplete` emission, AFTER the `capture(.denoiseStepComplete(...))` call but within the same `if let telemetry` block, add the anomaly loop for each of the 3 stats (`latentBeforeStat`, `noisePredStat`, `latentAfterStat`) — `for kind in Flux2AnomalyDetector.anomalies(in: <stat>, checkZeroLatent: true) { await telemetry.capture(.numericalAnomaly(phase: "denoiseStepComplete", kind: kind, stepIndex: stepIdx, stat: <stat>)) }`. Same retrofit on the KVExtractStep0 one-shot.
-6. **Sortie 3 in-loop pre-throw guards refactor:** Sortie 3 wired errorThrown via `if let telemetry = currentTelemetry() { ... }` inside the existing loop bodies. After this sortie introduces `let telemetry = currentTelemetry()` at the top of each loop body, refactor the in-loop pre-throw guards to reuse the cached `telemetry` binding rather than calling `currentTelemetry()` again. errorThrown emission count must remain unchanged.
-7. `durationSeconds` per step measured from `Date()` at top of loop body to `Date()` just before `telemetry.capture`. Capture is OUTSIDE the timing window.
-8. **DO NOT** call `currentTelemetry()` more than once per step body (the KVExtractStep0 one-shot's 3-event triplet is an explicit exception, allowed by task 3).
-
-**Exit criteria** (sortie runs all of these before commit, using anchored grep patterns):
-- [ ] `grep -c '\.denoiseStepComplete(' Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns **exactly 4** (3 in-loop + 1 one-shot).
-- [ ] `grep -c '\.denoiseLoopStart(' ...` returns **exactly 4**.
-- [ ] `grep -c '\.denoiseLoopEnd(' ...` returns **exactly 4**.
-- [ ] `grep -c "for stepIdx in" ...` returns **exactly 3** (no loops added or lost).
-- [ ] `grep -n "transformer\..*forwardKVExtract" ...` returns exactly 1, with the KVExtractStep0 triplet wrapped around it.
-- [ ] In each of the 3 loop bodies, `currentTelemetry()` appears EXACTLY ONCE (record line numbers in commit message).
-- [ ] Sortie 5's `numericalAnomaly` count increased by ~12 (3 stats × 4 sites = 12 new anomaly emission points).
-- [ ] Every `TuberiaTensorStat.sample(` call in `Flux2Pipeline.swift` is lexically inside an `if let telemetry` block.
-- [ ] `grep -c "errorThrown" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` unchanged from Sortie 5 baseline.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds.**
-- [ ] Commit message starts with `sortie 6:`.
-
----
-
-### Sortie 7a: MockTelemetryReporter + weight-load + denoise-step contract tests
-
-**Agent assignment**: sub-agent.
-
-**Entry criteria**:
-- [ ] Sortie 6 COMPLETED.
-
-**API surface verification (F9, F10)** — BEFORE writing test code:
-- `grep -nR "extension MLXArray\|public static func zeros" .spm/checkouts/mlx-swift/Source/MLX/` — confirm `MLXArray.zeros(_:type:)` is the correct API (static method).
-- `Package.swift` has `swift-tools-version: 6.2` — Swift 6 strict mode applies. Test files MUST use non-static helpers OR `Self.<helper>(...)` at every call site.
-- `TuberiaTensorStat` init order is `(shape, dtype, min, max, mean, std, hasNaN, hasInf)` — verified iter-02 against `/Users/stovak/Projects/SwiftTuberia/Sources/Tuberia/Telemetry/TuberiaTensorStat.swift`. Use this order.
-
-**Tasks**:
-1. **`Tests/TestHelpers/MockTelemetryReporter.swift`** (F8 — public type in the TestHelpers target):
-   ```swift
-   import Flux2Core
-   public actor MockTelemetryReporter: Flux2TelemetryReporter {
-       private var _events: [Flux2TelemetryEvent] = []
-       public init() {}
-       public func capture(_ event: Flux2TelemetryEvent) async { _events.append(event) }
-       public func events() -> [Flux2TelemetryEvent] { _events }
-       public func reset() { _events.removeAll() }
-   }
-   ```
-2. **`Tests/Flux2CoreTests/Flux2TelemetryWeightLoadHistogramTests.swift`**: exercise `Flux2WeightLoader.dtypeHistogram` against hand-built `[String: MLXArray]`. Use `MLXArray.zeros(shape, type: T.self)` (F9 — static method form). All private helpers non-static OR `Self.`-qualified (F10). Header includes `import TestHelpers` (F8). At least 4 tests: empty input, single dtype, mixed dtypes, scalar tensors.
-3. **`Tests/Flux2CoreTests/Flux2TelemetryDenoiseStepTests.swift`**: pure contract test. Construct synthetic events (`denoiseLoopStart` + 4× `denoiseStepComplete` + `denoiseLoopEnd`), push through `MockTelemetryReporter.capture`, assert event shape, monotone stepIndex 0-3, and latent chaining invariant (`latentAfterStat[N] == latentBeforeStat[N+1]`). **Use `Float` for sigma/timestep, not `Double` (HD6).**
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] 3 new files exist at the paths above.
-- [ ] `grep -n "public actor MockTelemetryReporter" Tests/TestHelpers/MockTelemetryReporter.swift` returns 1.
-- [ ] Both Flux2CoreTests files contain `import TestHelpers` (F8).
-- [ ] `grep "MLXArray.zeros" Tests/Flux2CoreTests/Flux2TelemetryWeightLoadHistogramTests.swift` returns matches; `grep "MLXArray(zeros" ...` returns nothing (F9).
-- [ ] All private helpers in both test files are either non-static or every call site uses `Self.` (F10). Record any exceptions in commit message.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds** with the new tests counted (record new total vs the pre-sortie baseline of 201/31).
-- [ ] Commit message starts with `sortie 7a:`.
-
----
-
-### Sortie 7b: KV-cache, anomaly, VAE-denorm contract tests
-
-**Agent assignment**: sub-agent (runs in parallel with Sortie 8 — disjoint files).
-
-**Entry criteria**:
-- [ ] Sortie 7a COMPLETED. `Tests/TestHelpers/MockTelemetryReporter.swift` exists.
-
-**Tasks** (same pattern as 7a — swift-testing, `import TestHelpers`, non-static helpers or `Self.`):
-1. `Tests/Flux2CoreTests/Flux2TelemetryKVCacheHitTests.swift` — Klein9BKV cohort: 4 step events; step 0 is `.imageToImageKVExtractStep0` with `kvCacheHit: nil`; steps 1-3 are `.imageToImageKVCached` with `kvCacheHit: true`; all share same `kvCacheLayerCount`. Plus textToImage cohort: 4 steps, all `kvCacheLayerCount: nil` and `kvCacheHit: nil`.
-2. `Tests/Flux2CoreTests/Flux2TelemetryAnomalyTests.swift` — 1 synthetic-event pair test (NaN at step 2 fires both `denoiseStepComplete` + `numericalAnomaly(.nan)`) + direct `Flux2AnomalyDetector.anomalies(in:)` unit tests for all 5 `AnomalyKind` branches (.nan, .inf, .outOfRange, .zeroLatent, .dtypeUnexpected) + 1 negative test.
-3. `Tests/Flux2CoreTests/Flux2TelemetryVAEDenormalizationTests.swift` — 1 test asserting exactly 1 `vaeBatchNormDenormalize` event and `afterStat.std != beforeStat.std`; 1 test asserting the trio order (vaeDecodeStart → vaeBatchNormDenormalize → vaeDecodeComplete).
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] 3 new files at the paths above.
-- [ ] All 3 files contain `import TestHelpers`.
-- [ ] All private helpers either non-static or `Self.`-qualified.
-- [ ] `grep "MockTelemetryReporter" Tests/Flux2CoreTests/Flux2Telemetry{KVCacheHit,Anomaly,VAEDenormalization}Tests.swift | wc -l` returns at least 3.
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds** with new tests counted.
-- [ ] Commit message starts with `sortie 7b:`.
-
----
-
-### Sortie 8: Lock-contention behavioral test (plain swift-testing — NO TSAN)
-
-**Agent assignment**: sub-agent (runs in parallel with Sortie 7b — disjoint files).
-
-**Entry criteria**:
-- [ ] Sortie 7a COMPLETED (for `MockTelemetryReporter` availability if needed; this sortie may also use a local mock).
-
-**Scope clarification (HD1 from iter-02 brief):** This sortie verifies the `OSAllocatedUnfairLock` seam under high concurrent pressure using **observable behavior** — no TSan, no `-enableThreadSanitizer YES`, no `make test-tsan` target, no special Makefile work, no standalone executable. The test runs under the regular `make test` target in CI. Lock-correctness claim is delegated to Apple's `OSAllocatedUnfairLock` API guarantees; Swift 6 strict concurrency covers the surrounding code.
-
-**Tasks**:
-1. **`Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift`** — use **swift-testing** (`@Test`, `#expect`, `@Suite`), consistent with the rest of `Flux2CoreTests`.
-2. Define a **local mock** inside the test file (do NOT import `MockTelemetryReporter` from TestHelpers; the lock-contention scope is intentionally self-contained).
-3. Define a `SeamUnderTest` mirror class with the same lock pattern as `Flux2Pipeline` (`OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>` + `withLock` setter/getter). This mirrors the production seam without requiring a full `Flux2Pipeline` instance (which would need model loads).
-4. Write 3 tests:
-   - **`testConcurrentSetAndGet`** — 100 setTelemetry calls cycling through 10 local mocks + 10 nil-setters + 100 currentTelemetry reads, all in a TaskGroup. Assert no crashes; final state is one of the mocks or nil (no garbage).
-   - **`testHighConcurrencyStress`** — 1000 setTelemetry/currentTelemetry interleaved calls under high contention. After the storm, assert setTelemetry visibility (last writer wins).
-   - **`testLastWriterWins`** — sequential setTelemetry calls (3 different mocks). Assert `currentTelemetry()` returns the most-recent mock.
-5. NO Makefile changes. The tests run under `make test`.
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] `Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` exists.
-- [ ] `grep -c "import Testing" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 1.
-- [ ] `grep -c "import XCTest" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 0 (no XCTest; we use swift-testing).
-- [ ] `grep -c "OSAllocatedUnfairLock" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns at least 1 (SeamUnderTest mirror).
-- [ ] `grep -c "import TestHelpers" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 0 (local mock per plan).
-- [ ] `Makefile` is UNCHANGED — `git diff --stat Makefile` is empty.
-- [ ] `grep -c "test-tsan\|enableThreadSanitizer" Makefile Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 0 (no TSan anywhere).
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds** with the 3 new lock-contention tests counted.
-- [ ] Commit message starts with `sortie 8:` and notes "plain swift-testing, no TSan per project policy."
-
----
-
-### Sortie 7c: Baseline overhead test (ARM64 hardware, runs alone)
-
-**Agent assignment**: sub-agent, **ARM64 hardware required**.
-
-**Entry criteria**:
-- [ ] Sortie 6 COMPLETED.
-- [ ] Sorties 7a, 7b, 8 COMPLETED.
-- [ ] Agent has access to ARM64 Apple Silicon hardware.
-
-**Tasks**:
-1. Add `Tests/Flux2CoreTests/Flux2TelemetryNoopOverheadTests.swift`.
-2. **Mocked-transformer rig (Q10):** build a constant-time CPU-spin "transformer" stub (~1.9 ms/step or whatever makes the bounds non-trivially measurable). This is the iter-02 HD4 lesson: a no-work baseline makes the +1%/+5% bounds structurally impossible; the stub provides the missing constant work that the production loop has via the real MLX transformer.
-3. Use a `SeamUnderTest` mirror (same pattern as Sortie 8 but for the per-step emission shape, not just the lock). Run 3 cohorts × 20 iterations × 20 steps:
-   - Cohort A: `setTelemetry(nil)` — baseline (no telemetry at all). Includes the CPU-spin stub.
-   - Cohort B: `setTelemetry(NoopFlux2TelemetryReporter())` — guard passes but capture is a no-op. Includes the CPU-spin stub.
-   - Cohort C: `setTelemetry(MockTelemetryReporter())` — full event recording. Includes the CPU-spin stub.
-4. Take wall-clock median per cohort via `ContinuousClock`.
-5. Assert `medianB <= medianA * 1.01` (+1% Noop overhead bound).
-6. Assert `medianC <= medianA * 1.05` (+5% Mock overhead bound).
-7. Output a single stdout line: `OVERHEAD_NOOP_PCT=<X> OVERHEAD_MOCK_PCT=<Y>` for Sortie 9's PR description.
-8. **Scope caveat to document in commit message:** this test measures lock + capture + actor-dispatch overhead. It does NOT measure `TuberiaTensorStat.sample()` per-step cost (the stat is pre-allocated and reused across the timed cohort). This is consistent with Q10's "constant-time transformer stub" intent but worth documenting.
-9. **CI flakiness mitigation (iter-02 TEST_CLEANUP_REPORT.md recommendation):** gate the test on a `CI` env var so it does not flake on loaded CI runners:
-   ```swift
-   @Test("Noop overhead ≤ 1% over baseline; Mock overhead ≤ 5% over baseline")
-   func testOverhead() async throws {
-       if ProcessInfo.processInfo.environment["CI"] != nil {
-           // Timing-sensitive bounds are unreliable on loaded CI runners.
-           // The test runs locally for the public-contract claim; CI skips.
-           return
-       }
-       // ... actual test ...
-   }
-   ```
-   Document in the commit message that the test is locally-gated, and that PR descriptions cite the local numbers.
-
-**Exit criteria** (sortie runs all of these before commit):
-- [ ] `Tests/Flux2CoreTests/Flux2TelemetryNoopOverheadTests.swift` exists.
-- [ ] CI-skip gate is present (verify by grep for `ProcessInfo.processInfo.environment\["CI"\]` or equivalent).
-- [ ] **`make build` succeeds.**
-- [ ] **`make test` succeeds** — when run locally (no `CI` env var), the overhead bounds pass; when run with `CI=1`, the test is a no-op.
-- [ ] Two clean back-to-back local `make test` runs produce `OVERHEAD_NOOP_PCT` values within 0.5 percentage points of each other (record both in commit message).
-- [ ] Commit message starts with `sortie 7c:` and includes both overhead numbers + the CI-gate explanation.
-
----
-
-### Sortie 9: Release — PR, tag next minor release version, publish for Vinetas pin
-
-**Agent assignment**: supervising agent only.
-
-**Entry criteria**:
-- [ ] Sorties 7a, 7b, 8, 7c all COMPLETED.
-- [ ] `make build` + `make test` green on `instrumentation/03`.
-
-**Tasks**:
-1. Push `instrumentation/03` and open a PR against `main` of `intrusive-memory/flux-2-swift-mlx`.
-2. PR description MUST include:
-   - Link to `REQUIREMENTS-instrumentation.md` (root).
-   - Link to the iter-02 brief at `docs/incomplete/silicon-stethoscope-02/OPERATION_SILICON_STETHOSCOPE_02_BRIEF.md` (with the post-rollback addendum that drops TSan).
-   - `OVERHEAD_NOOP_PCT` / `OVERHEAD_MOCK_PCT` from Sortie 7c (local-machine numbers; CI skips the test).
-   - **Lock-correctness claim**: cites Apple's `OSAllocatedUnfairLock` formal guarantees + Swift 6 strict concurrency + the 3 contention tests from Sortie 8. Explicitly notes that TSan is out of scope per project policy.
-   - Explicit note: **SwiftTuberia ≥ 0.7.0** is required.
-   - Note on `pipelineInit` / `schedulerConfigured` `Task{}` caveat (F7): hosts should call `setTelemetry()` before first generation to receive these events.
-   - Note on `pipelineDispose(model: String)` erratum vs REQUIREMENTS §3.1 line 115 (HD2).
-3. Wait for CI green; address review feedback.
-4. Merge to `main`.
-5. Bump to our next minor release version (additive change). Tag the merge commit.
-6. Create GitHub release. Note in release body: "SwiftVinetas should pin flux-2-swift-mlx ≥ <new-tag>."
+1. Read the live event surface in `/Users/stovak/Projects/pixart-swift-mlx/Sources/PixArtBackbone/Telemetry/PixArtTelemetryEvent.swift` and `PixArtTelemetryReporter.swift`. These are the source of truth.
+2. Read every actual emission site by grepping `setTelemetry|currentTelemetry|capture(.` across `/Users/stovak/Projects/pixart-swift-mlx/Sources/PixArtBackbone/*.swift`.
+3. Read the existing telemetry tests in `/Users/stovak/Projects/pixart-swift-mlx/Tests/PixArtBackboneTests/PixArtTelemetry*.swift` and `MockReporter.swift` to confirm the contract the tests assert.
+4. Overwrite `/Users/stovak/Projects/pixart-swift-mlx/REQUIREMENTS-instrumentation.md` with a slim minimal-boundary spec mirroring the structure of `/Users/stovak/Projects/flux-2-swift-mlx/REQUIREMENTS-instrumentation.md`. The new doc MUST:
+   - State up-front that pixart is a *backbone*, not a pipeline (it does not own pipeline lifecycle, scheduler config, denoise loop, VAE decode, or cancellation — those live in SwiftTuberia's `DiffusionPipeline`).
+   - Document the actual public event cases (`weightLoadComplete`, `weightUnloadComplete`, `recipeValidated`, `recipeValidationFailed`, `numericalAnomaly`, `errorThrown`) with their exact arg labels and nested enums.
+   - Document the setTelemetry seam on `PixArtDiT` and the `telemetry:` parameter on `PixArtRecipe.validate(...)` / `PixArtFP16Recipe.validate(...)`.
+   - Cross-link to flux's REQUIREMENTS-instrumentation.md and AGENTS.md §11.
+   - Include the "Out of scope" section: per-block DiT events, per-attention-head events, internal kernel detail (the patchEmbedComplete / captionProjectionComplete / siluWorkaroundExecuted / etc. that were in the stale draft but never built).
 
 **Exit criteria**:
-- [ ] PR is merged to default branch.
-- [ ] A new minor-version git tag exists on the merge commit.
-- [ ] GitHub release is published.
-- [ ] PR description contains overhead numbers, lock-correctness claim, and SwiftVinetas-pin note.
+- [ ] `/Users/stovak/Projects/pixart-swift-mlx/REQUIREMENTS-instrumentation.md` rewritten; `wc -c REQUIREMENTS-instrumentation.md` reports less than 11000 bytes (current is 21,678 bytes; target is ~6–9 KB).
+- [ ] Every event case named in the new doc grep-matches a `case` declaration in `PixArtTelemetryEvent.swift`.
+- [ ] Every emission site named in the new doc grep-matches an actual `await telemetry?.capture(.…)` or `Task { await telemetry.capture(…) }` call in pixart source.
+- [ ] The doc contains a cross-reference to `flux-2-swift-mlx/AGENTS.md §11` and to flux's REQUIREMENTS doc.
+- [ ] `cd /Users/stovak/Projects/pixart-swift-mlx && make build` succeeds (sanity — doc-only edit, but verify no accidental code damage).
+- [ ] `cd /Users/stovak/Projects/pixart-swift-mlx && make test` succeeds.
 
 ---
 
-## Resolved Questions
+## Work Unit B — Flux2 boundary telemetry
 
-| # | Decision | Where it lives |
-|---|----------|----------------|
-| Q1 | SwiftTuberia v0.7.0 latest released — pin `from: "0.7.0"` | Sortie 1 task 1 |
-| Q2 | Explicit `if let telemetry { ... }` guard, no @autoclosure | Every emission sortie |
-| Q3 | VAE class gets NO setter; events fire from inside Flux2Pipeline | Sortie 2 task 4 (exit criterion: 0 matches in VAE/) |
-| Q4 | Explicit `public func dispose() async`; `deinit` emits nothing | Sortie 3 task 6 |
-| Q5 | Encoder-family naming: mistral / qwen3 (training only if Flux2Pipeline calls it; iter-02 confirmed it doesn't) | Sortie 4 task 1 |
-| Q6 | Anomaly detector helper in flux, not SwiftTuberia | Sortie 5 task 4 |
-| Q7 | kvCacheHit policy: nil for t2i / fullRecompute / extractStep0; true for kvCached | Sortie 6 task 4 |
-| Q8 | MockTelemetryReporter in `Tests/TestHelpers/`; tests use synthetic events (no real weights) | Sortie 7a |
-| Q9 | **DROPPED** (was: TSan via classic XCTest). No TSan in iter-03. | Sortie 8 reframed as plain swift-testing lock-contention test |
-| Q10 | Mocked-transformer rig with calibrated CPU-spin baseline (HD4) | Sortie 7c |
-| Q11 | Repo remote: `intrusive-memory/flux-2-swift-mlx`, default `main` | Sortie 9 |
+Implements the slim event surface in `REQUIREMENTS-instrumentation.md` for flux, using pixart as the canonical pattern source. Most sorties touch `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift`, so they are inherently sequential within this work unit (refine-parallelism pass will confirm).
+
+### Sortie B1: Add SwiftTuberia dependency
+
+**Priority**: 48.5 — foundation; transitively blocks all 15 downstream B sorties. Must execute first within Work Unit B.
+
+**Entry criteria**:
+- [ ] First sortie in Work Unit B — no prerequisites.
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Package.swift` for the exact SwiftTuberia spec string (`url:` + version constraint).
+2. Add the matching `.package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.0"))` entry to `Package.swift` in this repo, keeping the existing `sibling()`-pattern dep declarations intact.
+3. Add `.product(name: "Tuberia", package: "SwiftTuberia")` to the `Flux2Core` target's `dependencies` array.
+4. Confirm the version is available by checking SwiftTuberia's published releases (`gh release list -R intrusive-memory/SwiftTuberia --limit 5`).
+
+**Exit criteria**:
+- [ ] `grep "intrusive-memory/SwiftTuberia" Package.swift` returns exactly one match.
+- [ ] `grep 'product(name: "Tuberia"' Package.swift` returns exactly one match inside the `Flux2Core` target block.
+- [ ] `make build` succeeds (proves the resolved dep compiles in this project).
+- [ ] `make test` succeeds (existing tests still green).
+
+---
+
+### Sortie B2: Define `Flux2TelemetryEvent` and `Flux2TelemetryReporter`
+
+**Priority**: 46.75 — establishes the public event-surface contract used by every subsequent emission sortie.
+
+**Entry criteria**:
+- [ ] B1 complete: `Tuberia` product visible to `Flux2Core` target.
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Sources/PixArtBackbone/Telemetry/PixArtTelemetryEvent.swift` and `PixArtTelemetryReporter.swift` as the pattern reference.
+2. Create directory `Sources/Flux2Core/Telemetry/`.
+3. Create `Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` defining `public enum Flux2TelemetryEvent: Sendable` with exactly the cases enumerated in [REQUIREMENTS-instrumentation.md §3.1](REQUIREMENTS-instrumentation.md#31-flux2telemetryeventswift): `pipelineInit`, `pipelineDispose`, `weightLoadComplete`, `textEncodeComplete`, `schedulerConfigured`, `denoiseLoopStart`, `denoiseLoopEnd`, `vaeDecodeComplete`, `numericalAnomaly`, `generationCancelled`, `errorThrown`. Include the five nested enums: `WeightComponent` (6 cases), `DenoiseVariant` (4 cases), `AnomalyPhase` (3 cases), `AnomalyKind` (4 cases), `ErrorPhase` (13 cases).
+4. Create `Sources/Flux2Core/Telemetry/Flux2TelemetryReporter.swift` defining `public protocol Flux2TelemetryReporter: Sendable` with `func capture(_ event: Flux2TelemetryEvent) async` and `public struct NoopFlux2TelemetryReporter: Flux2TelemetryReporter`.
+5. Verify SwiftTuberia surface: grep `/Users/stovak/Projects/pixart-swift-mlx/.build` or the resolved checkout for `TuberiaTensorStat` to confirm the public symbol name and import path before writing `import Tuberia`.
+
+**Exit criteria**:
+- [ ] File `Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` exists and parses.
+- [ ] File `Sources/Flux2Core/Telemetry/Flux2TelemetryReporter.swift` exists and parses.
+- [ ] `grep -c "^    case " Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` returns at least 41 (11 top-level cases + 6 + 4 + 3 + 4 + 13 nested = 41 minimum).
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B3: Wire `setTelemetry` seam on every top-level type
+
+**Priority**: 45.25 — establishes the lock-and-emit pattern reused by every emission sortie; touches 7 files, highest single-sortie risk in the foundation layer.
+
+**Entry criteria**:
+- [ ] B2 complete: `Flux2TelemetryEvent` and `Flux2TelemetryReporter` defined.
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Sources/PixArtBackbone/PixArtDiT.swift` lines 37–48 for the exact `OSAllocatedUnfairLock` + `setTelemetry` + `currentTelemetry` pattern.
+2. Apply the same 8-line pattern to each of these files (locating the class declaration first via grep, treating any embedded line numbers in the requirements doc as advisory):
+   - `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` (class `Flux2Pipeline`)
+   - `Sources/Flux2Core/Loading/KleinTextEncoder.swift` (class `KleinTextEncoder`)
+   - `Sources/Flux2Core/Loading/DevTextEncoder.swift` (class `DevTextEncoder`)
+   - `Sources/Flux2Core/Loading/MistralEncoder.swift` (class `Flux2TextEncoder` — grep to confirm class name)
+   - `Sources/Flux2Core/Scheduler/FlowMatchEulerScheduler.swift` (class `FlowMatchEulerScheduler`)
+   - `Sources/Flux2Core/Loading/WeightLoader.swift` (class `Flux2WeightLoader` — grep to confirm)
+   - `Sources/Flux2Core/Transformer/Flux2Transformer.swift` (class `Flux2Transformer2DModel` — grep to confirm)
+3. In `Flux2Pipeline.setTelemetry`, after storing the reporter locally, propagate it to every owned subcomponent that has its own setter: text encoders (whichever is non-nil), scheduler, weight loader, transformer. Match by Optional chaining: `kleinEncoder?.setTelemetry(reporter)`, etc.
+
+**Exit criteria**:
+- [ ] `grep -l "OSAllocatedUnfairLock<(any Flux2TelemetryReporter)?>" Sources/Flux2Core/**/*.swift` returns exactly 7 files (the 7 types above).
+- [ ] `grep -c "func setTelemetry" Sources/Flux2Core/**/*.swift` totals exactly 7.
+- [ ] `Flux2Pipeline.setTelemetry` body contains at least 5 propagation calls (4 subcomponent types + weight loader; exact count depends on whether Flux2TextEncoder is a separate stored property or shares one).
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B4: Wire pipeline lifecycle events (`pipelineInit`, `pipelineDispose`)
+
+**Priority**: 17.5 — simple two-emit pair; gates B12.
+
+**Entry criteria**:
+- [ ] B3 complete: `Flux2Pipeline.setTelemetry` and `currentTelemetry` exist.
+
+**Tasks**:
+1. At the end of `Flux2Pipeline.init`, emit `.pipelineInit(model:quantization:vaeConfig:)` via `Task { await currentTelemetry()?.capture(...) }` (init is sync; the Task{} caveat is documented in REQUIREMENTS-instrumentation.md §3.1). Populate `model` from whichever enum/string identifies the model variant; populate `quantization` as a single short string (e.g. `"klein4b-q4-g64"`); populate `vaeConfig` from the VAE configuration.
+2. Add a new method `public func dispose() async` to `Flux2Pipeline` that emits `.pipelineDispose` via `await currentTelemetry()?.capture(.pipelineDispose)`. The method does not need to free resources — telemetry only.
+
+**Exit criteria**:
+- [ ] `grep "capture(.pipelineInit" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 1 match.
+- [ ] `grep "capture(.pipelineDispose" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 1 match.
+- [ ] `grep "public func dispose() async" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 1 match.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B5: Wire `weightLoadComplete` events
+
+**Priority**: 19.25 — multi-file (6+) and depends on MLX param-count API discovery; only sortie outside Pipeline.swift that can run in parallel with the Pipeline emission stream (B6–B10).
+
+**Entry criteria**:
+- [ ] B3 complete (subcomponent setters exist).
+
+**Tasks**:
+1. Locate weight-loading sites by *actual* symbol — line numbers in REQUIREMENTS are advisory (P3) and the verbose names in the prior draft do not match the codebase. The real entry points are:
+   - `Sources/Flux2Core/Loading/KleinTextEncoder.swift` → `public func load(from:)` (line ~46)
+   - `Sources/Flux2Core/Loading/DevTextEncoder.swift` → `public func load(from:)` (line ~38)
+   - `Sources/Flux2Core/Loading/MistralEncoder.swift` → `public func load(from:)` (line ~40) — class `Flux2TextEncoder`
+   - `Sources/Flux2Core/Loading/TrainingTextEncoder.swift` → `public func load()` (lines ~40 and ~55, two overrides)
+   - `Sources/Flux2Core/Loading/WeightLoader.swift` → `public static func loadWeights(from:)` (two overloads, lines ~14 and ~42) and `public static func loadQuantizedTransformer(...)` (line ~694)
+   - `Sources/Flux2Core/LoRA/LoRAAdapter.swift` → `public func loadLoRA(_ config:)` (line ~69) — primary LoRA entry; `LoRALoader.load()` and `LoRAConfig.load(from:)` are helpers, do not emit there.
+   Confirm each site via `grep -n "func load" Sources/Flux2Core/Loading/ Sources/Flux2Core/LoRA/` before editing.
+2. Around each load function (success path only), capture start time at the function entry and emit `.weightLoadComplete(component: <enum>, paramCount: <int>, durationSeconds: <double>)` immediately before the function returns. `component` maps as: `textEncoderKlein` (Klein) / `textEncoderDev` (Dev) / `textEncoderMistral`-or-`textEncoderTraining` (Mistral and TrainingTextEncoder — grep `Flux2TelemetryEvent.swift` for the actual case name from B2) / `transformer` (WeightLoader.loadQuantizedTransformer + transformer-targeted `loadWeights`) / `vae` (vae-targeted `loadWeights`) / `lora` (LoRAAdapter.loadLoRA).
+3. Use `Date().timeIntervalSince(start)` for `durationSeconds` (cheap; matches the pattern used by pixart at `PixArtDiT.apply(weights:)`).
+4. `paramCount` for text encoders: count parameters in the loaded module (use `.numParameters()` if available on MLX `Module`, else `parameters.flattenedValues().reduce(0) { $0 + $1.size }`). For transformer: same. For VAE: same. For LoRA: count adapter weights.
+
+**Exit criteria**:
+- [ ] `grep -rc "capture(.weightLoadComplete" Sources/Flux2Core/` (summed across files) returns at least 5 (Klein + Dev + Mistral/Training + transformer + VAE); LoRA brings it to 6 if the LoRAAdapter site is wired.
+- [ ] Each emit site populates `component:`, `paramCount:`, `durationSeconds:` (verify by reading the emit lines; no `0` placeholder for `paramCount`).
+- [ ] Every `WeightComponent` enum case declared in B2 is referenced at least once across the emit sites, OR documented in a code comment as "deferred to follow-up iteration" if no current load entry point exists for it.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B6: Wire `textEncodeComplete` events
+
+**Priority**: 20.75 — gates B10 (anomaly check uses textEncode-phase stat) and B12.
+
+**Entry criteria**:
+- [ ] B3 complete.
+
+**Tasks**:
+1. Locate text-encoder forward call sites in `Flux2Pipeline.swift` via `grep -n "kleinEncoder\?\.encode\|devEncoder\?\.encode\|flux2TextEncoder\?\.encode\|textEncoder\?\.encode" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift`.
+2. Around each call, capture start time and emit `.textEncodeComplete(encoderName: <string>, finalPromptLength: <int>, embeddingStat: TuberiaTensorStat.sample(embedding), durationSeconds: <double>)`. `encoderName` derived from which encoder branch was taken (e.g. `"klein"`, `"dev"`, `"mistral"`).
+
+**Exit criteria**:
+- [ ] `grep -c "capture(.textEncodeComplete" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns at least 1 (more if multiple encoder branches each emit).
+- [ ] Each emit site samples `TuberiaTensorStat.sample(...)` exactly once on the embedding tensor.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B7: Wire `schedulerConfigured` event
+
+**Priority**: 17.5 — single emit site; required for B12 boundary-events test.
+
+**Entry criteria**:
+- [ ] B3 complete.
+
+**Tasks**:
+1. Locate the call site `scheduler.setTimesteps(...)` in `Flux2Pipeline.swift` via grep.
+2. Immediately after the call returns, emit `.schedulerConfigured(numInferenceSteps: <int>, shift: <float>, imageSeqLen: <int>, mu: <float>)`. The `mu` value is computed by `FlowMatchEulerScheduler.computeEmpiricalMu(imageSeqLen:numSteps:)` — read whatever the scheduler stores it as after `setTimesteps`.
+
+**Exit criteria**:
+- [ ] `grep -c "capture(.schedulerConfigured" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 1.
+- [ ] All four args populated with non-placeholder values (no `0` literals unless that's the actual runtime value).
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B8: Wire `denoiseLoopStart` / `denoiseLoopEnd` at all four variant sites
+
+**Priority**: 22.0 — highest-priority emission sortie; 4 emit pairs in 1774-line Pipeline.swift; gates B10 (anomaly) and B13 (anomaly test).
+
+**Entry criteria**:
+- [ ] B3 complete.
+
+**Tasks**:
+1. Locate the four denoise variant sites via `grep -n "for stepIdx in\|forwardKVExtract" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift`. There are three `for stepIdx in ...` loops (T2I, I2I KV-cached, I2I full-recompute) plus one non-loop `forwardKVExtract` call (I2I KV-extract step 0). Total: 4 emit pair sites.
+2. At each site:
+   - Before entering the loop / call: capture the loop start time; emit `.denoiseLoopStart(variant: .<variant>, totalSteps: <int>, latentShape: <[Int]>, latentDtype: <string>)`. For the KV-extract one-shot, `totalSteps: 1`.
+   - After the loop exits (success or cancellation `break`) / after the KV-extract call returns: sample `finalLatentStat` and emit `.denoiseLoopEnd(variant:, totalSteps:, completedSteps: <int>, finalLatentStat:, durationSeconds:)`.
+3. Inside each loop body, fetch `currentTelemetry()` exactly once at the top of the body and cache it in a local — but per iteration-03, **do not emit per-step events**. The cached lookup is for the Loop Start/End emission only, not for per-step stat sampling.
+
+**Exit criteria**:
+- [ ] `grep -c "capture(.denoiseLoopStart" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 4.
+- [ ] `grep -c "capture(.denoiseLoopEnd" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 4.
+- [ ] All four `DenoiseVariant` enum cases referenced at least once across the emit sites: `textToImage`, `imageToImageKVExtractStep0`, `imageToImageKVCached`, `imageToImageFullRecompute`.
+- [ ] No `denoiseStepComplete` emit anywhere (per iteration-03, that event does not exist in this iteration).
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B9: Wire `vaeDecodeComplete` event
+
+**Priority**: 20.5 — single emit site but gates B10 (anomaly uses pixel stat) and B12.
+
+**Entry criteria**:
+- [ ] B3 complete.
+
+**Tasks**:
+1. Locate the VAE decode completion site via `grep -n "postprocessVAEOutput\|vae\.decode" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift`.
+2. After the decode returns (success path), sample the pixel tensor and emit `.vaeDecodeComplete(pixelStat: TuberiaTensorStat.sample(pixels), outputDims: <[Int]>, durationSeconds: <double>)`.
+
+**Exit criteria**:
+- [ ] `grep -c "capture(.vaeDecodeComplete" Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` returns exactly 1.
+- [ ] Emit site is in the success path (not in an error-handling branch).
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B10: Add anomaly-check helper and wire `numericalAnomaly` side-channel
+
+**Priority**: 19.0 — coordinates across the three stat-carrying emit sites; touches new helper file plus three edits in Pipeline.swift.
+
+**Entry criteria**:
+- [ ] B6, B8, B9 complete (the three boundary emit sites that carry `TuberiaTensorStat` exist).
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Sources/PixArtBackbone/PixArtDiT.swift` around lines 271+ for the reference helper that maps a `TuberiaTensorStat` to optional `AnomalyKind`.
+2. Add an internal helper in `Sources/Flux2Core/Telemetry/` (new file `AnomalyCheck.swift` or as a private function on `Flux2TelemetryEvent`) that returns `AnomalyKind?` given a `TuberiaTensorStat`. Logic:
+   - `nan` if `stat.hasNaN`
+   - `inf` if `stat.hasInf`
+   - `outOfRange` if `abs(stat.max) > TuberiaTensorStat.defaultOutOfRangeThreshold` (verify the actual symbol name on the SwiftTuberia type before referencing)
+   - `zeroLatent` if `abs(stat.mean) < 1e-6 && stat.std < 1e-6`
+   - `nil` otherwise.
+3. At each of the three boundary emit sites (textEncodeComplete in B6, denoiseLoopEnd in B8, vaeDecodeComplete in B9), after sampling the stat and before/after the primary emit, call the helper and — if it returns non-nil — emit `.numericalAnomaly(phase: <.textEncode/.denoiseLoopEnd/.vaeDecode>, kind: <kind>, stat: <same stat>)` alongside the primary event.
+
+**Exit criteria**:
+- [ ] Anomaly-check helper exists: either `Sources/Flux2Core/Telemetry/AnomalyCheck.swift` exists AND `grep "func .*AnomalyKind?" Sources/Flux2Core/Telemetry/AnomalyCheck.swift` returns at least 1; or a private function in `Flux2TelemetryEvent.swift` with the same signature shape (`grep "private (static )?func .*AnomalyKind?" Sources/Flux2Core/Telemetry/Flux2TelemetryEvent.swift` returns at least 1). Choose one location and document the choice in a 1-line code comment.
+- [ ] `grep -rc "capture(.numericalAnomaly" Sources/Flux2Core/` (summed) returns exactly 3 (one alongside each of the three boundary stat-carrying events).
+- [ ] All three `AnomalyPhase` enum cases referenced: `textEncode`, `denoiseLoopEnd`, `vaeDecode`.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B11: Wire `errorThrown` and `generationCancelled` side-channels
+
+**Priority**: 19.25 — tied with B5 for largest emit-site count (20 throws across 4 files); cancellation portion is contingent on grep result (currently zero hits — likely a no-op for cancellation, see Open Questions).
+
+**Entry criteria**:
+- [ ] B3 complete.
+
+**Tasks**:
+1. Locate every `throw Flux2Error.…` site via `grep -rn "throw Flux2Error\." Sources/Flux2Core/`. As of 2026-05-13 the count is **20 sites across 4 files** (Pipeline.swift: 14, MistralEncoder.swift: 3, KleinTextEncoder.swift: 2, DevTextEncoder.swift: 1). Re-run the grep to confirm the current count before editing — REQUIREMENTS-instrumentation.md only enumerated 14 Pipeline.swift sites; the other 11 are equally important (P3).
+2. Immediately before each throw, emit `.errorThrown(phase: <ErrorPhase>, errorDescription: <string>)`. Map each `Flux2Error.<case>` to the matching `ErrorPhase.<case>`. The exhaustive mapping is in the enum definitions in `Flux2TelemetryEvent.swift`. For the throws in `MistralEncoder.swift` / `KleinTextEncoder.swift` / `DevTextEncoder.swift` (encoder load/forward errors), the `ErrorPhase` likely maps to `.textEncoderLoad` or similar — verify the enum case from B2 covers it; if not, file an open question rather than inventing a case.
+3. **Cancellation contingency.** Run `grep -rn "Task.isCancelled\|CancellationError\|checkCancellation\|cancellationCheck" Sources/Flux2Core/`. As of 2026-05-13 this returns **zero hits** — no cancellation-check sites currently exist in the codebase. Therefore:
+   - **Do NOT add new cancellation-check call sites in this sortie.** That is out of scope for telemetry wiring.
+   - If the grep still returns zero, emit no `.generationCancelled` events; note in a single-line code comment near the denoise loops (`// generationCancelled emission deferred: no cancellation-check sites in pipeline as of <date>`).
+   - If the grep now returns non-zero (cancellation was added in parallel work), wire `.generationCancelled(stepIndex: <Int?>)` at each site: `nil` for pre-loop sites, `stepIdx` for in-loop sites.
+
+**Exit criteria**:
+- [ ] `grep -rc "throw Flux2Error\." Sources/Flux2Core/` (summed) equals `grep -rc "capture(.errorThrown" Sources/Flux2Core/` (summed) — every throw is preceded by an emit. As of 2026-05-13, both should report 20.
+- [ ] Cancellation: either (a) `grep -rc "capture(.generationCancelled" Sources/Flux2Core/` matches the cancellation-site count found in task 3, with at least one `nil` and one `stepIdx` value; OR (b) the cancellation grep returns zero and a deferral comment is present near the denoise loops.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds.
+
+---
+
+### Sortie B12: Add `MockReporter` test helper and `Flux2TelemetryBoundaryEventsTests`
+
+**Priority**: 17.75 — establishes the test harness (MockReporter) reused by B13–B15; gates the four downstream test sorties.
+
+**Entry criteria**:
+- [ ] B4–B11 complete (full emission surface is wired).
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Tests/PixArtBackboneTests/MockReporter.swift` as the canonical pattern (37 lines; thread-safe array of captured events behind a lock).
+2. Add `Tests/TestHelpers/MockFlux2TelemetryReporter.swift` (or analogous file under `TestHelpers` target) implementing `Flux2TelemetryReporter` with a `var captured: [Flux2TelemetryEvent]` and a `withLock`-guarded append. Follow the exact threading discipline of pixart's MockReporter.
+3. Create `Tests/Flux2CoreTests/Flux2TelemetryBoundaryEventsTests.swift` using Swift Testing (`@Test`, `#expect`). Include `import TestHelpers`. Run a single mocked T2I generation (use whatever fixtures `Flux2CoreTests` already has for config-only testing — no GPU, no model weights) and assert the event sequence:
+   1. `pipelineInit` (1×)
+   2. 3+ × `weightLoadComplete` (one per loaded component)
+   3. `textEncodeComplete` (1×)
+   4. `schedulerConfigured` (1×)
+   5. `denoiseLoopStart` (1×)
+   6. `denoiseLoopEnd` (1×)
+   7. `vaeDecodeComplete` (1×)
+4. Verify the API surface of any unfamiliar MLX type before use (P5): if a test needs `MLXArray.zeros(_:type:)`, grep mlx-swift's source to confirm the static-method shape.
+
+**Exit criteria**:
+- [ ] `Tests/TestHelpers/MockFlux2TelemetryReporter.swift` exists; `grep -E "(class|struct|actor) MockFlux2TelemetryReporter" Tests/TestHelpers/MockFlux2TelemetryReporter.swift` returns 1.
+- [ ] `Tests/Flux2CoreTests/Flux2TelemetryBoundaryEventsTests.swift` exists; declares `import TestHelpers`; `grep -c "@Test" Tests/Flux2CoreTests/Flux2TelemetryBoundaryEventsTests.swift` returns at least 1.
+- [ ] `make test-core` succeeds.
+
+---
+
+### Sortie B13: Add `Flux2TelemetryAnomalyTests`
+
+**Priority**: 2.5 — leaf test sortie; can run in parallel with B14, B15 (sub-agent eligible — supervising agent handles build).
+
+**Entry criteria**:
+- [ ] B12 complete (MockReporter exists).
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Tests/PixArtBackboneTests/PixArtTelemetryAnomalyTests.swift` as the pattern.
+2. Create `Tests/Flux2CoreTests/Flux2TelemetryAnomalyTests.swift`. Inject a fake/mock noise predictor (or fixture latent) that returns a tensor containing one NaN. Assert that:
+   - The `denoiseLoopEnd` event's `finalLatentStat.hasNaN == true`.
+   - A `numericalAnomaly(phase: .denoiseLoopEnd, kind: .nan, ...)` fires alongside the `denoiseLoopEnd` event.
+   - The mock reporter contains both events in the expected order.
+
+**Exit criteria**:
+- [ ] `Tests/Flux2CoreTests/Flux2TelemetryAnomalyTests.swift` exists.
+- [ ] `make test-core` succeeds.
+
+---
+
+### Sortie B14: Add `Flux2TelemetryErrorPathTests`
+
+**Priority**: 2.5 — leaf test sortie; can run in parallel with B13, B15 (sub-agent eligible).
+
+**Entry criteria**:
+- [ ] B12 complete.
+
+**Tasks**:
+1. Create `Tests/Flux2CoreTests/Flux2TelemetryErrorPathTests.swift`. Force a `Flux2Error.invalidConfiguration` throw via configuration that fails validation (use whatever path is cheapest — likely a malformed config struct that triggers a pre-flight check).
+2. Assert: `errorThrown(phase: .invalidConfiguration, errorDescription: ...)` fires immediately before the throw is caught by the test harness.
+
+**Exit criteria**:
+- [ ] `Tests/Flux2CoreTests/Flux2TelemetryErrorPathTests.swift` exists.
+- [ ] `make test-core` succeeds.
+
+---
+
+### Sortie B15: Add `Flux2TelemetryLockContentionTests`
+
+**Priority**: 3.75 — leaf test sortie but elevated risk due to XCTest concurrency / Swift 6 strict mode (F10, F11); can run in parallel with B13, B14 (sub-agent eligible).
+
+**Entry criteria**:
+- [ ] B12 complete.
+
+**Tasks**:
+1. Read `/Users/stovak/Projects/pixart-swift-mlx/Tests/PixArtBackboneTests/PixArtTelemetryLockContentionTests.swift` (172 lines) as the canonical pattern.
+2. Create `Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` using **plain XCTest** (not swift-testing) per F11 / iteration-02 platform-issue carry-over: spawn N concurrent `setTelemetry` toggles plus a running denoise/forward harness; assert no data races and emissions reflect the most-recently-set reporter.
+3. Per F10 (Swift 6 strict mode): all private helpers must be non-static OR every call site must use `Self.` qualifier.
+
+**Exit criteria**:
+- [ ] `Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` exists.
+- [ ] File uses XCTest (`grep -c "import XCTest" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 1; `grep -c "import Testing" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 0).
+- [ ] F10 enforcement: `grep -E "private static func" Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift` returns 0 OR every call to such a helper is prefixed with `Self.` (manual verification — file is small enough to eyeball).
+- [ ] `make test-core` succeeds.
+
+---
+
+### Sortie B16: Add `Flux2TelemetryNoopOverheadTests` and final cross-library audit
+
+**Priority**: 4.0 — final closer; must run after both A1 and B15.
+
+**Entry criteria**:
+- [ ] B12–B15 complete (all wiring + supporting tests in place).
+- [ ] A1 complete (pixart REQUIREMENTS doc finalised — the cross-library audit references it).
+
+**Tasks**:
+1. Create `Tests/Flux2CoreTests/Flux2TelemetryNoopOverheadTests.swift`. Run two T2I-shaped harness loops over the same fixture: one with `setTelemetry(nil)`, one with `setTelemetry(NoopFlux2TelemetryReporter())`. Take wall-clock medians over 20 iterations of each. Assert the medians are within ±2% of each other.
+2. Cross-library audit: produce a short markdown report at `TELEMETRY_AUDIT.md` (root of flux repo) confirming:
+   - Both libraries expose `setTelemetry((any <Lib>TelemetryReporter)?)` with the same signature shape.
+   - Both libraries' `WeightComponent` / `AnomalyKind` / `ErrorPhase` enum case names use the conventions in AGENTS.md §11.2 (verified by grep against both repos).
+   - Both libraries' adapter sink phase strings (when implemented in the Vinetas adapter) would follow `<lib>_<noun>_<lifecycle>` snake_case.
+   - List any naming drift found between the two libraries (event case names, enum case names, adapter sink string predictions) — each entry is a follow-up sortie for a later iteration, not a blocker.
+
+**Exit criteria**:
+- [ ] `Tests/Flux2CoreTests/Flux2TelemetryNoopOverheadTests.swift` exists; passes with ±2% bound over 20 iters.
+- [ ] `TELEMETRY_AUDIT.md` exists at repo root and explicitly compares the two libraries.
+- [ ] `make build` succeeds.
+- [ ] `make test` succeeds (full suite).
+
+---
+
+## Open Questions & Missing Documentation
+
+The refinement pass surfaced four items that the sortie agent must investigate (not block on). All are tagged with the sortie that owns the resolution so the agent has explicit authority to make the call. Two of them have downstream impact on B16's cross-library audit.
+
+### Unresolved Items
+
+| ID | Sortie | Issue Type | Description | Recommended Resolution |
+|----|--------|-----------|-------------|------------------------|
+| Q1 | B11 | Open question (auto-handled) | `grep -rn "Task.isCancelled\|CancellationError\|checkCancellation\|cancellationCheck" Sources/Flux2Core/` returns **zero hits** as of 2026-05-13. No existing cancellation-check sites means `.generationCancelled` has no emission targets. | Auto-handled by B11 task 3 contingency: if grep still returns zero, emit no events and add a deferral comment near the denoise loops. Cancellation infrastructure itself is **out of scope** for this iteration — it's a separate work unit. Log finding in B16's `TELEMETRY_AUDIT.md`. |
+| Q2 | B3, B5 | Missing decision | `TrainingTextEncoder.swift` is a top-level class in `Sources/Flux2Core/Loading/` but is **not** in B3's "exactly 7 files" list. B2's `WeightComponent` enum (per REQUIREMENTS) includes `textEncoderTraining` — so either B3 must add the 8th setter or the case is dead until training-time instrumentation arrives. | B3 agent decides: (a) include `TrainingTextEncoder` (8 files; update exit criterion from "exactly 7" to "exactly 8"), OR (b) document in a code comment on the `WeightComponent.textEncoderTraining` case that the setter is deferred and the case is unreferenced until a later iteration. Either is acceptable; record the decision in the commit message and in B16's audit. |
+| Q3 | B4 | Vague criterion | "Populate `model` from whichever enum/string identifies the model variant" — the canonical model identifier on `Flux2Pipeline` is not specified. | B4 agent inspects `Sources/Flux2Core/Pipeline/Flux2Pipeline.swift` for a stored model-variant property (enum or string). If none exists, use the quantization recipe identifier as a proxy and document the choice in a 1-line comment at the emit site. Acceptable values are non-empty, non-placeholder strings. |
+| Q4 | B16 | Flakiness risk (carry-over from F11) | "Wall-clock medians over 20 iterations within ±2%" is tight for CI macos-26 runners. Previous iteration-02 carried over a recurring lock-contention flakiness on the same hardware class. | B16 agent: keep ±2% as the *target*, but if observed variance over 20 iters exceeds ±5% in interactive testing, widen the bound to ±5% and add a `// CI-tuned bound` comment. Hard-fail at ±10%. Record actual observed median ratio in `TELEMETRY_AUDIT.md`. |
+
+**None of these are execution-blocking** — each has a defined resolution path that the sortie agent can apply unilaterally. They are flagged so the agent does not get stuck mid-sortie wondering whether to escalate.
+
+### Auto-Fixes Applied During Pass 4
+
+| Sortie | Original | Fix |
+|--------|----------|-----|
+| A1 | "word count < 50% of current file" (units mixed: KB then word count) | Byte count `wc -c < 11000 bytes` (current is 21,678 bytes). |
+| B5 | Grep pattern `loadTextEncoder\|loadTransformer\|loadVAE\|loadLoRA` — none of these names exist in the codebase | Replaced with actual symbol names from `grep -n "func load" Sources/Flux2Core/Loading/ Sources/Flux2Core/LoRA/`. |
+| B10 | "Helper exists and returns `AnomalyKind?`" — location unspecified | Two acceptable locations (`AnomalyCheck.swift` OR private fn in `Flux2TelemetryEvent.swift`), each with a concrete grep verification. |
+| B11 | "Audited count is ~14 sites in Flux2Pipeline.swift" — undercounts 6 throws in encoder files | Updated to "20 sites across 4 files" (Pipeline 14, Mistral 3, Klein 2, Dev 1); exit criterion compares grep counts so robust to drift. |
+| B11 | Cancellation grep pattern with no contingency for zero hits | Added explicit zero-hit handling: emit no events, add deferral comment, log in audit. |
+| B12 | "the new test is counted in the suite total" — not directly verifiable | Replaced with `grep -c "@Test" ... returns at least 1` plus `make test-core` succeeds. |
+| B15 | F10 rule stated as guidance but not in exit criteria | Added explicit grep verification: `grep -E "private static func" ... returns 0` OR `Self.`-prefixed call site check. |
+
+---
+
+## Parallelism Structure
+
+**Critical Path** (longest dependency chain): `B1 → B2 → B3 → B4 → B6 → B7 → B8 → B9 → B10 → B11 → B12 → B16` (12 sorties). B5 forks off after B3 and rejoins before B12; A1 is in a different repo and runs concurrently with the entire B stream, joining only at B16.
+
+**Parallel Execution Groups**:
+
+- **Group 0 — Layer 0 (different repo, sub-agent eligible)**:
+  - A1 (sub-agent): pixart REQUIREMENTS rewrite. Runs concurrently with all of Group 1–5; no contention with the flux build queue. Must complete before B16 (Group 6).
+- **Group 1 — Foundation (sequential, supervising agent only)**:
+  - B1 → B2 → B3. Each has `make build` + `make test` exit criteria; serialized on the flux build queue.
+- **Group 2 — First parallel emission window (after B3)**:
+  - B4 (supervising agent — `Flux2Pipeline.swift`).
+  - B5 (**sub-agent** — `Loading/` + `LoRA/`; touches disjoint files from B4). Sub-agent writes code only; supervising agent runs `make build && make test` after both edits are present.
+  - **Note**: B5 could in principle parallel-run alongside the entire B6–B11 stream, but committing B5 mid-stream forces a context switch on the supervising agent (pause B6/B7/…, build with B5, commit, return). Cleaner to bundle B5 with B4 in a single parallel-write window.
+- **Group 3 — Pipeline.swift emission stream (sequential, supervising agent only)**:
+  - B6 → B7 → B8 → B9 → B10 → B11. All edit `Flux2Pipeline.swift`; file-level contention forces strict serial order. B10 has explicit entry deps on B6, B8, B9 — ordering preserved.
+- **Group 4 — Test infrastructure (supervising agent only)**:
+  - B12. Sole sortie in this group; defines the `MockReporter` pattern reused by B13–B15.
+- **Group 5 — Parallel test writes (after B12)**:
+  - B13 (**sub-agent** — `Flux2TelemetryAnomalyTests.swift`).
+  - B14 (**sub-agent** — `Flux2TelemetryErrorPathTests.swift`).
+  - B15 (**sub-agent** — `Flux2TelemetryLockContentionTests.swift`, XCTest).
+  - All three touch disjoint test files. Sub-agents write code only; supervising agent runs `make test-core` **after each commit individually** to preserve per-sortie attribution if a build/test breaks (do not run a single combined verification — that would obscure which test sortie regressed).
+- **Group 6 — Closer (supervising agent only)**:
+  - B16. Depends on A1 (Group 0) AND B15 (Group 5). Sole sortie.
+
+**Parallelism Metrics**:
+- Maximum concurrent agents at any time: **2 sub-agents + 1 supervising agent = 3** (well under the 4-sub-agent cap).
+- Sub-agent eligible sorties: 4 (A1, B5, B13, B14, B15 — actually 5).
+- Supervising-agent-only sorties: 12 (B1, B2, B3, B4, B6, B7, B8, B9, B10, B11, B12, B16).
+- Critical path length: 12 sorties.
+
+**Build Constraint (enforced)**:
+- Every sortie's exit criteria include `make build` and `make test` (or `make test-core`). Per Pass 3 rules, **only the supervising agent runs builds.** Sub-agents (A1, B5, B13, B14, B15) write code and verify file-level grep criteria; the supervising agent owns the build/test verification step before committing the sortie.
+- A1 is the lone exception that can build truly concurrently with B-stream work, because its build runs in a different repo (`pixart-swift-mlx`) with no shared build artifacts or queue.
+
+**Missed Opportunities** (intentionally not parallelized):
+- B6 + B9 could parallel-write into Pipeline.swift in principle (different call sites), but Pipeline.swift is 1774+ lines and concurrent edits invite merge headaches for negligible savings. Kept sequential.
+- B11's per-file work (the 6 non-Pipeline encoder throws) could split out as a sub-agent task, but the cost of coordinating that against the 14 Pipeline.swift throws + cancellation contingency exceeds the savings. Kept as a single supervising-agent sortie.
+
+---
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
-| Work units | 7 |
-| Total sorties | **9** (vs iter-02's 10 — TSan target dropped) |
-| Dependency structure | layered (1 → 2 → 3 → 4 → 5 → 6 → 7a → {7b ∥ 8} → 7c → 9) |
-| Critical path length | 5 sorties (1 → 2 → 6 → 7a → 9) |
-| Parallel-eligible sets | {7b, 8} after Sortie 7a |
-| Agent allocation | All sortie agents are sub-agents except Sortie 9 (supervising) |
-| **Per-sortie compile + test gate** | **Non-negotiable. Every code-touching sortie ends with `make build` + `make test` green.** |
-| Hard Discovery fixes applied (iter-01) | F1, F2, F3, F4, F5, F6, F7, F8, F9, F10 (F11 DROPPED) |
-| Hard Discovery fixes applied (iter-02) | HD1 (TSan drop), HD2 (pipelineDispose payload), HD3 (guard-based cancellation), HD4 (overhead baseline CPU spin), HD5 (TuberiaTensorStat init order), HD6 (Float not Double), HD7 (preserve unstaged supervisor edits) |
-| Open questions blocking dispatch | 0 |
+| Work units | 2 |
+| Total sorties | 17 (A1, B1–B16) |
+| Dependency structure | A1 standalone in pixart repo (Layer 0); B1→B2→B3 foundation in flux; B4 || B5; then B6→B7→B8→B9→B10→B11 sequential on Pipeline.swift; B12 test infra; B13 || B14 || B15 parallel test writes; B16 final closer (gates on A1 + B15) |
+| Critical path | 12 sorties: B1→B2→B3→B4→B6→B7→B8→B9→B10→B11→B12→B16 |
+| Parallelism | Up to 3 concurrent agents (1 supervising + 2 sub-agents); 5 sub-agent-eligible sorties (A1, B5, B13, B14, B15) |
+| Cross-library invariant | All new event names follow [AGENTS.md §11](AGENTS.md#11-telemetry-chokepoint-convention-cross-library); pixart is the canonical pattern source |
+
+**Next step:** `/mission-supervisor start` (after reviewing the Open Questions section below)
