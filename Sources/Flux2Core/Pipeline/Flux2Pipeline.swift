@@ -1268,18 +1268,8 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let vaeDecodeStart = Date()
             let checkpointDecoded = vae!.decode(checkpointLatents)
             eval(checkpointDecoded)
-            let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
-            if let telemetry = currentTelemetry() {
-              let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
-              await telemetry.capture(.vaeDecodeComplete(
-                pixelStat: pixelStat,
-                outputDims: checkpointDecoded.shape,
-                durationSeconds: vaeDecodeDuration
-              ))
-            }
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
               checkpointCallback(stepIdx + 1, checkpointImage)
@@ -1377,18 +1367,8 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let vaeDecodeStart = Date()
             let checkpointDecoded = vae!.decode(checkpointLatents)
             eval(checkpointDecoded)
-            let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
-            if let telemetry = currentTelemetry() {
-              let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
-              await telemetry.capture(.vaeDecodeComplete(
-                pixelStat: pixelStat,
-                outputDims: checkpointDecoded.shape,
-                durationSeconds: vaeDecodeDuration
-              ))
-            }
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
               checkpointCallback(stepIdx + 1, checkpointImage)
@@ -1583,20 +1563,9 @@ public class Flux2Pipeline: @unchecked Sendable {
         let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
         eval(checkpointLatents)
 
-        let vaeDecodeStart = Date()
         let checkpointDecoded = vae!.decode(checkpointLatents)
         eval(checkpointDecoded)
-        let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
         Flux2Debug.verbose("Checkpoint VAE output shape: \(checkpointDecoded.shape)")
-
-        if let telemetry = currentTelemetry() {
-          let pixelStat = TuberiaTensorStat.sample(checkpointDecoded)
-          await telemetry.capture(.vaeDecodeComplete(
-            pixelStat: pixelStat,
-            outputDims: checkpointDecoded.shape,
-            durationSeconds: vaeDecodeDuration
-          ))
-        }
 
         if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
           checkpointCallback(stepIdx + 1, checkpointImage)
