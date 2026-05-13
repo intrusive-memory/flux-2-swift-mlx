@@ -1128,6 +1128,13 @@ public class Flux2Pipeline: @unchecked Sendable {
         scheduler.setCustomSigmas(customSigmas)
       } else {
         scheduler.setTimesteps(numInferenceSteps: steps, imageSeqLen: outputSeqLen, strength: 1.0)
+        // mu recomputed from same inputs as setTimesteps (not stored on scheduler)
+        await currentTelemetry()?.capture(.schedulerConfigured(
+          numInferenceSteps: steps,
+          shift: scheduler.shift,
+          imageSeqLen: outputSeqLen,
+          mu: computeEmpiricalMu(imageSeqLen: outputSeqLen, numSteps: steps)
+        ))
       }
 
       let effectiveSteps = scheduler.sigmas.count - 1
@@ -1390,6 +1397,13 @@ public class Flux2Pipeline: @unchecked Sendable {
       scheduler.setCustomSigmas(customSigmas)
     } else {
       scheduler.setTimesteps(numInferenceSteps: steps, imageSeqLen: imageSeqLen, strength: 1.0)
+      // mu recomputed from same inputs as setTimesteps (not stored on scheduler)
+      await currentTelemetry()?.capture(.schedulerConfigured(
+        numInferenceSteps: steps,
+        shift: scheduler.shift,
+        imageSeqLen: imageSeqLen,
+        mu: computeEmpiricalMu(imageSeqLen: imageSeqLen, numSteps: steps)
+      ))
     }
 
     let effectiveSteps = scheduler.sigmas.count - 1
