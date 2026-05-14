@@ -60,6 +60,7 @@ let package = Package(
         // Xcode bug). Wait for a stable 0.6.x release without these Xcode
         // compile issues before bumping past 0.5.x.
         .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.5.0")),
+        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.0")),
         sibling("SwiftAcervo", remote: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.12.0"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
@@ -80,6 +81,7 @@ let package = Package(
             name: "Flux2Core",
             dependencies: [
                 "FluxTextEncoders",  // Internal dependency
+                .product(name: "Tuberia", package: "SwiftTuberia"),
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
