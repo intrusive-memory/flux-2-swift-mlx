@@ -3,6 +3,7 @@ feature_name: OPERATION TWIN LIGHTHOUSE
 iteration: 3
 mission_branch: instrumentation/03
 starting_point_commit: fba1583
+state: completed
 ---
 
 # EXECUTION_PLAN.md — Boundary Telemetry for flux-2-swift-mlx + pixart-swift-mlx

@@ -1,3 +1,7 @@
+---
+state: completed
+---
+
 # SUPERVISOR_STATE.md — OPERATION TWIN LIGHTHOUSE
 
 > **Terminology** — *Mission* = the definable scope of work (boundary telemetry across flux-2-swift-mlx and pixart-swift-mlx). *Sortie* = atomic agent task within the mission. *Work unit* = grouping of sorties (here: A = pixart docs, B = flux instrumentation). This file is the supervisor's persistent state; EXECUTION_PLAN.md is the authoritative scope/criteria document.
