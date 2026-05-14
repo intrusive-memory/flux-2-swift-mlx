@@ -105,10 +105,13 @@ public class Flux2TextEncoder: @unchecked Sendable {
   /// - Returns: Enhanced prompt with more visual details
   public func upsamplePrompt(_ prompt: String) throws -> String {
     guard FluxTextEncoders.shared.isModelLoaded else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .textEncoderFailed,
-        errorDescription: "Text encoder not loaded"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .textEncoderFailed,
+            errorDescription: "Text encoder not loaded"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("Text encoder not loaded")
     }
 
@@ -440,10 +443,13 @@ public class Flux2TextEncoder: @unchecked Sendable {
     embeddings: MLXArray, usedPrompt: String
   ) {
     guard FluxTextEncoders.shared.isModelLoaded else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .textEncoderFailed,
-        errorDescription: "Text encoder not loaded"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .textEncoderFailed,
+            errorDescription: "Text encoder not loaded"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("Text encoder not loaded")
     }
 
@@ -498,10 +504,13 @@ extension Flux2TextEncoder {
   /// - Returns: Stacked embeddings [B, 512, 15360]
   public func encodeBatch(_ prompts: [String], upsample: Bool = false) throws -> MLXArray {
     guard !prompts.isEmpty else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .invalidConfiguration,
-        errorDescription: "Empty prompt list"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .invalidConfiguration,
+            errorDescription: "Empty prompt list"
+          ))
+      }
       throw Flux2Error.invalidConfiguration("Empty prompt list")
     }
 
