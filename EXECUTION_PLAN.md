@@ -1,3 +1,10 @@
+---
+feature_name: OPERATION TWIN LIGHTHOUSE
+iteration: 3
+mission_branch: instrumentation/03
+starting_point_commit: fba1583
+---
+
 # EXECUTION_PLAN.md — Boundary Telemetry for flux-2-swift-mlx + pixart-swift-mlx
 
 **Source requirements:** [`REQUIREMENTS-instrumentation.md`](REQUIREMENTS-instrumentation.md) (this repo) + [`../pixart-swift-mlx/REQUIREMENTS-instrumentation.md`](../pixart-swift-mlx/REQUIREMENTS-instrumentation.md)
