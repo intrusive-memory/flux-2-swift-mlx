@@ -106,10 +106,13 @@ public class DevTextEncoder: @unchecked Sendable {
   /// - Returns: Embeddings tensor with shape [1, 512, 15360]
   public func encode(_ prompt: String) throws -> MLXArray {
     guard FluxTextEncoders.shared.isModelLoaded else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .textEncoderFailed,
-        errorDescription: "Dev text encoder not loaded"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .textEncoderFailed,
+            errorDescription: "Dev text encoder not loaded"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("Dev text encoder not loaded")
     }
 

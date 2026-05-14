@@ -9,7 +9,7 @@
 /// the same `capture(_:)` entry point so adapters can switch exhaustively over
 /// the event enum without `default:` arms.
 public protocol Flux2TelemetryReporter: Sendable {
-    func capture(_ event: Flux2TelemetryEvent) async
+  func capture(_ event: Flux2TelemetryEvent) async
 }
 
 /// No-op reporter used by tests and by hosts that want to confirm the
@@ -17,6 +17,6 @@ public protocol Flux2TelemetryReporter: Sendable {
 /// `Flux2TelemetryNoopOverheadTests` to assert the boundary emit path costs
 /// near-zero wall-clock time when the reporter does nothing.
 public struct NoopFlux2TelemetryReporter: Flux2TelemetryReporter {
-    public init() {}
-    public func capture(_ event: Flux2TelemetryEvent) async {}
+  public init() {}
+  public func capture(_ event: Flux2TelemetryEvent) async {}
 }

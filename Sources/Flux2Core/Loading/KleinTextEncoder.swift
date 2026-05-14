@@ -157,10 +157,13 @@ public class KleinTextEncoder: @unchecked Sendable {
   /// - Returns: Enhanced prompt with more visual details
   public func upsamplePrompt(_ prompt: String) throws -> String {
     guard FluxTextEncoders.shared.isKleinLoaded else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .textEncoderFailed,
-        errorDescription: "Klein text encoder not loaded"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .textEncoderFailed,
+            errorDescription: "Klein text encoder not loaded"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("Klein text encoder not loaded")
     }
 
@@ -205,10 +208,13 @@ public class KleinTextEncoder: @unchecked Sendable {
     embeddings: MLXArray, usedPrompt: String
   ) {
     guard FluxTextEncoders.shared.isKleinLoaded else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .textEncoderFailed,
-        errorDescription: "Klein text encoder not loaded"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .textEncoderFailed,
+            errorDescription: "Klein text encoder not loaded"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("Klein text encoder not loaded")
     }
 

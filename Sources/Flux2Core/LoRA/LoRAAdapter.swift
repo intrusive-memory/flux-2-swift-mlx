@@ -115,11 +115,12 @@ public class LoRAManager: @unchecked Sendable {
     // Emit weightLoadComplete on success path only (errorThrown precedes any throw — B11).
     let loadDuration = Date().timeIntervalSince(loadStart)
     if let telemetry = currentTelemetry() {
-      Task { await telemetry.capture(
-        .weightLoadComplete(
-          component: .lora,
-          paramCount: info.numParameters,
-          durationSeconds: loadDuration))
+      Task {
+        await telemetry.capture(
+          .weightLoadComplete(
+            component: .lora,
+            paramCount: info.numParameters,
+            durationSeconds: loadDuration))
       }
     }
 

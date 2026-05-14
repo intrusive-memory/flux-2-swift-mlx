@@ -176,11 +176,13 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Q3 resolution: no single model-identifier string property exists; Flux2Model.rawValue is used as proxy.
     Task { [weak self] in
       guard let self else { return }
-      await self.currentTelemetry()?.capture(.pipelineInit(
-        model: self.model.rawValue,
-        quantization: "\(self.quantization.transformer.rawValue)-g\(self.quantization.transformer.groupSize)",
-        vaeConfig: "autoencoder-kl-flux2"
-      ))
+      await self.currentTelemetry()?.capture(
+        .pipelineInit(
+          model: self.model.rawValue,
+          quantization:
+            "\(self.quantization.transformer.rawValue)-g\(self.quantization.transformer.groupSize)",
+          vaeConfig: "autoencoder-kl-flux2"
+        ))
     }
   }
 
@@ -329,10 +331,12 @@ public class Flux2Pipeline: @unchecked Sendable {
       case .klein9BKV:
         downloadCmd = "flux2 download --model klein-9b-kv"
       }
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .modelNotLoaded,
-        errorDescription: "\(model.displayName) transformer weights not found. Run: \(downloadCmd)"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .modelNotLoaded,
+          errorDescription:
+            "\(model.displayName) transformer weights not found. Run: \(downloadCmd)"
+        ))
       throw Flux2Error.modelNotLoaded(
         "\(model.displayName) transformer weights not found. Run: \(downloadCmd)")
     }
@@ -486,10 +490,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     Flux2Debug.log("Loading VAE...")
 
     guard let modelPath = Flux2ModelDownloader.findModelPath(for: .vae(.standard)) else {
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .modelNotLoaded,
-        errorDescription: "VAE weights not found"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .modelNotLoaded,
+          errorDescription: "VAE weights not found"
+        ))
       throw Flux2Error.modelNotLoaded("VAE weights not found")
     }
 
@@ -512,11 +517,12 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     // Emit weightLoadComplete for VAE (B5-deferred: loadWeights is component-agnostic;
     // the VAE call site lives here in Pipeline.swift so B6 owns this emit).
-    await currentTelemetry()?.capture(.weightLoadComplete(
-      component: .vae,
-      paramCount: vaeParamCount,
-      durationSeconds: vaeLoadDuration
-    ))
+    await currentTelemetry()?.capture(
+      .weightLoadComplete(
+        component: .vae,
+        paramCount: vaeParamCount,
+        durationSeconds: vaeLoadDuration
+      ))
 
     Flux2Debug.log("VAE loaded successfully")
   }
@@ -606,10 +612,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> CGImage {
     guard !images.isEmpty && images.count <= 3 else {
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .invalidConfiguration,
-        errorDescription: "Provide 1-3 reference images"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .invalidConfiguration,
+          errorDescription: "Provide 1-3 reference images"
+        ))
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -652,10 +659,13 @@ public class Flux2Pipeline: @unchecked Sendable {
   ) async throws -> CGImage {
     let images = try imageData.enumerated().map { index, data in
       guard let cgImage = Self.cgImage(from: data) else {
-        Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-          phase: .invalidConfiguration,
-          errorDescription: "Failed to decode image data at index \(index)"
-        )) }
+        Task { [weak self] in
+          await self?.currentTelemetry()?.capture(
+            .errorThrown(
+              phase: .invalidConfiguration,
+              errorDescription: "Failed to decode image data at index \(index)"
+            ))
+        }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -726,10 +736,11 @@ public class Flux2Pipeline: @unchecked Sendable {
     onCheckpoint: Flux2CheckpointCallback? = nil
   ) async throws -> Flux2GenerationResult {
     guard !images.isEmpty && images.count <= 3 else {
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .invalidConfiguration,
-        errorDescription: "Provide 1-3 reference images"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .invalidConfiguration,
+          errorDescription: "Provide 1-3 reference images"
+        ))
       throw Flux2Error.invalidConfiguration("Provide 1-3 reference images")
     }
 
@@ -772,10 +783,13 @@ public class Flux2Pipeline: @unchecked Sendable {
   ) async throws -> Flux2GenerationResult {
     let images = try imageData.enumerated().map { index, data in
       guard let cgImage = Self.cgImage(from: data) else {
-        Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-          phase: .invalidConfiguration,
-          errorDescription: "Failed to decode image data at index \(index)"
-        )) }
+        Task { [weak self] in
+          await self?.currentTelemetry()?.capture(
+            .errorThrown(
+              phase: .invalidConfiguration,
+              errorDescription: "Failed to decode image data at index \(index)"
+            ))
+        }
         throw Flux2Error.invalidConfiguration("Failed to decode image data at index \(index)")
       }
       return cgImage
@@ -852,10 +866,12 @@ public class Flux2Pipeline: @unchecked Sendable {
     // Check image size feasibility
     let sizeCheck = memoryManager.checkImageSize(width: validWidth, height: validHeight)
     if case .insufficientMemory = sizeCheck {
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .insufficientMemory,
-        errorDescription: "Insufficient memory: required 100GB, available \(memoryManager.estimatedAvailableMemoryGB)GB"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .insufficientMemory,
+          errorDescription:
+            "Insufficient memory: required 100GB, available \(memoryManager.estimatedAvailableMemoryGB)GB"
+        ))
       throw Flux2Error.insufficientMemory(
         required: 100, available: memoryManager.estimatedAvailableMemoryGB)
     }
@@ -1052,19 +1068,21 @@ public class Flux2Pipeline: @unchecked Sendable {
     if let telemetry = currentTelemetry() {
       let textEncodeDuration = Date().timeIntervalSince(textEncodeStart)
       let embeddingStat = TuberiaTensorStat.sample(textEmbeddings)
-      await telemetry.capture(.textEncodeComplete(
-        encoderName: textEncodeEncoderName,
-        finalPromptLength: textEmbeddings.shape[1],
-        embeddingStat: embeddingStat,
-        durationSeconds: textEncodeDuration
-      ))
+      await telemetry.capture(
+        .textEncodeComplete(
+          encoderName: textEncodeEncoderName,
+          finalPromptLength: textEmbeddings.shape[1],
+          embeddingStat: embeddingStat,
+          durationSeconds: textEncodeDuration
+        ))
       // B10: numericalAnomaly side-channel — textEncode phase
       if let kind = AnomalyCheck.classify(embeddingStat) {
-        await telemetry.capture(.numericalAnomaly(
-          phase: .textEncode,
-          kind: kind,
-          stat: embeddingStat
-        ))
+        await telemetry.capture(
+          .numericalAnomaly(
+            phase: .textEncode,
+            kind: kind,
+            stat: embeddingStat
+          ))
       }
     }
 
@@ -1165,12 +1183,13 @@ public class Flux2Pipeline: @unchecked Sendable {
       } else {
         scheduler.setTimesteps(numInferenceSteps: steps, imageSeqLen: outputSeqLen, strength: 1.0)
         // mu recomputed from same inputs as setTimesteps (not stored on scheduler)
-        await currentTelemetry()?.capture(.schedulerConfigured(
-          numInferenceSteps: steps,
-          shift: scheduler.shift,
-          imageSeqLen: outputSeqLen,
-          mu: computeEmpiricalMu(imageSeqLen: outputSeqLen, numSteps: steps)
-        ))
+        await currentTelemetry()?.capture(
+          .schedulerConfigured(
+            numInferenceSteps: steps,
+            shift: scheduler.shift,
+            imageSeqLen: outputSeqLen,
+            mu: computeEmpiricalMu(imageSeqLen: outputSeqLen, numSteps: steps)
+          ))
       }
 
       let effectiveSteps = scheduler.sigmas.count - 1
@@ -1192,10 +1211,11 @@ public class Flux2Pipeline: @unchecked Sendable {
         Flux2Debug.log("Using KV-cached denoising (\(effectiveSteps) steps, ~2.66x speedup)")
 
         guard let transformer = transformer else {
-          await currentTelemetry()?.capture(.errorThrown(
-            phase: .generationCancelled,
-            errorDescription: "generationCancelled"
-          ))
+          await currentTelemetry()?.capture(
+            .errorThrown(
+              phase: .generationCancelled,
+              errorDescription: "generationCancelled"
+            ))
           throw Flux2Error.generationCancelled
         }
 
@@ -1207,12 +1227,13 @@ public class Flux2Pipeline: @unchecked Sendable {
         // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
         // B8: denoiseLoopStart — imageToImageKVExtractStep0 (single non-loop call)
         let kvExtractDenoiseStart = Date()
-        await currentTelemetry()?.capture(.denoiseLoopStart(
-          variant: .imageToImageKVExtractStep0,
-          totalSteps: 1,
-          latentShape: packedOutputLatents.shape,
-          latentDtype: String(describing: packedOutputLatents.dtype)
-        ))
+        await currentTelemetry()?.capture(
+          .denoiseLoopStart(
+            variant: .imageToImageKVExtractStep0,
+            totalSteps: 1,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: String(describing: packedOutputLatents.dtype)
+          ))
 
         let (noisePred0, kvCache) = transformer.forwardKVExtract(
           hiddenStates: packedOutputLatents,
@@ -1235,20 +1256,22 @@ public class Flux2Pipeline: @unchecked Sendable {
         // B8: denoiseLoopEnd — imageToImageKVExtractStep0
         let kvExtractFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
         if let telemetry = currentTelemetry() {
-          await telemetry.capture(.denoiseLoopEnd(
-            variant: .imageToImageKVExtractStep0,
-            totalSteps: 1,
-            completedSteps: 1,
-            finalLatentStat: kvExtractFinalStat,
-            durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
-          ))
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageKVExtractStep0,
+              totalSteps: 1,
+              completedSteps: 1,
+              finalLatentStat: kvExtractFinalStat,
+              durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
+            ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvExtractFinalStat) {
-            await telemetry.capture(.numericalAnomaly(
-              phase: .denoiseLoopEnd,
-              kind: kind,
-              stat: kvExtractFinalStat
-            ))
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: .denoiseLoopEnd,
+                kind: kind,
+                stat: kvExtractFinalStat
+              ))
           }
         }
 
@@ -1264,12 +1287,13 @@ public class Flux2Pipeline: @unchecked Sendable {
         // B8: denoiseLoopStart — imageToImageKVCached (steps 1+ after KV extraction)
         let kvCachedDenoiseStart = Date()
         let kvCachedTotalSteps = effectiveSteps - 1
-        await currentTelemetry()?.capture(.denoiseLoopStart(
-          variant: .imageToImageKVCached,
-          totalSteps: kvCachedTotalSteps,
-          latentShape: packedOutputLatents.shape,
-          latentDtype: String(describing: packedOutputLatents.dtype)
-        ))
+        await currentTelemetry()?.capture(
+          .denoiseLoopStart(
+            variant: .imageToImageKVCached,
+            totalSteps: kvCachedTotalSteps,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: String(describing: packedOutputLatents.dtype)
+          ))
 
         for stepIdx in 1..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
@@ -1335,20 +1359,22 @@ public class Flux2Pipeline: @unchecked Sendable {
         // B8: denoiseLoopEnd — imageToImageKVCached
         let kvCachedFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
         if let telemetry = currentTelemetry() {
-          await telemetry.capture(.denoiseLoopEnd(
-            variant: .imageToImageKVCached,
-            totalSteps: kvCachedTotalSteps,
-            completedSteps: kvCachedTotalSteps,
-            finalLatentStat: kvCachedFinalStat,
-            durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
-          ))
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageKVCached,
+              totalSteps: kvCachedTotalSteps,
+              completedSteps: kvCachedTotalSteps,
+              finalLatentStat: kvCachedFinalStat,
+              durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
+            ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvCachedFinalStat) {
-            await telemetry.capture(.numericalAnomaly(
-              phase: .denoiseLoopEnd,
-              kind: kind,
-              stat: kvCachedFinalStat
-            ))
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: .denoiseLoopEnd,
+                kind: kind,
+                stat: kvCachedFinalStat
+              ))
           }
         }
 
@@ -1358,12 +1384,13 @@ public class Flux2Pipeline: @unchecked Sendable {
         // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
         // B8: denoiseLoopStart — imageToImageFullRecompute
         let fullRecomputeDenoiseStart = Date()
-        await currentTelemetry()?.capture(.denoiseLoopStart(
-          variant: .imageToImageFullRecompute,
-          totalSteps: effectiveSteps,
-          latentShape: packedOutputLatents.shape,
-          latentDtype: String(describing: packedOutputLatents.dtype)
-        ))
+        await currentTelemetry()?.capture(
+          .denoiseLoopStart(
+            variant: .imageToImageFullRecompute,
+            totalSteps: effectiveSteps,
+            latentShape: packedOutputLatents.shape,
+            latentDtype: String(describing: packedOutputLatents.dtype)
+          ))
 
         for stepIdx in 0..<(scheduler.sigmas.count - 1) {
           let stepStart = Date()
@@ -1376,10 +1403,11 @@ public class Flux2Pipeline: @unchecked Sendable {
 
           // Check transformer is still loaded (may be unloaded during cancellation)
           guard let transformer = transformer else {
-            await currentTelemetry()?.capture(.errorThrown(
-              phase: .generationCancelled,
-              errorDescription: "generationCancelled"
-            ))
+            await currentTelemetry()?.capture(
+              .errorThrown(
+                phase: .generationCancelled,
+                errorDescription: "generationCancelled"
+              ))
             throw Flux2Error.generationCancelled
           }
 
@@ -1450,20 +1478,22 @@ public class Flux2Pipeline: @unchecked Sendable {
         // B8: denoiseLoopEnd — imageToImageFullRecompute
         let fullRecomputeFinalStat = TuberiaTensorStat.sample(packedOutputLatents)
         if let telemetry = currentTelemetry() {
-          await telemetry.capture(.denoiseLoopEnd(
-            variant: .imageToImageFullRecompute,
-            totalSteps: effectiveSteps,
-            completedSteps: effectiveSteps,
-            finalLatentStat: fullRecomputeFinalStat,
-            durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
-          ))
+          await telemetry.capture(
+            .denoiseLoopEnd(
+              variant: .imageToImageFullRecompute,
+              totalSteps: effectiveSteps,
+              completedSteps: effectiveSteps,
+              finalLatentStat: fullRecomputeFinalStat,
+              durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
+            ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(fullRecomputeFinalStat) {
-            await telemetry.capture(.numericalAnomaly(
-              phase: .denoiseLoopEnd,
-              kind: kind,
-              stat: fullRecomputeFinalStat
-            ))
+            await telemetry.capture(
+              .numericalAnomaly(
+                phase: .denoiseLoopEnd,
+                kind: kind,
+                stat: fullRecomputeFinalStat
+              ))
           }
         }
 
@@ -1494,27 +1524,30 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       if let telemetry = currentTelemetry() {
         let pixelStat = TuberiaTensorStat.sample(decoded)
-        await telemetry.capture(.vaeDecodeComplete(
-          pixelStat: pixelStat,
-          outputDims: decoded.shape,
-          durationSeconds: vaeDecodeDuration
-        ))
+        await telemetry.capture(
+          .vaeDecodeComplete(
+            pixelStat: pixelStat,
+            outputDims: decoded.shape,
+            durationSeconds: vaeDecodeDuration
+          ))
         // B10: numericalAnomaly side-channel — vaeDecode phase
         if let kind = AnomalyCheck.classify(pixelStat) {
-          await telemetry.capture(.numericalAnomaly(
-            phase: .vaeDecode,
-            kind: kind,
-            stat: pixelStat
-          ))
+          await telemetry.capture(
+            .numericalAnomaly(
+              phase: .vaeDecode,
+              kind: kind,
+              stat: pixelStat
+            ))
         }
       }
 
       profiler.start("8. Post-processing")
       guard let image = postprocessVAEOutput(decoded) else {
-        await currentTelemetry()?.capture(.errorThrown(
-          phase: .generationFailed,
-          errorDescription: "Failed to convert VAE output to image"
-        ))
+        await currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .generationFailed,
+            errorDescription: "Failed to convert VAE output to image"
+          ))
         throw Flux2Error.generationFailed("Failed to convert VAE output to image")
       }
       profiler.end("8. Post-processing")
@@ -1556,12 +1589,13 @@ public class Flux2Pipeline: @unchecked Sendable {
     } else {
       scheduler.setTimesteps(numInferenceSteps: steps, imageSeqLen: imageSeqLen, strength: 1.0)
       // mu recomputed from same inputs as setTimesteps (not stored on scheduler)
-      await currentTelemetry()?.capture(.schedulerConfigured(
-        numInferenceSteps: steps,
-        shift: scheduler.shift,
-        imageSeqLen: imageSeqLen,
-        mu: computeEmpiricalMu(imageSeqLen: imageSeqLen, numSteps: steps)
-      ))
+      await currentTelemetry()?.capture(
+        .schedulerConfigured(
+          numInferenceSteps: steps,
+          shift: scheduler.shift,
+          imageSeqLen: imageSeqLen,
+          mu: computeEmpiricalMu(imageSeqLen: imageSeqLen, numSteps: steps)
+        ))
     }
 
     let effectiveSteps = scheduler.sigmas.count - 1
@@ -1579,12 +1613,13 @@ public class Flux2Pipeline: @unchecked Sendable {
     // generationCancelled emission deferred: no cancellation-check sites in pipeline as of 2026-05-13
     // B8: denoiseLoopStart — textToImage
     let t2iDenoiseStart = Date()
-    await currentTelemetry()?.capture(.denoiseLoopStart(
-      variant: .textToImage,
-      totalSteps: effectiveSteps,
-      latentShape: packedLatents.shape,
-      latentDtype: String(describing: packedLatents.dtype)
-    ))
+    await currentTelemetry()?.capture(
+      .denoiseLoopStart(
+        variant: .textToImage,
+        totalSteps: effectiveSteps,
+        latentShape: packedLatents.shape,
+        latentDtype: String(describing: packedLatents.dtype)
+      ))
 
     // Denoising loop - use sigmas (in [0, 1] range) for transformer
     for stepIdx in 0..<(scheduler.sigmas.count - 1) {
@@ -1595,10 +1630,11 @@ public class Flux2Pipeline: @unchecked Sendable {
 
       // Check transformer is still loaded (may be unloaded during cancellation)
       guard let transformer = transformer else {
-        await currentTelemetry()?.capture(.errorThrown(
-          phase: .generationCancelled,
-          errorDescription: "generationCancelled"
-        ))
+        await currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .generationCancelled,
+            errorDescription: "generationCancelled"
+          ))
         throw Flux2Error.generationCancelled
       }
 
@@ -1677,20 +1713,22 @@ public class Flux2Pipeline: @unchecked Sendable {
     // B8: denoiseLoopEnd — textToImage
     let t2iFinalStat = TuberiaTensorStat.sample(packedLatents)
     if let telemetry = currentTelemetry() {
-      await telemetry.capture(.denoiseLoopEnd(
-        variant: .textToImage,
-        totalSteps: effectiveSteps,
-        completedSteps: effectiveSteps,
-        finalLatentStat: t2iFinalStat,
-        durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
-      ))
+      await telemetry.capture(
+        .denoiseLoopEnd(
+          variant: .textToImage,
+          totalSteps: effectiveSteps,
+          completedSteps: effectiveSteps,
+          finalLatentStat: t2iFinalStat,
+          durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
+        ))
       // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
       if let kind = AnomalyCheck.classify(t2iFinalStat) {
-        await telemetry.capture(.numericalAnomaly(
-          phase: .denoiseLoopEnd,
-          kind: kind,
-          stat: t2iFinalStat
-        ))
+        await telemetry.capture(
+          .numericalAnomaly(
+            phase: .denoiseLoopEnd,
+            kind: kind,
+            stat: t2iFinalStat
+          ))
       }
     }
 
@@ -1736,28 +1774,31 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     if let telemetry = currentTelemetry() {
       let pixelStat = TuberiaTensorStat.sample(decoded)
-      await telemetry.capture(.vaeDecodeComplete(
-        pixelStat: pixelStat,
-        outputDims: decoded.shape,
-        durationSeconds: vaeDecodeDuration
-      ))
+      await telemetry.capture(
+        .vaeDecodeComplete(
+          pixelStat: pixelStat,
+          outputDims: decoded.shape,
+          durationSeconds: vaeDecodeDuration
+        ))
       // B10: numericalAnomaly side-channel — vaeDecode phase
       if let kind = AnomalyCheck.classify(pixelStat) {
-        await telemetry.capture(.numericalAnomaly(
-          phase: .vaeDecode,
-          kind: kind,
-          stat: pixelStat
-        ))
+        await telemetry.capture(
+          .numericalAnomaly(
+            phase: .vaeDecode,
+            kind: kind,
+            stat: pixelStat
+          ))
       }
     }
 
     // Convert to CGImage
     profiler.start("8. Post-processing")
     guard let image = postprocessVAEOutput(decoded) else {
-      await currentTelemetry()?.capture(.errorThrown(
-        phase: .imageProcessingFailed,
-        errorDescription: "Failed to convert output to image"
-      ))
+      await currentTelemetry()?.capture(
+        .errorThrown(
+          phase: .imageProcessingFailed,
+          errorDescription: "Failed to convert output to image"
+        ))
       throw Flux2Error.imageProcessingFailed("Failed to convert output to image")
     }
     profiler.end("8. Post-processing")
@@ -1803,18 +1844,24 @@ public class Flux2Pipeline: @unchecked Sendable {
     width: Int
   ) throws -> (latents: MLXArray, positionIds: MLXArray) {
     guard let vae = vae else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .modelNotLoaded,
-        errorDescription: "VAE"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .modelNotLoaded,
+            errorDescription: "VAE"
+          ))
+      }
       throw Flux2Error.modelNotLoaded("VAE")
     }
 
     guard !images.isEmpty else {
-      Task { [weak self] in await self?.currentTelemetry()?.capture(.errorThrown(
-        phase: .invalidConfiguration,
-        errorDescription: "No reference images provided"
-      )) }
+      Task { [weak self] in
+        await self?.currentTelemetry()?.capture(
+          .errorThrown(
+            phase: .invalidConfiguration,
+            errorDescription: "No reference images provided"
+          ))
+      }
       throw Flux2Error.invalidConfiguration("No reference images provided")
     }
 

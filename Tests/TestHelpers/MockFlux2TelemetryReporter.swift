@@ -19,19 +19,19 @@ import Flux2Core
 ///
 /// Bump to 250 ms if flakiness is observed on slow CI hardware.
 public actor MockFlux2TelemetryReporter: Flux2TelemetryReporter {
-    private(set) var events: [Flux2TelemetryEvent] = []
+  private(set) var events: [Flux2TelemetryEvent] = []
 
-    public init() {}
+  public init() {}
 
-    public func capture(_ event: Flux2TelemetryEvent) async {
-        events.append(event)
-    }
+  public func capture(_ event: Flux2TelemetryEvent) async {
+    events.append(event)
+  }
 
-    public func snapshot() async -> [Flux2TelemetryEvent] {
-        events
-    }
+  public func snapshot() async -> [Flux2TelemetryEvent] {
+    events
+  }
 
-    public func clear() async {
-        events.removeAll()
-    }
+  public func clear() async {
+    events.removeAll()
+  }
 }
