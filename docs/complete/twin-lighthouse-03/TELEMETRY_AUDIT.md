@@ -1,3 +1,7 @@
+---
+state: completed
+---
+
 # Telemetry Audit — flux-2-swift-mlx + pixart-swift-mlx
 
 > Cross-library §11-convention audit for OPERATION TWIN LIGHTHOUSE (iteration 03).
