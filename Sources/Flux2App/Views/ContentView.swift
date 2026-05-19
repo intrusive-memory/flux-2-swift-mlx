@@ -2073,7 +2073,7 @@
             Text(model.parameters)
             if let size = size {
               Text("•")
-              Text(TextEncoderModelDownloader.formatSize(size))
+              Text(Flux2ModelPaths.formatSize(size))
                 .foregroundStyle(.blue)
             }
           }
@@ -2181,7 +2181,7 @@
             Text(model.parameters)
             if let size = size {
               Text("•")
-              Text(TextEncoderModelDownloader.formatSize(size))
+              Text(Flux2ModelPaths.formatSize(size))
                 .foregroundStyle(.blue)
             }
           }

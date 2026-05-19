@@ -8,6 +8,7 @@
   import FluxTextEncoders
   import Flux2Core
   import MLX
+  import SwiftAcervo
 
   // MARK: - Memory Stats
 
@@ -68,7 +69,7 @@
 
     /// Models cache directory
     static var modelsCacheDirectory: URL {
-      return ModelRegistry.modelsDirectory
+      return Acervo.sharedModelsDirectory
     }
 
     init() {
@@ -132,10 +133,11 @@
       var sizes: [String: Int64] = [:]
 
       for model in availableModels {
-        if let path = TextEncoderModelDownloader.findModelPath(for: model) {
-          downloaded.insert(model.id)
-          sizes[model.id] = calculateDirectorySize(at: path)
-        }
+        guard Acervo.isModelAvailable(model.repoId),
+          let path = try? Acervo.modelDirectory(for: model.repoId)
+        else { continue }
+        downloaded.insert(model.id)
+        sizes[model.id] = calculateDirectorySize(at: path)
       }
 
       downloadedModels = downloaded
@@ -167,10 +169,12 @@
       var sizes: [String: Int64] = [:]
 
       for model in availableQwen3Models {
-        if let path = TextEncoderModelDownloader.findQwen3ModelPath(for: model.variant) {
-          downloaded.insert(model.id)
-          sizes[model.id] = calculateDirectorySize(at: path)
-        }
+        let repoId = model.variant.repoId
+        guard Acervo.isModelAvailable(repoId),
+          let path = try? Acervo.modelDirectory(for: repoId)
+        else { continue }
+        downloaded.insert(model.id)
+        sizes[model.id] = calculateDirectorySize(at: path)
       }
 
       downloadedQwen3Models = downloaded
@@ -239,17 +243,24 @@
       downloadMessage = "Starting download of \(model.displayName)..."
 
       do {
-        let downloader = TextEncoderModelDownloader(
-          hfToken: ProcessInfo.processInfo.environment["HF_TOKEN"]
-            ?? UserDefaults.standard.string(forKey: "hfToken")
-        )
-
-        _ = try await downloader.downloadQwen3(variant: model.variant) { progress, message in
-          Task { @MainActor in
-            self.downloadProgress = progress
-            self.downloadMessage = message
-          }
+        if let token = ProcessInfo.processInfo.environment["HF_TOKEN"]
+          ?? UserDefaults.standard.string(forKey: "hfToken")
+        {
+          setenv("HF_TOKEN", token, 1)
         }
+        try await Acervo.ensureAvailable(
+          model.variant.repoId,
+          files: [],
+          progress: { acervoProgress in
+            let message =
+              "Downloading \(acervoProgress.fileName) "
+              + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+            Task { @MainActor in
+              self.downloadProgress = acervoProgress.overallProgress
+              self.downloadMessage = message
+            }
+          }
+        )
 
         downloadedQwen3Models.insert(modelId)
         refreshDownloadedQwen3Models()
@@ -272,11 +283,9 @@
         throw ModelManagerError.cannotDeleteLoadedModel
       }
 
-      guard let path = TextEncoderModelDownloader.findQwen3ModelPath(for: model.variant) else {
-        return
-      }
-
-      try FileManager.default.removeItem(at: path)
+      let repoId = model.variant.repoId
+      guard Acervo.isModelAvailable(repoId) else { return }
+      try Acervo.deleteModel(repoId)
       downloadedQwen3Models.remove(modelId)
       qwen3ModelSizes.removeValue(forKey: modelId)
       refreshDownloadedQwen3Models()
@@ -305,8 +314,8 @@
 
       for variant in ModelRegistry.TransformerVariant.allCases {
         let component = ModelRegistry.ModelComponent.transformer(variant)
-        if Flux2ModelDownloader.isDownloaded(component),
-          let path = Flux2ModelDownloader.findModelPath(for: component)
+        if Flux2ModelPaths.isDownloaded(component),
+          let path = Flux2ModelPaths.findModelPath(for: component)
         {
           downloaded.insert(variant.rawValue)
           sizes[variant.rawValue] = calculateDirectorySize(at: path)
@@ -318,8 +327,8 @@
 
       // Check VAE
       let vaeComponent = ModelRegistry.ModelComponent.vae(.standard)
-      isVAEDownloaded = Flux2ModelDownloader.isDownloaded(vaeComponent)
-      if isVAEDownloaded, let path = Flux2ModelDownloader.findModelPath(for: vaeComponent) {
+      isVAEDownloaded = Flux2ModelPaths.isDownloaded(vaeComponent)
+      if isVAEDownloaded, let path = Flux2ModelPaths.findModelPath(for: vaeComponent) {
         vaeSize = calculateDirectorySize(at: path)
       } else {
         vaeSize = 0
@@ -347,18 +356,25 @@
       downloadMessage = "Starting download of \(variant.rawValue) transformer..."
 
       do {
-        let downloader = Flux2ModelDownloader(
-          hfToken: ProcessInfo.processInfo.environment["HF_TOKEN"]
-            ?? UserDefaults.standard.string(forKey: "hfToken")
-        )
-
-        let component = ModelRegistry.ModelComponent.transformer(variant)
-        _ = try await downloader.download(component) { progress, message in
-          Task { @MainActor in
-            self.downloadProgress = progress
-            self.downloadMessage = message
-          }
+        if let token = ProcessInfo.processInfo.environment["HF_TOKEN"]
+          ?? UserDefaults.standard.string(forKey: "hfToken")
+        {
+          setenv("HF_TOKEN", token, 1)
         }
+        let component = ModelRegistry.ModelComponent.transformer(variant)
+        try await Acervo.ensureAvailable(
+          component.repoId,
+          files: [],
+          progress: { acervoProgress in
+            let message =
+              "Downloading \(acervoProgress.fileName) "
+              + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+            Task { @MainActor in
+              self.downloadProgress = acervoProgress.overallProgress
+              self.downloadMessage = message
+            }
+          }
+        )
 
         downloadedTransformers.insert(variant.rawValue)
         refreshDownloadedDiffusionModels()
@@ -374,7 +390,7 @@
     /// Delete a transformer variant
     func deleteTransformer(_ variant: ModelRegistry.TransformerVariant) throws {
       let component = ModelRegistry.ModelComponent.transformer(variant)
-      try Flux2ModelDownloader.delete(component)
+      try Flux2ModelPaths.delete(component)
       downloadedTransformers.remove(variant.rawValue)
       transformerSizes.removeValue(forKey: variant.rawValue)
       refreshDownloadedDiffusionModels()
@@ -389,18 +405,25 @@
       downloadMessage = "Starting VAE download..."
 
       do {
-        let downloader = Flux2ModelDownloader(
-          hfToken: ProcessInfo.processInfo.environment["HF_TOKEN"]
-            ?? UserDefaults.standard.string(forKey: "hfToken")
-        )
-
-        let component = ModelRegistry.ModelComponent.vae(.standard)
-        _ = try await downloader.download(component) { progress, message in
-          Task { @MainActor in
-            self.downloadProgress = progress
-            self.downloadMessage = message
-          }
+        if let token = ProcessInfo.processInfo.environment["HF_TOKEN"]
+          ?? UserDefaults.standard.string(forKey: "hfToken")
+        {
+          setenv("HF_TOKEN", token, 1)
         }
+        let component = ModelRegistry.ModelComponent.vae(.standard)
+        try await Acervo.ensureAvailable(
+          component.repoId,
+          files: [],
+          progress: { acervoProgress in
+            let message =
+              "Downloading \(acervoProgress.fileName) "
+              + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+            Task { @MainActor in
+              self.downloadProgress = acervoProgress.overallProgress
+              self.downloadMessage = message
+            }
+          }
+        )
 
         isVAEDownloaded = true
         refreshDownloadedDiffusionModels()
@@ -416,7 +439,7 @@
     /// Delete VAE
     func deleteVAE() throws {
       let component = ModelRegistry.ModelComponent.vae(.standard)
-      try Flux2ModelDownloader.delete(component)
+      try Flux2ModelPaths.delete(component)
       isVAEDownloaded = false
       vaeSize = 0
       refreshDownloadedDiffusionModels()
@@ -568,17 +591,24 @@
       downloadMessage = "Starting download..."
 
       do {
-        let downloader = TextEncoderModelDownloader(
-          hfToken: ProcessInfo.processInfo.environment["HF_TOKEN"]
-            ?? UserDefaults.standard.string(forKey: "hfToken")
-        )
-
-        _ = try await downloader.download(model) { progress, message in
-          Task { @MainActor in
-            self.downloadProgress = progress
-            self.downloadMessage = message
-          }
+        if let token = ProcessInfo.processInfo.environment["HF_TOKEN"]
+          ?? UserDefaults.standard.string(forKey: "hfToken")
+        {
+          setenv("HF_TOKEN", token, 1)
         }
+        try await Acervo.ensureAvailable(
+          model.repoId,
+          files: [],
+          progress: { acervoProgress in
+            let message =
+              "Downloading \(acervoProgress.fileName) "
+              + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+            Task { @MainActor in
+              self.downloadProgress = acervoProgress.overallProgress
+              self.downloadMessage = message
+            }
+          }
+        )
 
         downloadedModels.insert(modelId)
         refreshDownloadedModels()
@@ -601,9 +631,8 @@
         throw ModelManagerError.cannotDeleteLoadedModel
       }
 
-      guard let path = TextEncoderModelDownloader.findModelPath(for: model) else { return }
-
-      try FileManager.default.removeItem(at: path)
+      guard Acervo.isModelAvailable(model.repoId) else { return }
+      try Acervo.deleteModel(model.repoId)
       downloadedModels.remove(modelId)
       modelSizes.removeValue(forKey: modelId)
       refreshDownloadedModels()

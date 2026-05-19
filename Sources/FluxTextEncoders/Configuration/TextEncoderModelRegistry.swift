@@ -4,6 +4,7 @@
  */
 
 import Foundation
+import SwiftAcervo
 
 // MARK: - Model Type
 
@@ -398,7 +399,7 @@ public final class TextEncoderModelRegistry {
     print("=".padding(toLength: 70, withPad: "=", startingAt: 0))
 
     for model in models {
-      let isDownloaded = TextEncoderModelDownloader.isModelDownloaded(model)
+      let isDownloaded = Acervo.isModelAvailable(model.repoId)
       let status = isDownloaded ? "Downloaded" : "Not downloaded"
 
       print("\n  \(model.name)")
@@ -407,7 +408,7 @@ public final class TextEncoderModelRegistry {
       print("  Size: \(model.variant.estimatedSize)")
       print("  Status: \(status)")
 
-      if isDownloaded, let path = TextEncoderModelDownloader.findModelPath(for: model) {
+      if isDownloaded, let path = try? Acervo.modelDirectory(for: model.repoId) {
         print("  Path: \(path.path)")
       }
     }

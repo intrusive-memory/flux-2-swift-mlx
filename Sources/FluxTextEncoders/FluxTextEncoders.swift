@@ -12,6 +12,7 @@
 import CoreGraphics
 import Foundation
 import MLX
+import SwiftAcervo
 import Tokenizers
 
 #if canImport(AppKit)
@@ -22,12 +23,15 @@ import Tokenizers
 
 // MARK: - Public API
 
+/// Progress callback for text-encoder download updates.
+public typealias TextEncoderDownloadProgressCallback = @Sendable (Double, String) -> Void
+
 /// Main interface for FLUX.2 text encoder operations
 /// Thread-safe: load/unload on main thread, inference can run on any thread
 public final class FluxTextEncoders: @unchecked Sendable {
   /// Shared singleton instance
   public static let shared = FluxTextEncoders()
-  public static let version = "3.2.2"
+  public static let version = "3.3.0"
 
   private var model: MistralForCausalLM?
   private var vlmModel: MistralVLM?
@@ -72,9 +76,8 @@ public final class FluxTextEncoders: @unchecked Sendable {
     hfToken: String? = nil,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws {
-    let downloader = TextEncoderModelDownloader(hfToken: hfToken)
-    let modelPath = try await downloader.download(variant: variant, progress: progress)
-
+    let modelPath = try await Self.ensureMistralModelAvailable(
+      variant: variant, hfToken: hfToken, progress: progress)
     try loadModel(from: modelPath.path)
   }
 
@@ -137,9 +140,8 @@ public final class FluxTextEncoders: @unchecked Sendable {
     hfToken: String? = nil,
     progress: TextEncoderDownloadProgressCallback? = nil
   ) async throws {
-    let downloader = TextEncoderModelDownloader(hfToken: hfToken)
-    let modelPath = try await downloader.download(variant: variant, progress: progress)
-
+    let modelPath = try await Self.ensureMistralModelAvailable(
+      variant: variant, hfToken: hfToken, progress: progress)
     try loadVLMModel(from: modelPath.path)
   }
 
@@ -247,9 +249,12 @@ public final class FluxTextEncoders: @unchecked Sendable {
 
     print("[Klein] Loading variant: \(modelVariant), repoId: \(modelInfo.repoId)")
 
-    // Download model (or get existing path)
-    let downloader = TextEncoderModelDownloader(hfToken: hfToken)
-    let modelPath = try await downloader.downloadQwen3(modelInfo, progress: progress)
+    // Download model (or get existing path) via Acervo.
+    let modelPath = try await Self.ensureAcervoAvailable(
+      repoId: modelInfo.repoId,
+      displayName: modelInfo.name,
+      hfToken: hfToken,
+      progress: progress)
 
     print("[Klein] Model path resolved: \(modelPath.path)")
 
@@ -957,6 +962,11 @@ public enum FluxEncoderError: LocalizedError {
   case kleinNotLoaded
   case invalidInput(String)
   case generationFailed(String)
+  /// Variant has been intentionally cut from CDN provisioning. The follow-up
+  /// CDN provisioning mission tracked under `docs/missions/` will re-enable
+  /// it.
+  case notProvisionedOnCDN(variant: ModelVariant)
+  case modelNotFound
 
   public var errorDescription: String? {
     switch self {
@@ -970,6 +980,12 @@ public enum FluxEncoderError: LocalizedError {
       return "Invalid input: \(message)"
     case .generationFailed(let message):
       return "Generation failed: \(message)"
+    case .notProvisionedOnCDN(let variant):
+      return
+        "Variant \(variant.shortName) is not provisioned on the Acervo CDN. "
+        + "It will be re-enabled in a follow-up CDN mission."
+    case .modelNotFound:
+      return "Model not found"
     }
   }
 }
@@ -977,7 +993,66 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-  public static let version = "3.2.2"
+  public static let version = "3.3.0"
   public static let modelName = "Mistral Small 3.2"
   public static let modelVersion = "24B-Instruct-2506"
+}
+
+// MARK: - Acervo Download Helpers
+
+extension FluxTextEncoders {
+
+  /// Ensure the Mistral model directory for `variant` is on disk via Acervo,
+  /// and return its resolved path.
+  ///
+  /// Refuses the bf16 variant up front (`FluxEncoderError.notProvisionedOnCDN`)
+  /// since the original Mistral repo is not on the Acervo CDN; the quantized
+  /// `lmstudio-community/*` mirrors are.
+  static func ensureMistralModelAvailable(
+    variant: ModelVariant,
+    hfToken: String?,
+    progress: TextEncoderDownloadProgressCallback?
+  ) async throws -> URL {
+    if variant == .bf16 {
+      throw FluxEncoderError.notProvisionedOnCDN(variant: .bf16)
+    }
+    guard let model = await TextEncoderModelRegistry.shared.model(withVariant: variant) else {
+      throw FluxEncoderError.modelNotFound
+    }
+    return try await ensureAcervoAvailable(
+      repoId: model.repoId,
+      displayName: model.name,
+      hfToken: hfToken,
+      progress: progress)
+  }
+
+  /// Ensure the model directory for `repoId` is on disk via Acervo, returning
+  /// its resolved on-disk URL.
+  ///
+  /// `hfToken` is accepted for API stability — Acervo CDN reads are
+  /// unauthenticated. If passed, it is exported as `HF_TOKEN` for any code
+  /// path that still consults the environment.
+  static func ensureAcervoAvailable(
+    repoId: String,
+    displayName: String,
+    hfToken: String?,
+    progress: TextEncoderDownloadProgressCallback?
+  ) async throws -> URL {
+    if let token = hfToken {
+      setenv("HF_TOKEN", token, 1)
+    }
+    progress?(0.0, "Starting download of \(displayName)...")
+    try await Acervo.ensureAvailable(
+      repoId,
+      files: [],
+      progress: { acervoProgress in
+        let message =
+          "Downloading \(acervoProgress.fileName) "
+          + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+        progress?(acervoProgress.overallProgress, message)
+      }
+    )
+    progress?(1.0, "Download complete!")
+    return try Acervo.modelDirectory(for: repoId)
+  }
 }

@@ -7,6 +7,7 @@ import ImageIO
 import MLX
 import MLXNN
 import MLXRandom
+import SwiftAcervo
 import Tuberia
 import os.lock
 
@@ -123,9 +124,6 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// Memory manager
   private let memoryManager = Flux2MemoryManager.shared
 
-  /// Model downloader
-  private var downloader: Flux2ModelDownloader?
-
   /// LoRA adapter manager
   private var loraManager: LoRAManager?
 
@@ -166,8 +164,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB
       )
     self.scheduler = FlowMatchEulerScheduler()
-    self.downloader =
-      hfToken != nil ? Flux2ModelDownloader(hfToken: hfToken) : Flux2ModelDownloader()
+    _ = hfToken  // retained on signature for API stability; Acervo CDN reads are unauthenticated.
 
     // Emit pipelineInit via a detached Task because init is sync.
     // model: uses Flux2Model.rawValue (e.g. "dev", "klein-4b") — the authoritative model identifier.
@@ -215,14 +212,28 @@ public class Flux2Pipeline: @unchecked Sendable {
 
   /// Download required models
   private func downloadRequiredModels(progress: Flux2DownloadProgressCallback?) async throws {
-    guard let downloader = downloader else { return }
-
     for component in missingModels {
       if case .textEncoder = component {
         // Text encoder is handled separately by Flux2TextEncoder
         continue
       }
-      _ = try await downloader.download(component, progress: progress)
+      if case .transformer(let variant) = component, !variant.isProvisionedOnCDN {
+        throw Flux2DownloadError.notProvisionedOnCDN(variant: variant)
+      }
+      progress?(0.0, "Starting download of \(component.displayName)...")
+      Flux2Debug.log(
+        "Downloading \(component.displayName) via Acervo CDN: \(component.repoId)")
+      try await Acervo.ensureAvailable(
+        component.repoId,
+        files: [],
+        progress: { acervoProgress in
+          let message =
+            "Downloading \(acervoProgress.fileName) "
+            + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+          progress?(acervoProgress.overallProgress, message)
+        }
+      )
+      progress?(1.0, "\(component.displayName) ready")
     }
   }
 
@@ -319,7 +330,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       for: model, quantization: quantization.transformer)
 
     // Find model path
-    guard let modelPath = Flux2ModelDownloader.findModelPath(for: .transformer(variant)) else {
+    guard let modelPath = Flux2ModelPaths.findModelPath(for: .transformer(variant)) else {
       let downloadCmd: String
       switch model {
       case .dev:
@@ -508,7 +519,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     Flux2Debug.log("Loading VAE...")
 
-    guard let modelPath = Flux2ModelDownloader.findModelPath(for: .vae(.standard)) else {
+    guard let modelPath = Flux2ModelPaths.findModelPath(for: .vae(.standard)) else {
       await currentTelemetry()?.capture(
         .errorThrown(
           phase: .modelNotLoaded,
@@ -2325,12 +2336,12 @@ extension Flux2Pipeline {
     // Check transformer - use the appropriate variant for this model type and quantization
     let transformerVariant = ModelRegistry.TransformerVariant.variant(
       for: model, quantization: quantization.transformer)
-    let hasTransformer = Flux2ModelDownloader.isDownloaded(.transformer(transformerVariant))
+    let hasTransformer = Flux2ModelPaths.isDownloaded(.transformer(transformerVariant))
 
     // Text encoder is handled by MistralCore/FluxTextEncoders, skip check here
 
     // Check VAE
-    let hasVAE = Flux2ModelDownloader.isDownloaded(.vae(.standard))
+    let hasVAE = Flux2ModelPaths.isDownloaded(.vae(.standard))
 
     return hasTransformer && hasVAE
   }
@@ -2342,13 +2353,13 @@ extension Flux2Pipeline {
     // Use the appropriate transformer variant for this model type
     let transformerVariant = ModelRegistry.TransformerVariant.variant(
       for: model, quantization: quantization.transformer)
-    if !Flux2ModelDownloader.isDownloaded(.transformer(transformerVariant)) {
+    if !Flux2ModelPaths.isDownloaded(.transformer(transformerVariant)) {
       missing.append(.transformer(transformerVariant))
     }
 
     // Text encoder is handled by MistralCore/FluxTextEncoders
 
-    if !Flux2ModelDownloader.isDownloaded(.vae(.standard)) {
+    if !Flux2ModelPaths.isDownloaded(.vae(.standard)) {
       missing.append(.vae(.standard))
     }
 

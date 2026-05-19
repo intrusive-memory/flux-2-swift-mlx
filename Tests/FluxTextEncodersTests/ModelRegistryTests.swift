@@ -186,10 +186,10 @@ struct TextEncoderModelRegistryTests {
         model.repoId.contains("/"),
         "Model '\(model.id)' repoId '\(model.repoId)' should be org/repo format")
     }
-    // Tekken JSON is downloaded alongside the model weights; TextEncoderModelDownloader
-    // hardcodes it in its file list.  Smoke-check that the registry's default
-    // model resolves to a real repoId (so the Acervo download would target the
-    // correct manifest entry).
+    // Tekken JSON is downloaded alongside the model weights via Acervo's
+    // CDN manifest. Smoke-check that the registry's default model resolves to
+    // a real repoId (so the Acervo download would target the correct manifest
+    // entry).
     let defaultModel = TextEncoderModelRegistry.shared.defaultModel()
     #expect(
       defaultModel.repoId.hasPrefix("lmstudio-community/"),

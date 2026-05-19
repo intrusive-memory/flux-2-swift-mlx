@@ -60,8 +60,8 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
   ///
   /// Each test gets its own instance so that concurrent writes from this
   /// suite do not interfere with any other test suite's reporter state.
-  /// `Flux2Pipeline.init` is GPU-free: it only wires a `FlowMatchEulerScheduler`
-  /// and a `Flux2ModelDownloader`; no model weights are touched.
+  /// `Flux2Pipeline.init` is GPU-free: it only wires a `FlowMatchEulerScheduler`;
+  /// no model weights are touched.
   private func makeFreshPipeline() -> Flux2Pipeline {
     Flux2Pipeline(model: .dev, quantization: .balanced)
   }

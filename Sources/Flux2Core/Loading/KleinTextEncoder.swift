@@ -6,6 +6,7 @@ import FluxTextEncoders
 import Foundation
 import MLX
 import MLXNN
+import SwiftAcervo
 import os.lock
 
 #if canImport(AppKit)
@@ -142,7 +143,7 @@ public class KleinTextEncoder: @unchecked Sendable {
     }
 
     for candidate in candidates {
-      if TextEncoderModelDownloader.isQwen3ModelDownloaded(variant: candidate) {
+      if Acervo.isModelAvailable(candidate.repoId) {
         return candidate
       }
     }

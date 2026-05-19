@@ -22,8 +22,8 @@ let package = Package(
         // Xcode bug). Wait for a stable 0.6.x release without these Xcode
         // compile issues before bumping past 0.5.x.
         .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.5.0")),
-        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.1")),
-        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.13.0")),
+        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.2")),
+        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.14.0")),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
