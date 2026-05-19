@@ -399,6 +399,27 @@ public enum ModelRegistry {
         return "FLUX.2-vae"
       }
     }
+
+    /// Acervo model ID for this component. Forwards to the variant's own
+    /// `repoId`.
+    public var repoId: String {
+      switch self {
+      case .transformer(let variant): return variant.repoId
+      case .textEncoder(let variant): return variant.repoId
+      case .vae(let variant): return variant.repoId
+      }
+    }
+
+    /// Subfolder within the Acervo model directory where this component's
+    /// weights live, when the upstream repo nests them. `nil` means the
+    /// weights live at the model root.
+    public var repoSubfolder: String? {
+      switch self {
+      case .transformer(let variant): return variant.repoSubfolder
+      case .textEncoder: return nil
+      case .vae(let variant): return variant.repoSubfolder
+      }
+    }
   }
 
   // MARK: - Paths
@@ -461,19 +482,6 @@ public enum ModelRegistry {
         .appendingPathComponent("black-forest-labs")
         .appendingPathComponent("FLUX.2-klein-4B-vae")
     }
-  }
-
-  /// Check if a model component is downloaded
-  /// Note: This delegates to Flux2ModelDownloader which checks multiple cache locations
-  public static func isDownloaded(_ component: ModelComponent) -> Bool {
-    // First check our local path
-    let path = localPath(for: component)
-    if FileManager.default.fileExists(atPath: path.path) {
-      return true
-    }
-
-    // Also check HuggingFace cache via Flux2ModelDownloader
-    return Flux2ModelDownloader.isDownloaded(component)
   }
 
   // MARK: - Configuration Files

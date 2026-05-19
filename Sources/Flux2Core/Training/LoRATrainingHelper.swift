@@ -6,6 +6,7 @@ import Foundation
 import ImageIO
 import MLX
 import MLXNN
+import SwiftAcervo
 
 #if canImport(AppKit)
   import AppKit
@@ -477,15 +478,22 @@ extension LoRATrainingHelper {
     }
 
     // Check if downloaded, download if needed
-    var modelPath = Flux2ModelDownloader.findModelPath(for: .transformer(variant))
-
-    if modelPath == nil {
+    let component = ModelRegistry.ModelComponent.transformer(variant)
+    if Flux2ModelPaths.findModelPath(for: component) == nil {
       Flux2Debug.log("[LoRATrainingHelper] Downloading transformer...")
-      let downloader = Flux2ModelDownloader()
-      modelPath = try await downloader.download(.transformer(variant), progress: progressCallback)
+      try await Acervo.ensureAvailable(
+        component.repoId,
+        files: [],
+        progress: { acervoProgress in
+          let message =
+            "Downloading \(acervoProgress.fileName) "
+            + "(\(acervoProgress.fileIndex + 1)/\(acervoProgress.totalFiles))"
+          progressCallback?(acervoProgress.overallProgress, message)
+        }
+      )
     }
 
-    guard let path = modelPath else {
+    guard let path = Flux2ModelPaths.findModelPath(for: component) else {
       throw LoRATrainingHelperError.failedToEncode("Failed to find or download transformer")
     }
 
