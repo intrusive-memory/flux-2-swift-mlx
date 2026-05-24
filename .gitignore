@@ -28,6 +28,9 @@ output/
 *.swp
 *~
 
+# Claude Code local runtime artifacts
+.claude/
+
 # Package resolution
 Package.resolved
 .spm/
