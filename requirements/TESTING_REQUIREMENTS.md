@@ -46,6 +46,15 @@ xcodebuild test \
 
 30 minutes maximum per CI job. Any test that takes longer than 5 seconds on CI is either doing I/O it shouldn't, or should be in `Flux2GPUTests`.
 
+### Network-touching tests and the `Flux2GPUTests` exclusion
+
+`Flux2GPUTests` is the **only** target whose tests would touch the network — every other suite is GPU-free, weight-free, and download-free by construction. CI protects against a regression here with two independent layers:
+
+1. **Target-level allowlist.** `.github/workflows/tests.yml` uses an explicit `-only-testing` allowlist that names `FluxTextEncodersTests` and `Flux2CoreTests` only. `Flux2GPUTests` is never selected by xcodebuild on a CI run.
+2. **In-test precondition guard.** Every `@Test` in `Flux2GPUTests` opens with `guard checkGPUPreconditions(minimumBytes: …) else { return }` (see `Tests/Flux2GPUTests/GPUPreconditions.swift`). The guard requires a Metal device and a physical-memory threshold; GitHub's `macos-26` runners are virtualized and trip the Metal-device check, so even if a future workflow change expanded the `-only-testing` allowlist, every download-bearing test would exit before hitting `Acervo.ensureAvailable`.
+
+This dual mechanism is what protects CI during periods when a CDN-side manifest is stale or being re-shipped (e.g. the SwiftAcervo 0.16 transition documented in `MODELS-TO-SHIP.md`). Do not add network-dependent assertions to `FluxTextEncodersTests` or `Flux2CoreTests` — those targets must remain runnable on a clean CI runner with no model cache.
+
 ---
 
 ## 3. Test Framework

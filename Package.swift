@@ -64,7 +64,7 @@ let package = Package(
           "SwiftTuberia",
           remote: "https://github.com/intrusive-memory/SwiftTuberia.git",
           from: "0.7.2"),
-        sibling("SwiftAcervo", remote: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.14.0"),
+        sibling("SwiftAcervo", remote: "https://github.com/intrusive-memory/SwiftAcervo", from: "0.16.0"),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [

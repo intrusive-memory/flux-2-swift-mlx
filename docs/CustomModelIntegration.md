@@ -191,6 +191,8 @@ To integrate local models into the full pipeline (so they work with `Flux2Pipeli
 
 2. **Override `loadTransformer()` in the pipeline**: Add a case in `Flux2Pipeline.loadTransformer()` that reads from a local path instead of using the downloader.
 
+> **Note on SwiftAcervo 0.16+ semantics.** As of v3.3.0 this repo pins `SwiftAcervo >= 0.16`. If you are wiring a CDN-hosted custom model rather than a purely-local one, use the library accessors instead of probing the filesystem: `Acervo.availability(repoId)` returns a four-state `ModelAvailability` (`.notAvailable | .downloading | .partial | .available`), and `Acervo.fetchManifest(for: repoId)` is the only correct way to enumerate a model's files (hardcoding `config.json` / `model.safetensors` rots silently when the CDN re-tiles a model). Any custom-model CDN manifest you publish must be written with `acervo ship` 0.16 or newer — older manifests omit the now-required `primaryRepo` and `components` wire fields and will strict-decode-fail on a fresh consumer cache. See [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md) for the full migration guide.
+
 ### Step 3: Register Download Variants
 
 Add your model's HuggingFace repository to `TransformerVariant` in `Sources/Flux2Core/Configuration/ModelRegistry.swift`:
