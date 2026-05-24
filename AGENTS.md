@@ -334,9 +334,28 @@ Flux's [REQUIREMENTS-instrumentation.md](REQUIREMENTS-instrumentation.md) is the
 
 ---
 
-## App Group configuration (required)
+## SwiftAcervo dependency (v0.16.0+) — philosophy and App Group configuration
 
-This package depends on [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) for shared model storage. SwiftAcervo v0.10.0 resolves its App Group ID in this order: `ACERVO_APP_GROUP_ID` env var → `com.apple.security.application-groups` entitlement (macOS only) → `fatalError`. There is **no silent fallback**.
+This package depends on [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) for shared model storage. The current pin is `from: "0.16.0"` (see `Package.swift`).
+
+### Philosophy shift introduced in 0.16
+
+SwiftAcervo 0.16 moves the library from "give me a path on disk and I'll trust the filesystem" to **"ask the library; the library owns the source of truth."** Concretely:
+
+- **Stop poking the filesystem** for model state. No more `FileManager.default.fileExists("\(modelPath)/config.json")`, no more directory enumerations to count files or compute sizes. Replace with `Acervo.availability(_:)`, `Acervo.modelFileExists(_:fileName:)`, and `Acervo.fetchManifest(for:)`. Hardcoded filename literals (`model.safetensors`, `tokenizer.json`) are bugs.
+- **Four-state availability**, not two. `ModelAvailability` is now `.notAvailable | .downloading | .partial | .available`. Half-downloaded models are a first-class state the UI should render as "needs repair," not silently treated as "absent."
+- **`CDNManifest` tightened on the wire.** `primaryRepo` and `components` are now required fields on strict decode. Manifests published by `acervo` < 0.16 will strict-decode-fail on a fresh consumer cache. Every CDN-hosted model must be re-shipped under `acervo ≥ 0.16` (see `/Users/stovak/Projects/MODELS-TO-SHIP.md` and this repo's `TODO.md`).
+- **`aws` CLI is no longer a runtime dependency** of the shipping workflow. Remove it from any CI step that previously installed it for SwiftAcervo's sake. `hf` (HuggingFace CLI) is still required by `acervo ship`.
+
+`AcervoMigration` (the pre-0.12 cache-path migration helper) was removed in 0.14.1; treat the App Group `SharedModels/` directory as canonical.
+
+Multi-component models can additionally be addressed by a single deployment slug via the new slug-keyed `availability(slug:url:)` / `ensureAvailable(slug:url:files:progress:)` surface. This repo does **not** yet adopt the slug-keyed API for the Klein 4B transformer+VAE+text-encoder bundle (each component is still addressed by its own `org/repo`); it is a forward-looking opportunity, not a current capability.
+
+For depth and concrete grep-and-replace patterns see [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md). For the per-call-site disposition in this repo (which sites were verified compile-clean against 0.16, which were deferred), see [`TODO.md`](TODO.md) Groups A–H. Groups C and D (UI `.partial` adoption + FileManager-probe removal in `Flux2ModelPaths` / `ModelManager`) are deliberately **deferred** — the async-cascade through `@MainActor` UI code is non-trivial and gated on a synchronous local-manifest accessor that may not exist in the 0.16 public API. The mechanical bump compiled clean with zero source-file changes.
+
+### App Group configuration (required)
+
+SwiftAcervo (since v0.10) resolves its App Group ID in this order: `ACERVO_APP_GROUP_ID` env var → `com.apple.security.application-groups` entitlement (macOS only) → `fatalError`. There is **no silent fallback**.
 
 - **Signed UI apps (macOS / iOS)**: declare `com.apple.security.application-groups` with `group.intrusive-memory.models` in your `.entitlements` file. iOS apps additionally need `ACERVO_APP_GROUP_ID=group.intrusive-memory.models` in the launch environment.
 - **CLI tools, scripts, CI jobs, test runners**: export `ACERVO_APP_GROUP_ID=group.intrusive-memory.models` in the shell or job environment. The standard place is `~/.zprofile`:
@@ -349,4 +368,4 @@ Without this, `Acervo.sharedModelsDirectory` traps with `fatalError`. See [Swift
 
 ---
 
-**Last updated**: 2026-05-14 (v3.2.0) — added §11 telemetry chokepoint convention
+**Last updated**: 2026-05-23 (v3.3.0) — SwiftAcervo 0.16 philosophy + App Group section consolidated

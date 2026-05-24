@@ -46,8 +46,8 @@ fi
 
 ACERVO_VERSION="$(acervo --version)"
 echo "[info] acervo version: ${ACERVO_VERSION}"
-if [ "${ACERVO_VERSION}" \< "0.8.4" ]; then
-  echo "ERROR: acervo ${ACERVO_VERSION} is older than required 0.8.4 (manifest path fix)." >&2
+if [ "${ACERVO_VERSION}" \< "0.16.0" ]; then
+  echo "ERROR: acervo ${ACERVO_VERSION} is older than required 0.16.0 (CDNManifest.primaryRepo / components fields required on the wire)." >&2
   exit 1
 fi
 

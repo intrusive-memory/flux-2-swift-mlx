@@ -91,9 +91,11 @@ The user's global Claude instructions live at `~/.claude/CLAUDE.md`. Key load-be
 
 ---
 
-## 5. App Group Configuration
+## 5. SwiftAcervo (v0.16.0+) and App Group Configuration
 
-See [AGENTS.md](./AGENTS.md) § App Group configuration (required).
+See [AGENTS.md](./AGENTS.md) § *SwiftAcervo dependency (v0.16.0+) — philosophy and App Group configuration*.
+
+The 0.16 release shifts SwiftAcervo's contract: stop poking the filesystem for model state, prefer `Acervo.availability(_:)` / `Acervo.modelFileExists(_:fileName:)` / `Acervo.fetchManifest(for:)` over `FileManager` probes; expect a four-state `ModelAvailability` (`.notAvailable | .downloading | .partial | .available`); CDN-side `CDNManifest` now requires `primaryRepo` and `components` on the wire, so models shipped under `acervo` < 0.16 must be re-published; the `aws` CLI is no longer a runtime dependency. The mechanical 0.14→0.16 bump in this repo touched only `Package.swift`, `Package.resolved`, and `scripts/wu1-bulk-ship.sh` — no source-file changes. UI-layer `.partial` adoption and removal of FileManager probes in `Flux2ModelPaths` / `ModelManager` are deferred per `TODO.md` Groups C/D.
 
 ## 5a. Telemetry Chokepoint Convention
 
@@ -115,4 +117,4 @@ In addition to the universal rules in [AGENTS.md §10](AGENTS.md#10-universal-cr
 
 ---
 
-**Last updated**: 2026-05-14 (v3.2.0) — added §5a pointer to telemetry chokepoint convention
+**Last updated**: 2026-05-23 (v3.3.0) — §5 expanded with SwiftAcervo 0.16 philosophy
