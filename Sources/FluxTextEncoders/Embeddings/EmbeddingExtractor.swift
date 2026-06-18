@@ -116,7 +116,7 @@ public class EmbeddingExtractor {
     config: HiddenStatesConfig = .mfluxDefault
   ) throws -> MLXArray {
     // Tokenize input
-    let tokenIds = tokenizer.encode(prompt, addSpecialTokens: true)
+    let tokenIds = try tokenizer.encode(prompt, addSpecialTokens: true)
     let inputIds = MLXArray(tokenIds).reshaped([1, tokenIds.count])
 
     FluxDebug.log(
@@ -212,7 +212,7 @@ public class EmbeddingExtractor {
     ]
 
     // 2. Encode with chat template (addGenerationPrompt=false matches Python)
-    var tokenIds = tokenizer.encodeChatMessages(
+    var tokenIds = try tokenizer.encodeChatMessages(
       messages: messages,
       addGenerationPrompt: false
     )
@@ -284,14 +284,14 @@ public class EmbeddingExtractor {
   public func getFluxTokenIds(
     prompt: String,
     maxLength: Int = FluxConfig.maxSequenceLength
-  ) -> [Int] {
+  ) throws -> [Int] {
     let cleanedPrompt = prompt.replacingOccurrences(of: "[IMG]", with: "")
     let messages: [[String: String]] = [
       ["role": "system", "content": FluxConfig.systemMessage],
       ["role": "user", "content": cleanedPrompt],
     ]
 
-    var tokenIds = tokenizer.encodeChatMessages(
+    var tokenIds = try tokenizer.encodeChatMessages(
       messages: messages,
       addGenerationPrompt: false
     )

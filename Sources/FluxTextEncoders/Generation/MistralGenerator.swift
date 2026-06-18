@@ -107,7 +107,8 @@ public final class MistralGenerator: @unchecked Sendable {
     // Tokenization with profiling
     profiler.startTokenization()
     let messages: [[String: String]] = [["role": "user", "content": prompt]]
-    let promptTokens = tokenizer.encodeChatMessages(messages: messages, addGenerationPrompt: true)
+    let promptTokens = try tokenizer.encodeChatMessages(
+      messages: messages, addGenerationPrompt: true)
     var inputIds = MLXArray(promptTokens).reshaped([1, promptTokens.count])
     profiler.endTokenization(tokenCount: promptTokens.count)
 
@@ -163,7 +164,7 @@ public final class MistralGenerator: @unchecked Sendable {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
           let decodeStart = CFAbsoluteTimeGetCurrent()
-          let tokenText = tokenizer.decode(pendingTokens, skipSpecialTokens: true)
+          let tokenText = try tokenizer.decode(pendingTokens, skipSpecialTokens: true)
           profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
           if !onToken!(tokenText) {
             break
@@ -195,7 +196,7 @@ public final class MistralGenerator: @unchecked Sendable {
     // Flush any remaining tokens
     if hasCallback && !pendingTokens.isEmpty {
       let decodeStart = CFAbsoluteTimeGetCurrent()
-      let tokenText = tokenizer.decode(pendingTokens, skipSpecialTokens: true)
+      let tokenText = try tokenizer.decode(pendingTokens, skipSpecialTokens: true)
       profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
       _ = onToken!(tokenText)
     }
@@ -207,7 +208,7 @@ public final class MistralGenerator: @unchecked Sendable {
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
     let decodeStart = CFAbsoluteTimeGetCurrent()
-    let outputText = tokenizer.decode(generatedTokens, skipSpecialTokens: true)
+    let outputText = try tokenizer.decode(generatedTokens, skipSpecialTokens: true)
     profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
 
     // Clear KV cache to free memory
@@ -245,7 +246,8 @@ public final class MistralGenerator: @unchecked Sendable {
 
     // Tokenization with profiling
     profiler.startTokenization()
-    let promptTokens = tokenizer.encodeChatMessages(messages: messages, addGenerationPrompt: true)
+    let promptTokens = try tokenizer.encodeChatMessages(
+      messages: messages, addGenerationPrompt: true)
     var inputIds = MLXArray(promptTokens).reshaped([1, promptTokens.count])
     profiler.endTokenization(tokenCount: promptTokens.count)
 
@@ -295,7 +297,7 @@ public final class MistralGenerator: @unchecked Sendable {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
           let decodeStart = CFAbsoluteTimeGetCurrent()
-          let tokenText = tokenizer.decode(pendingTokens, skipSpecialTokens: true)
+          let tokenText = try tokenizer.decode(pendingTokens, skipSpecialTokens: true)
           profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
           if !onToken!(tokenText) {
             break
@@ -327,7 +329,7 @@ public final class MistralGenerator: @unchecked Sendable {
     // Flush remaining pending tokens (streaming mode)
     if stream && hasCallback && !pendingTokens.isEmpty {
       let decodeStart = CFAbsoluteTimeGetCurrent()
-      let tokenText = tokenizer.decode(pendingTokens, skipSpecialTokens: true)
+      let tokenText = try tokenizer.decode(pendingTokens, skipSpecialTokens: true)
       profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
       _ = onToken!(tokenText)
     }
@@ -339,7 +341,7 @@ public final class MistralGenerator: @unchecked Sendable {
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
     let decodeStart = CFAbsoluteTimeGetCurrent()
-    let outputText = tokenizer.decode(generatedTokens, skipSpecialTokens: true)
+    let outputText = try tokenizer.decode(generatedTokens, skipSpecialTokens: true)
     profiler.addDecodingTime(CFAbsoluteTimeGetCurrent() - decodeStart)
 
     // Non-streaming mode: call callback once with complete text

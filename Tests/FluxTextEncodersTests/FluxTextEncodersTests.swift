@@ -71,7 +71,7 @@ struct FluxTextEncodersTests {
   @Test func tokenizer() throws {
     let tokenizer = TekkenTokenizer()
     let text = "Hello world"
-    let tokens = tokenizer.encode(text)
+    let tokens = try tokenizer.encode(text)
     #expect(!tokens.isEmpty, "Tokenization should produce tokens")
   }
 
@@ -151,27 +151,27 @@ struct FluxTextEncodersIntegrationTests {
   }
 
   /// Test tokenizer with various input types
-  @Test func tokenizerVariousInputs() {
+  @Test func tokenizerVariousInputs() throws {
     let tokenizer = TekkenTokenizer()
 
     // ASCII
-    let asciiTokens = tokenizer.encode("Hello")
+    let asciiTokens = try tokenizer.encode("Hello")
     #expect(!asciiTokens.isEmpty)
 
     // Unicode
-    let unicodeTokens = tokenizer.encode("世界")
+    let unicodeTokens = try tokenizer.encode("世界")
     #expect(!unicodeTokens.isEmpty)
 
     // Mixed
-    let mixedTokens = tokenizer.encode("Hello 世界!")
+    let mixedTokens = try tokenizer.encode("Hello 世界!")
     #expect(!mixedTokens.isEmpty)
 
     // Numbers
-    let numberTokens = tokenizer.encode("12345")
+    let numberTokens = try tokenizer.encode("12345")
     #expect(!numberTokens.isEmpty)
 
     // Special chars
-    let specialTokens = tokenizer.encode("@#$%^&*()")
+    let specialTokens = try tokenizer.encode("@#$%^&*()")
     #expect(!specialTokens.isEmpty)
   }
 

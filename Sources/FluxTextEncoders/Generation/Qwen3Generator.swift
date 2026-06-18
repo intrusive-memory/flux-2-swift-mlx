@@ -56,7 +56,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       userMessage: prompt, enableThinking: enableThinking)
 
     // Tokenize
-    let promptTokens = tokenizer.encode(text: formattedPrompt)
+    let promptTokens = try tokenizer.encode(text: formattedPrompt)
     var inputIds = MLXArray(promptTokens.map { Int32($0) }).reshaped([1, promptTokens.count])
 
     // Create KV cache
@@ -110,7 +110,7 @@ public final class Qwen3Generator: @unchecked Sendable {
           // pre-migration swift-transformers behavior. Validate with an app smoke test
           // on a real Qwen3 model (post-CDN-ship); if user-visible whitespace drift is
           // observed, file as a follow-up.
-          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
+          let tokenText = try tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -140,7 +140,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining tokens
     if hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
+      let tokenText = try tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -148,7 +148,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokenIds: generatedTokens)
+    var outputText = try tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {
@@ -194,7 +194,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       messages: messages, enableThinking: enableThinking)
 
     // Tokenize
-    let promptTokens = tokenizer.encode(text: formattedPrompt)
+    let promptTokens = try tokenizer.encode(text: formattedPrompt)
     var inputIds = MLXArray(promptTokens.map { Int32($0) }).reshaped([1, promptTokens.count])
 
     let cache = model.createCache()
@@ -237,7 +237,7 @@ public final class Qwen3Generator: @unchecked Sendable {
       if stream && hasCallback {
         pendingTokens.append(nextToken)
         if pendingTokens.count >= streamBatchSize {
-          let tokenText = tokenizer.decode(tokenIds: pendingTokens)
+          let tokenText = try tokenizer.decode(tokenIds: pendingTokens)
           if !onToken!(tokenText) {
             break
           }
@@ -266,7 +266,7 @@ public final class Qwen3Generator: @unchecked Sendable {
 
     // Flush remaining pending tokens (streaming mode)
     if stream && hasCallback && !pendingTokens.isEmpty {
-      let tokenText = tokenizer.decode(tokenIds: pendingTokens)
+      let tokenText = try tokenizer.decode(tokenIds: pendingTokens)
       _ = onToken!(tokenText)
     }
 
@@ -274,7 +274,7 @@ public final class Qwen3Generator: @unchecked Sendable {
     let totalTime = endTime.timeIntervalSince(startTime)
     let tokensPerSecond = Double(generatedTokens.count) / totalTime
 
-    var outputText = tokenizer.decode(tokenIds: generatedTokens)
+    var outputText = try tokenizer.decode(tokenIds: generatedTokens)
 
     // Strip empty thinking tags when thinking is disabled
     if !enableThinking {
