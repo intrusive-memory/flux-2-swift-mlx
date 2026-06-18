@@ -65,7 +65,7 @@ public class KleinEmbeddingExtractor {
       )
 
       // 3. Tokenize
-      var tokenIds = tokenizer.encode(text: formattedPrompt)
+      var tokenIds = try tokenizer.encode(text: formattedPrompt)
 
       FluxDebug.log("Klein embeddings: encoded \(tokenIds.count) tokens before padding")
 
@@ -176,7 +176,7 @@ public class KleinEmbeddingExtractor {
       addGenerationPrompt: true
     )
 
-    var tokenIds = tokenizer.encode(text: formattedPrompt)
+    var tokenIds = try tokenizer.encode(text: formattedPrompt)
 
     // Truncate if needed
     if tokenIds.count > maxLength {

@@ -25,7 +25,7 @@ XCODEBUILD_FLAGS = \
 .PHONY: all build build-ios release install resolve \
 	test test-fte test-core test-gpu \
 	lint lint-check \
-	clean help
+	clean help codesign-cli
 
 all: install
 
@@ -98,6 +98,32 @@ _copy-binaries:
 	else \
 		echo "  Warning: Metal bundle not found — binaries may not work"; \
 	fi
+
+# ── App Group code-signing ────────────────────────────────────────────────
+# Sign every copied CLI with the com.apple.security.application-groups
+# entitlement so the group ID is embedded in each binary and SwiftAcervo resolves
+# the shared models container (~/Library/Group Containers/group.intrusive-memory.models/)
+# WITHOUT requiring ACERVO_APP_GROUP_ID in the environment. Container access is
+# plain POSIX (same-user, mode 700); the entitlement only supplies the group
+# identifier at runtime via SecTaskCopyValueForEntitlement.
+#
+# Default identity is ad-hoc (-). For a distributable build, override with a
+# Developer ID by certificate SHA-1 (names collide in the keychain):
+#   make release codesign-cli CODESIGN_IDENTITY=<sha1>
+APP_GROUP_ID ?= group.intrusive-memory.models
+CODESIGN_IDENTITY ?= -
+CODESIGN_FLAGS ?=
+CODESIGN_ENTITLEMENTS ?= cli.entitlements
+
+codesign-cli:
+	@for bin in $(BINARIES); do \
+		if [ -f "$(BIN_DIR)/$$bin" ]; then \
+			codesign --force --sign "$(CODESIGN_IDENTITY)" --entitlements "$(CODESIGN_ENTITLEMENTS)" $(CODESIGN_FLAGS) "$(BIN_DIR)/$$bin"; \
+			echo "Signed $(BIN_DIR)/$$bin (identity: $(CODESIGN_IDENTITY), group: $(APP_GROUP_ID))"; \
+		else \
+			echo "Skip: $(BIN_DIR)/$$bin not found — run 'make install' or 'make release' first."; \
+		fi; \
+	done
 
 # CI-safe test targets (no GPU, no model downloads). These mirror the two
 # required status checks defined in TESTING_REQUIREMENTS.md §2.
@@ -174,6 +200,7 @@ help:
 	@echo "  lint-check  - Report style issues without rewriting (CI-friendly)"
 	@echo ""
 	@echo "Other:"
+	@echo "  codesign-cli - Sign all CLIs with the App Group entitlement (run after install/release)"
 	@echo "  clean       - Remove ./bin, .spm, and Flux2Swift-* DerivedData"
 	@echo "  help        - Show this help"
 	@echo ""

@@ -31,7 +31,7 @@ public typealias TextEncoderDownloadProgressCallback = @Sendable (Double, String
 public final class FluxTextEncoders: @unchecked Sendable {
   /// Shared singleton instance
   public static let shared = FluxTextEncoders()
-  public static let version = "3.3.1"
+  public static let version = "3.3.2"
 
   private var model: MistralForCausalLM?
   private var vlmModel: MistralVLM?
@@ -459,11 +459,12 @@ public final class FluxTextEncoders: @unchecked Sendable {
 
     // Add system prompt if provided
     if let sysPrompt = systemPrompt {
-      inputTokens.append(contentsOf: tokenizer.encode(sysPrompt + "\n\n", addSpecialTokens: false))
+      inputTokens.append(
+        contentsOf: try tokenizer.encode(sysPrompt + "\n\n", addSpecialTokens: false))
     }
 
     inputTokens.append(contentsOf: Array(repeating: imageTokenId, count: numImageTokens))
-    inputTokens.append(contentsOf: tokenizer.encode("\n\(prompt) ", addSpecialTokens: false))
+    inputTokens.append(contentsOf: try tokenizer.encode("\n\(prompt) ", addSpecialTokens: false))
     inputTokens.append(4)  // [/INST]
 
     if debug {
@@ -534,7 +535,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     }
 
     // Decode all tokens at once for correct multi-byte character handling
-    let outputText = tokenizer.decode(generatedTokens, skipSpecialTokens: true)
+    let outputText = try tokenizer.decode(generatedTokens, skipSpecialTokens: true)
 
     // Call callback once with complete text (if provided)
     if let callback = onToken {
@@ -720,7 +721,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     guard let extractor = extractor else {
       throw FluxEncoderError.modelNotLoaded
     }
-    return extractor.getFluxTokenIds(prompt: prompt, maxLength: maxLength)
+    return try extractor.getFluxTokenIds(prompt: prompt, maxLength: maxLength)
   }
 
   // MARK: - Klein Embeddings
@@ -824,7 +825,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     inputTokens.append(tokenizer.bosToken)  // <s>
     inputTokens.append(3)  // [INST]
     inputTokens.append(
-      contentsOf: tokenizer.encode(
+      contentsOf: try tokenizer.encode(
         "<<SYS>>\n\(systemMessage)\n<</SYS>>\n\n", addSpecialTokens: false))
 
     // Add ALL image tokens - do NOT truncate!
@@ -832,7 +833,8 @@ public final class FluxTextEncoders: @unchecked Sendable {
     inputTokens.append(contentsOf: Array(repeating: imageTokenId, count: numImageTokens))
 
     // Add prompt
-    inputTokens.append(contentsOf: tokenizer.encode("\n\(cleanedPrompt) ", addSpecialTokens: false))
+    inputTokens.append(
+      contentsOf: try tokenizer.encode("\n\(cleanedPrompt) ", addSpecialTokens: false))
     inputTokens.append(4)  // [/INST]
 
     // Note: For I2I, we do NOT truncate or pad to a fixed length
@@ -929,7 +931,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     guard let tokenizer = tokenizer else {
       throw FluxEncoderError.modelNotLoaded
     }
-    return tokenizer.encode(text, addSpecialTokens: addSpecialTokens)
+    return try tokenizer.encode(text, addSpecialTokens: addSpecialTokens)
   }
 
   /// Decode tokens to text
@@ -937,7 +939,7 @@ public final class FluxTextEncoders: @unchecked Sendable {
     guard let tokenizer = tokenizer else {
       throw FluxEncoderError.modelNotLoaded
     }
-    return tokenizer.decode(tokens, skipSpecialTokens: skipSpecialTokens)
+    return try tokenizer.decode(tokens, skipSpecialTokens: skipSpecialTokens)
   }
 
   // MARK: - Model Info
@@ -993,7 +995,7 @@ public enum FluxEncoderError: LocalizedError {
 // MARK: - Version Info
 
 public struct MistralVersion {
-  public static let version = "3.3.1"
+  public static let version = "3.3.2"
   public static let modelName = "Mistral Small 3.2"
   public static let modelVersion = "24B-Instruct-2506"
 }

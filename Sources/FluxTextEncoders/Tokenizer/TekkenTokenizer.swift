@@ -267,12 +267,12 @@ public class TekkenTokenizer {
   /**
    * Encode text using BPE (equivalent to tiktoken.Encoding.encode + Tekkenizer offset)
    */
-  public func encode(_ text: String, addSpecialTokens: Bool = false) -> [Int] {
+  public func encode(_ text: String, addSpecialTokens: Bool = false) throws -> [Int] {
     guard !text.isEmpty else { return [] }
 
     // Use HuggingFace tokenizer if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
-      var tokens = tokenizer.encode(text: text)
+      var tokens = try tokenizer.encode(text: text)
       if addSpecialTokens {
         // The HF tokenizer might already add special tokens, check if we need to add them
         if tokens.first != bosTokenId {
@@ -395,11 +395,12 @@ public class TekkenTokenizer {
   /**
    * Decode tokens back to text
    */
-  public func decode(_ tokens: [Int], skipSpecialTokens: Bool = true) -> String {
+  public func decode(_ tokens: [Int], skipSpecialTokens: Bool = true) throws -> String {
     // Use HuggingFace tokenizer if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
-      // swift-transformers 0.1.14+ doesn't have skipSpecialTokens parameter
-      return tokenizer.decode(tokenIds: tokens)
+      // swift-tokenizers' decode is typed-throwing and no longer takes a
+      // skipSpecialTokens parameter; the HF tokenizer handles special tokens.
+      return try tokenizer.decode(tokenIds: tokens)
     }
 
     // Tekken tokenizer - accumulate bytes for proper UTF-8 decoding
@@ -443,8 +444,10 @@ public class TekkenTokenizer {
       ?? String(decoding: result, as: UTF8.self)
   }
 
-  public func batchDecode(_ tokenIdsList: [[Int]], skipSpecialTokens: Bool = true) -> [String] {
-    return tokenIdsList.map { decode($0, skipSpecialTokens: skipSpecialTokens) }
+  public func batchDecode(_ tokenIdsList: [[Int]], skipSpecialTokens: Bool = true) throws
+    -> [String]
+  {
+    return try tokenIdsList.map { try decode($0, skipSpecialTokens: skipSpecialTokens) }
   }
 
   // MARK: - Properties
@@ -477,7 +480,7 @@ public class TekkenTokenizer {
       do {
         let tokens = try tokenizer.applyChatTemplate(messages: messages, addGenerationPrompt: false)
         // Decode and return
-        return tokenizer.decode(tokenIds: tokens)
+        return try tokenizer.decode(tokenIds: tokens)
       } catch {
         FluxDebug.log("HF chat template failed: \(error), using manual format")
       }
@@ -508,7 +511,7 @@ public class TekkenTokenizer {
   public func encodeChatMessages(
     messages: [[String: String]],
     addGenerationPrompt: Bool = true
-  ) -> [Int] {
+  ) throws -> [Int] {
     // Try using HuggingFace tokenizer's chat template if available
     if useHFTokenizer, let tokenizer = hfTokenizer {
       do {
@@ -526,14 +529,14 @@ public class TekkenTokenizer {
 
       if role == "system" {
         tokens.append(systemPromptTokenId)  // [SYSTEM_PROMPT]
-        tokens.append(contentsOf: encode(content, addSpecialTokens: false))
+        tokens.append(contentsOf: try encode(content, addSpecialTokens: false))
         tokens.append(endSystemPromptTokenId)  // [/SYSTEM_PROMPT]
       } else if role == "user" {
         tokens.append(instTokenId)  // [INST]
-        tokens.append(contentsOf: encode(content, addSpecialTokens: false))
+        tokens.append(contentsOf: try encode(content, addSpecialTokens: false))
         tokens.append(endInstTokenId)  // [/INST]
       } else if role == "assistant" {
-        tokens.append(contentsOf: encode(content, addSpecialTokens: false))
+        tokens.append(contentsOf: try encode(content, addSpecialTokens: false))
         tokens.append(eosTokenId)  // </s>
       }
     }
@@ -554,7 +557,7 @@ public class TekkenTokenizer {
     returnTensors: String = "mlx",
     padding: Bool = true
   ) throws -> [String: MLXArray] {
-    let tokenIds = encode(text)
+    let tokenIds = try encode(text)
     var result: [String: MLXArray] = [
       "input_ids": MLXArray(tokenIds).reshaped([1, tokenIds.count])
     ]

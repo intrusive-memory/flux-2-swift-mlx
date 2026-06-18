@@ -19,19 +19,19 @@ struct TokenizerTests {
 
   // MARK: - Basic Encoding Tests
 
-  @Test func encodeEmptyString() {
-    let tokens = tokenizer.encode("")
+  @Test func encodeEmptyString() throws {
+    let tokens = try tokenizer.encode("")
     #expect(tokens.isEmpty, "Empty string should produce empty token array")
   }
 
-  @Test func encodeSimpleText() {
-    let tokens = tokenizer.encode("Hello")
+  @Test func encodeSimpleText() throws {
+    let tokens = try tokenizer.encode("Hello")
     #expect(!tokens.isEmpty, "Non-empty string should produce tokens")
   }
 
-  @Test func encodeWithSpecialTokens() {
-    let tokensWithoutSpecial = tokenizer.encode("Hello", addSpecialTokens: false)
-    let tokensWithSpecial = tokenizer.encode("Hello", addSpecialTokens: true)
+  @Test func encodeWithSpecialTokens() throws {
+    let tokensWithoutSpecial = try tokenizer.encode("Hello", addSpecialTokens: false)
+    let tokensWithSpecial = try tokenizer.encode("Hello", addSpecialTokens: true)
 
     // With special tokens should have BOS at start and EOS at end
     #expect(
@@ -119,12 +119,12 @@ struct TokenizerTests {
     #expect(prompt.contains("How are you?"), "Should contain second user message")
   }
 
-  @Test func encodeChatMessagesProducesTokens() {
+  @Test func encodeChatMessagesProducesTokens() throws {
     let messages: [[String: String]] = [
       ["role": "user", "content": "Hello world"]
     ]
 
-    let tokens = tokenizer.encodeChatMessages(messages: messages)
+    let tokens = try tokenizer.encodeChatMessages(messages: messages)
 
     #expect(!tokens.isEmpty, "Chat messages should produce tokens")
 
@@ -136,51 +136,51 @@ struct TokenizerTests {
 
   // MARK: - Decoding Tests
 
-  @Test func decodeEmptyArray() {
-    let text = tokenizer.decode([])
+  @Test func decodeEmptyArray() throws {
+    let text = try tokenizer.decode([])
     #expect(text.isEmpty, "Empty token array should decode to empty string")
   }
 
-  @Test func decodeSkipsSpecialTokensByDefault() {
+  @Test func decodeSkipsSpecialTokensByDefault() throws {
     // Decode with special token IDs
     let tokens = [tokenizer.bosToken, tokenizer.eosToken]
-    let text = tokenizer.decode(tokens, skipSpecialTokens: true)
+    let text = try tokenizer.decode(tokens, skipSpecialTokens: true)
 
     // Should not contain special token strings
     #expect(!text.contains("<s>"), "Should skip BOS token")
     #expect(!text.contains("</s>"), "Should skip EOS token")
   }
 
-  @Test func batchDecode() {
+  @Test func batchDecode() throws {
     let tokenLists = [
       [tokenizer.bosToken],
       [tokenizer.eosToken],
     ]
 
-    let decoded = tokenizer.batchDecode(tokenLists)
+    let decoded = try tokenizer.batchDecode(tokenLists)
 
     #expect(decoded.count == 2, "Batch decode should return same number of strings")
   }
 
   // MARK: - Edge Cases
 
-  @Test func encodeUnicodeText() {
-    let tokens = tokenizer.encode("Hello 世界 🌍")
+  @Test func encodeUnicodeText() throws {
+    let tokens = try tokenizer.encode("Hello 世界 🌍")
     // Should not crash and should produce some tokens
     #expect(!tokens.isEmpty, "Unicode text should produce tokens")
   }
 
-  @Test func encodeLongText() {
+  @Test func encodeLongText() throws {
     let longText = String(repeating: "Hello world. ", count: 100)
-    let tokens = tokenizer.encode(longText)
+    let tokens = try tokenizer.encode(longText)
 
     #expect(!tokens.isEmpty, "Long text should produce tokens")
     #expect(tokens.count > 10, "Long text should produce many tokens")
   }
 
-  @Test func encodeSpecialCharacters() {
+  @Test func encodeSpecialCharacters() throws {
     let specialText = "Hello\nWorld\tTab\"Quote'Single"
-    let tokens = tokenizer.encode(specialText)
+    let tokens = try tokenizer.encode(specialText)
 
     #expect(!tokens.isEmpty, "Text with special characters should produce tokens")
   }

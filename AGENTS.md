@@ -336,7 +336,7 @@ Flux's [REQUIREMENTS-instrumentation.md](REQUIREMENTS-instrumentation.md) is the
 
 ## SwiftAcervo dependency (v0.16.0+) — philosophy and App Group configuration
 
-This package depends on [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) for shared model storage. The current pin is `from: "0.16.0"` (see `Package.swift`).
+This package depends on [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) for shared model storage. The current pin is `from: "0.19.2"` (see `Package.swift`). The 0.16 philosophy described below still applies; releases since (0.17–0.19) are additive (native HuggingFace refetch path, SwiftData-backed UI list, `ACERVO_MODELS_DIR` override, accessibility ids).
 
 ### Philosophy shift introduced in 0.16
 
@@ -368,4 +368,4 @@ Without this, `Acervo.sharedModelsDirectory` traps with `fatalError`. See [Swift
 
 ---
 
-**Last updated**: 2026-05-23 (v3.3.0) — SwiftAcervo 0.16 philosophy + App Group section consolidated
+**Last updated**: 2026-06-18 (v3.3.2) — swift-tokenizers 0.7.1 migration; SwiftTuberia 0.7.5 / SwiftAcervo 0.19.2 floors; `codesign-cli` Makefile target + App Group entitlement
