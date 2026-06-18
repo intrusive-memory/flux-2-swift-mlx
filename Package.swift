@@ -13,7 +13,7 @@ let package = Package(
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.3")),
+        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.4")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
         // swift-tokenizers 0.7.1 carries upstream 0.6.3's "Fixes for Xcode build
         // with artifact bundle", which resolves the UniFFI module-map/linker
