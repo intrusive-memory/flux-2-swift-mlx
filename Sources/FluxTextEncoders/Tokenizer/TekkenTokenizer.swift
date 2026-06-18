@@ -444,7 +444,8 @@ public class TekkenTokenizer {
       ?? String(decoding: result, as: UTF8.self)
   }
 
-  public func batchDecode(_ tokenIdsList: [[Int]], skipSpecialTokens: Bool = true) throws -> [String]
+  public func batchDecode(_ tokenIdsList: [[Int]], skipSpecialTokens: Bool = true) throws
+    -> [String]
   {
     return try tokenIdsList.map { try decode($0, skipSpecialTokens: skipSpecialTokens) }
   }
