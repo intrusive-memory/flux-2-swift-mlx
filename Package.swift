@@ -13,7 +13,13 @@ let package = Package(
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.31.4")),
+        // Pinned to exactly 0.31.3. mlx-swift 0.31.4 carries upstream #410
+        // (evalLock-during-toString deadlock / EINVAL fatal) that breaks
+        // generation. A floor (.upToNextMajor) is not enough — SPM would still
+        // resolve 0.31.4 as the highest in range — so pin exactly until an
+        // upstream release fixes #410. ResumableAdamW is kept on the 0.31.3
+        // (TupleState / no biasCorrection) API to match.
+        .package(url: "https://github.com/ml-explore/mlx-swift", .exact("0.31.3")),
         .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
         // swift-tokenizers 0.7.1 carries upstream 0.6.3's "Fixes for Xcode build
         // with artifact bundle", which resolves the UniFFI module-map/linker
@@ -21,8 +27,10 @@ let package = Package(
         // Tokenizer protocol typed-throwing (throws(TokenizerError)) and
         // relabels the encode/decode/tokenize convenience overloads.
         .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.7.1")),
-        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.5")),
-        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.19.2")),
+        .package(
+          url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.7.5")),
+        .package(
+          url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.19.2")),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
