@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Flux.2 Swift MLX
 
 A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image generation models, running locally on Apple Silicon Macs using [MLX](https://github.com/ml-explore/mlx-swift).
@@ -86,7 +90,7 @@ This fork does **not** publish CLI or app binaries. If you need a signed CLI/app
 
 As of v3.0.0, models are fetched through the [SwiftAcervo](https://github.com/intrusive-memory/SwiftAcervo) CDN (Cloudflare R2) rather than directly from HuggingFace. This is a breaking change from v2.x, which used a hand-rolled HuggingFace client. Note that not every model is provisioned on the CDN yet — unprovisioned models throw `notProvisionedOnCDN` rather than falling back to HuggingFace.
 
-As of v3.3.2+, this package pins SwiftAcervo `0.19.2+` (the 0.16 philosophy below still governs; 0.17–0.19 are additive). The 0.16 release shifted the library's philosophy from "trust the filesystem" to "ask the library; the library owns the source of truth." For consumers that means: ask `Acervo.availability(_:)` for a four-state answer (`.notAvailable | .downloading | .partial | .available`) instead of probing `config.json` by hand, and expect a CDN-side manifest format that now requires `primaryRepo` and `components` fields on the wire. Models previously shipped under `acervo` < 0.16 must be re-published before a fresh consumer cache can decode them — operators should consult `../MODELS-TO-SHIP.md` for the re-ship queue and ETA covering this repo's CDN-hosted weights. See [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md) for the full 0.16 migration walkthrough.
+As of v3.3.4+, this package pins SwiftAcervo `0.23.0+` (the 0.16 philosophy below still governs; 0.17–0.23 are additive). The 0.16 release shifted the library's philosophy from "trust the filesystem" to "ask the library; the library owns the source of truth." For consumers that means: ask `Acervo.availability(_:)` for a four-state answer (`.notAvailable | .downloading | .partial | .available`) instead of probing `config.json` by hand, and expect a CDN-side manifest format that now requires `primaryRepo` and `components` fields on the wire. Models previously shipped under `acervo` < 0.16 must be re-published before a fresh consumer cache can decode them — operators should consult `../MODELS-TO-SHIP.md` for the re-ship queue and ETA covering this repo's CDN-hosted weights. See [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md) for the full 0.16 migration walkthrough.
 
 **For Dev (32B):**
 - Text Encoder: Mistral Small 3.2 (~25GB 8-bit)
