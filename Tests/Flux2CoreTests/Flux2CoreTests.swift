@@ -375,6 +375,39 @@ import Testing
     #expect(ModelRegistry.TransformerVariant.klein9B_bf16.isGated)
   }
 
+  // MARK: - Repo Subfolder Tests
+
+  /// Regression: the black-forest-labs Klein repos ship the full diffusers
+  /// layout, so their transformer weights live under `transformer/` — not at
+  /// the repo root. A prior version returned `nil` here, which made
+  /// `Flux2WeightLoader.loadWeights` scan the repo root and throw
+  /// `noWeightsFound` ("No safetensors files found in …/FLUX.2-klein-4B").
+  /// See the VAE variant, which has always correctly used the `vae` subfolder
+  /// of the very same repo.
+  @Test func kleinTransformerWeightsLiveInTransformerSubfolder() {
+    #expect(ModelRegistry.TransformerVariant.klein4B_bf16.repoSubfolder == "transformer")
+    #expect(ModelRegistry.TransformerVariant.klein4B_base_bf16.repoSubfolder == "transformer")
+    #expect(ModelRegistry.TransformerVariant.klein9B_bf16.repoSubfolder == "transformer")
+    #expect(ModelRegistry.TransformerVariant.klein9B_base_bf16.repoSubfolder == "transformer")
+    #expect(ModelRegistry.TransformerVariant.klein9B_kv_bf16.repoSubfolder == "transformer")
+
+    // The VAE in the same Klein repo has always resolved via its subfolder;
+    // assert the two stay consistent so the diffusers layout is honored.
+    #expect(ModelRegistry.VAEVariant.standard.repoSubfolder == "vae")
+  }
+
+  /// The community 8-bit repo (aydin99/FLUX.2-klein-4B-int8) is transformer-only
+  /// and ships its weights at the repo root, so it must stay `nil`.
+  @Test func communityInt8TransformerWeightsLiveAtRoot() {
+    #expect(ModelRegistry.TransformerVariant.klein4B_8bit.repoSubfolder == nil)
+  }
+
+  /// Dev variants keep their established subfolders.
+  @Test func devTransformerSubfolders() {
+    #expect(ModelRegistry.TransformerVariant.bf16.repoSubfolder == "transformer")
+    #expect(ModelRegistry.TransformerVariant.qint8.repoSubfolder == "flux-2-dev/transformer/qint8")
+  }
+
   @Test func textEncoderVariantIsGated() {
     // bf16 from mistralai is gated
     #expect(ModelRegistry.TextEncoderVariant.bf16.isGated)

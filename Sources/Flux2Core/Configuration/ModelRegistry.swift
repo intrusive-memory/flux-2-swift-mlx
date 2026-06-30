@@ -63,10 +63,16 @@ public enum ModelRegistry {
         return "transformer"
       case .qint8:
         return "flux-2-dev/transformer/qint8"
-      case .klein4B_bf16, .klein4B_8bit, .klein4B_base_bf16, .klein9B_bf16, .klein9B_base_bf16,
-        .klein9B_kv_bf16:
-        // Klein models have transformer weights in root folder
+      case .klein4B_8bit:
+        // Community 8-bit repo (aydin99/FLUX.2-klein-4B-int8) ships only the
+        // transformer weights, at the repo root — no diffusers subfolder.
         return nil
+      case .klein4B_bf16, .klein4B_base_bf16, .klein9B_bf16, .klein9B_base_bf16,
+        .klein9B_kv_bf16:
+        // The black-forest-labs Klein repos ship the full diffusers layout, so
+        // the transformer weights live under `transformer/` (alongside
+        // `text_encoder/` and `vae/`), not at the repo root.
+        return "transformer"
       }
     }
 
