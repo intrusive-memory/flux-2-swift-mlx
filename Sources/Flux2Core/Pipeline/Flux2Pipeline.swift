@@ -133,11 +133,14 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// Whether models are loaded
   public private(set) var isLoaded: Bool = false
 
-  /// Memory profile for GPU cache management (auto = dynamic based on RAM)
-  public var memoryProfile: MemoryConfig.CacheProfile = .auto
+  /// Memory profile for GPU cache management. Tier-aware default (Sortie
+  /// A3): `.conservative` on the iPad tier, `.auto` (dynamic based on RAM,
+  /// unchanged) on the Mac tier.
+  public var memoryProfile: MemoryConfig.CacheProfile = Flux2Pipeline.defaultMemoryProfile
 
-  /// Clear cache every N denoising steps (0 = disabled)
-  public var clearCacheEveryNSteps: Int = 5
+  /// Clear cache every N denoising steps (0 = disabled). Tier-aware default
+  /// (Sortie A3): 3 on the iPad tier, 5 (unchanged) on the Mac tier.
+  public var clearCacheEveryNSteps: Int = Flux2Pipeline.defaultClearCacheEveryNSteps
 
   /// VAE decode tiling config selected from the current device's memory tier
   /// (R4.2): the iPad tier tiles the decode (`.default`/`.aggressive` by RAM
@@ -146,6 +149,100 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// call sites, which route through `decodeWithTiling(_:tiling:)`.
   var vaeTilingConfig: VAETilingConfig {
     VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  // MARK: - Tier-Aware Default Knobs (Sortie A3, EXECUTION_PLAN.md §5 "iPad 16 GB" column)
+  //
+  // Resolves the pipeline's default generation knobs against the active
+  // device memory tier (`MemoryConfig.MemoryTier`, Sortie A1). The iPad tier
+  // (≤16 GB unified memory) gets the §5 "iPad 16 GB" column values below; the
+  // Mac tier (32 GB+) MUST stay at the pre-A3 flat literal — every
+  // `forRAMGB:` function here returns the historical Mac value on `.mac` so
+  // existing Mac callers see zero behavior change.
+  //
+  // Each knob follows the `forRAMGB:` / live-RAM-convenience pairing already
+  // established by `MemoryConfig.tier(forRAMGB:)` (A1), `MemoryConfig
+  // .hardMaxImagePixels(forRAMGB:)` (A4), and `VAETilingConfig.forRAMGB` (A5):
+  // parameterized by RAM for direct unit testability, plus a
+  // `Flux2MemoryManager.shared.physicalMemoryGB`-backed static var for real
+  // call sites (used as the actual default-parameter / stored-property
+  // values below).
+
+  /// Default square resolution (both height and width). iPad tier: 768×768
+  /// (§5). Mac tier: 1024×1024 (unchanged historical default).
+  public static func defaultResolution(forRAMGB ramGB: Int) -> Int {
+    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? 768 : 1024
+  }
+
+  /// Live-device convenience over `defaultResolution(forRAMGB:)`.
+  public static var defaultResolution: Int {
+    defaultResolution(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default denoising step count. iPad tier: the forced model's
+  /// (`.klein4B`, per A2's `ModelTierGate`) recommended step count (4). Mac
+  /// tier: 50 (unchanged historical flat default).
+  public static func defaultSteps(forRAMGB ramGB: Int) -> Int {
+    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? Flux2Model.klein4B.defaultSteps : 50
+  }
+
+  /// Live-device convenience over `defaultSteps(forRAMGB:)`.
+  public static var defaultSteps: Int {
+    defaultSteps(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default guidance scale. iPad tier: the forced model's (`.klein4B`)
+  /// recommended guidance (1.0). Mac tier: 4.0 (unchanged historical flat
+  /// default).
+  public static func defaultGuidance(forRAMGB ramGB: Int) -> Float {
+    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? Flux2Model.klein4B.defaultGuidance : 4.0
+  }
+
+  /// Live-device convenience over `defaultGuidance(forRAMGB:)`.
+  public static var defaultGuidance: Float {
+    defaultGuidance(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default GPU-cache clear cadence (denoising steps between clears). iPad
+  /// tier: 3 (§5). Mac tier: 5 (unchanged historical default).
+  public static func defaultClearCacheEveryNSteps(forRAMGB ramGB: Int) -> Int {
+    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? 3 : 5
+  }
+
+  /// Live-device convenience over `defaultClearCacheEveryNSteps(forRAMGB:)`.
+  public static var defaultClearCacheEveryNSteps: Int {
+    defaultClearCacheEveryNSteps(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default memory profile. iPad tier: `.conservative` (§5) via
+  /// `MemoryConfig.cacheProfile(forRAMGB:)` (A1). Mac tier: `.auto`
+  /// (unchanged historical default).
+  public static func defaultMemoryProfile(forRAMGB ramGB: Int) -> MemoryConfig.CacheProfile {
+    MemoryConfig.cacheProfile(forRAMGB: ramGB)
+  }
+
+  /// Live-device convenience over `defaultMemoryProfile(forRAMGB:)`.
+  public static var defaultMemoryProfile: MemoryConfig.CacheProfile {
+    defaultMemoryProfile(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default transformer quantization preset. iPad tier: qint8 — the only
+  /// currently-provisioned pre-quantized Klein 4B repo (A7 grounding notes);
+  /// int4 without pre-quantized weights falls back to bf16 + on-the-fly
+  /// `quantize()`, the B1 int4 OOM this Sortie must not trigger. Mac tier:
+  /// `.balanced` (unchanged historical default) — deliberately kept as a
+  /// separate literal from the iPad branch so a future change to `.balanced`
+  /// cannot silently change the iPad default out from under this guarantee.
+  public static func defaultQuantization(forRAMGB ramGB: Int) -> Flux2QuantizationConfig {
+    switch MemoryConfig.tier(forRAMGB: ramGB) {
+    case .iPad: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
+    case .mac: return .balanced
+    }
+  }
+
+  /// Live-device convenience over `defaultQuantization(forRAMGB:)`.
+  public static var defaultQuantization: Flux2QuantizationConfig {
+    defaultQuantization(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
   }
 
   /// Initialize pipeline
@@ -161,7 +258,7 @@ public class Flux2Pipeline: @unchecked Sendable {
   ///   - hfToken: HuggingFace token for model downloads
   public init(
     model: Flux2Model = .dev,
-    quantization: Flux2QuantizationConfig = .balanced,
+    quantization: Flux2QuantizationConfig = Flux2Pipeline.defaultQuantization,
     memoryOptimization: MemoryOptimizationConfig? = nil,
     hfToken: String? = nil
   ) {
@@ -592,10 +689,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   public func generateTextToImage(
     prompt: String,
     interpretImagePaths: [String]? = nil,
-    height: Int = 1024,
-    width: Int = 1024,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    height: Int = Flux2Pipeline.defaultResolution,
+    width: Int = Flux2Pipeline.defaultResolution,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -644,8 +741,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -690,8 +787,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -734,10 +831,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   public func generateTextToImageWithResult(
     prompt: String,
     interpretImagePaths: [String]? = nil,
-    height: Int = 1024,
-    width: Int = 1024,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    height: Int = Flux2Pipeline.defaultResolution,
+    width: Int = Flux2Pipeline.defaultResolution,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -768,8 +865,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -814,8 +911,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,

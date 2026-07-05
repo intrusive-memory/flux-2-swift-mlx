@@ -547,6 +547,25 @@ import Testing
     #expect(Flux2Model.klein4B.maxReferenceImages == 4)
     #expect(Flux2Model.klein9B.maxReferenceImages == 4)
   }
+
+  // MARK: Tier-aware max reference images (Sortie A3, EXECUTION_PLAN.md §5)
+
+  @Test func maxReferenceImagesCapsAt2OnIPadTier() {
+    // §5 "iPad 16 GB" column: 2 reference images, regardless of Klein 4B's
+    // unqualified ceiling of 4.
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .iPad) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 8) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 12) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+  }
+
+  @Test func maxReferenceImagesUnchangedOnMacTier() {
+    // No regression: the Mac tier passes the per-model ceiling through.
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .mac) == 4)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 32) == 4)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 64) == 4)
+    #expect(Flux2Model.dev.maxReferenceImages(forRAMGB: 64) == 6)
+  }
 }
 
 // MARK: - VAE Config Extended Tests
@@ -2530,5 +2549,98 @@ import Testing
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     let expected = VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
     #expect(pipeline.vaeTilingConfig == expected)
+  }
+}
+
+// MARK: - iPad 16 GB Default Knobs (Sortie A3, EXECUTION_PLAN.md §5)
+
+@Suite struct Flux2PipelineDefaultKnobsTests {
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (String-backed, hence Equatable) against the reference presets instead
+  // (mirrors the `expectSameQuant` helper in `iPadMemoryTierTests`).
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  // MARK: iPad 16 GB column values (§5)
+
+  @Test func resolutionIs768OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
+  }
+
+  @Test func stepsIs4OnIPad16GBTier() {
+    // Klein 4B's recommended step count (`Flux2Model.klein4B.defaultSteps`),
+    // matching the model A2's ModelTierGate forces on the iPad tier.
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
+  }
+
+  @Test func guidanceIs1PointOOnIPad16GBTier() {
+    // Klein 4B's recommended guidance (`Flux2Model.klein4B.defaultGuidance`).
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
+  }
+
+  @Test func memoryProfileIsConservativeOnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: 16) == .conservative)
+  }
+
+  @Test func clearCacheEveryNStepsIs3OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
+  }
+
+  @Test func maxReferenceImagesIs2OnIPad16GBTier() {
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+  }
+
+  @Test func transformerQuantIsQint8OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
+  }
+
+  // The same knobs must also resolve correctly at the other iPad sub-tiers
+  // (8 GB, 12 GB) sharing the `.iPad` `MemoryTier` bucket per A1 — the §5
+  // 16 GB column applies to the whole iPad tier until B4 layers the tighter
+  // 8 GB column on top.
+  @Test func allSevenKnobsResolveConsistentlyAcrossIPadSubtiers() {
+    for ramGB in [8, 12, 16] {
+      #expect(Flux2Pipeline.defaultResolution(forRAMGB: ramGB) == 768)
+      #expect(Flux2Pipeline.defaultSteps(forRAMGB: ramGB) == 4)
+      #expect(Flux2Pipeline.defaultGuidance(forRAMGB: ramGB) == 1.0)
+      #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .conservative)
+      #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 3)
+      #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 2)
+      #expect(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB).transformer == .qint8)
+    }
+  }
+
+  // MARK: Mac tier regression — none of the seven knobs may change
+
+  @Test func macTierDefaultKnobsAreUnchanged() {
+    for ramGB in [32, 64, 128] {
+      #expect(Flux2Pipeline.defaultResolution(forRAMGB: ramGB) == 1024)
+      #expect(Flux2Pipeline.defaultSteps(forRAMGB: ramGB) == 50)
+      #expect(Flux2Pipeline.defaultGuidance(forRAMGB: ramGB) == 4.0)
+      #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .auto)
+      #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 5)
+      #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 4)
+      expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB), as: .balanced)
+    }
+  }
+
+  // MARK: Live wiring — the actual stored-property / init-param defaults
+
+  @Test func pipelinePropertyDefaultsMatchTierAwareStatics() {
+    // Constructing a pipeline with no explicit overrides must pick up
+    // memoryProfile / clearCacheEveryNSteps / quantization from the
+    // tier-aware statics above (this is the actual property-declaration and
+    // init-parameter wiring, not just the standalone functions).
+    let pipeline = Flux2Pipeline(model: .klein4B)
+    #expect(pipeline.memoryProfile == Flux2Pipeline.defaultMemoryProfile)
+    #expect(pipeline.clearCacheEveryNSteps == Flux2Pipeline.defaultClearCacheEveryNSteps)
+    expectSameQuant(pipeline.quantization, as: Flux2Pipeline.defaultQuantization)
   }
 }
