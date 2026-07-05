@@ -81,7 +81,8 @@ public class DevTextEncoder: @unchecked Sendable {
         .weightLoadComplete(
           component: .textEncoderDev,
           paramCount: 24_000_000_000,  // Mistral Small 3.2: 24B parameters
-          durationSeconds: loadDuration))
+          durationSeconds: loadDuration,
+          physFootprint: Flux2MemoryFootprint.current()))
     }
   }
 

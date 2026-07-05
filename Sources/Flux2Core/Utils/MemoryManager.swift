@@ -179,21 +179,47 @@ extension Flux2MemoryManager {
     return 1
   }
 
-  /// Check if image dimensions are feasible
+  /// Check if image dimensions are feasible for the current device's memory
+  /// tier (live `physicalMemoryGB`).
   public func checkImageSize(width: Int, height: Int) -> MemoryCheckResult {
+    checkImageSize(width: width, height: height, ramGB: physicalMemoryGB)
+  }
+
+  /// Check if image dimensions are feasible for a given amount of RAM
+  /// (Sortie A4, R3 / §5 hard max; 8 GB sub-tier differentiated at Sortie B4).
+  ///
+  /// Tier-aware via `MemoryConfig.hardMaxImagePixels(forRAMGB:enable8GBTier:)`:
+  /// the iPad tier errors above 1024×1024, the iPad 8 GB sub-tier errors
+  /// above 768×768 (only reachable when `enable8GBTier` is ON), Mac tiers
+  /// retain the historical 4096×4096 ceiling. Parameterized by RAM rather
+  /// than reading live device state so tier selection is directly testable
+  /// (matches the `MemoryConfig.tier(forRAMGB:)` convention from Sortie A1).
+  ///
+  /// - Important: The hard-max (`.insufficientMemory`) check MUST run before
+  ///   the soft warning check. Previously the `>2048×2048` warning returned
+  ///   unconditionally before the `>4096×4096` error branch could ever run,
+  ///   making the error branch permanently unreachable
+  ///   (EXECUTION_PLAN.md "Grounding notes"). Do not reorder these two checks.
+  public func checkImageSize(
+    width: Int, height: Int, ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> MemoryCheckResult {
     let pixels = width * height
+    let hardMaxPixels = MemoryConfig.hardMaxImagePixels(forRAMGB: ramGB, enable8GBTier: enable8GBTier)
 
-    // Very large images need more working memory
-    if pixels > 2048 * 2048 {
-      return .warning(message: "Large image size may cause memory pressure")
-    }
-
-    if pixels > 4096 * 4096 {
+    if pixels > hardMaxPixels {
+      let maxDimension = Int(Double(hardMaxPixels).squareRoot())
       return .insufficientMemory(
         required: 100,
         available: estimatedAvailableMemoryGB,
-        suggestion: "Reduce image size to 2048x2048 or smaller"
+        suggestion: "Reduce image size to \(maxDimension)x\(maxDimension) or smaller"
       )
+    }
+
+    // Soft warning for large-but-still-permitted images. Only reachable when
+    // the hard max above it (which varies by tier).
+    if pixels > 2048 * 2048 {
+      return .warning(message: "Large image size may cause memory pressure")
     }
 
     return .ok

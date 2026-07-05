@@ -133,11 +133,162 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// Whether models are loaded
   public private(set) var isLoaded: Bool = false
 
-  /// Memory profile for GPU cache management (auto = dynamic based on RAM)
-  public var memoryProfile: MemoryConfig.CacheProfile = .auto
+  /// Memory profile for GPU cache management. Tier-aware default (Sortie
+  /// A3): `.conservative` on the iPad tier, `.auto` (dynamic based on RAM,
+  /// unchanged) on the Mac tier.
+  public var memoryProfile: MemoryConfig.CacheProfile = Flux2Pipeline.defaultMemoryProfile
 
-  /// Clear cache every N denoising steps (0 = disabled)
-  public var clearCacheEveryNSteps: Int = 5
+  /// Clear cache every N denoising steps (0 = disabled). Tier-aware default
+  /// (Sortie A3): 3 on the iPad tier, 5 (unchanged) on the Mac tier.
+  public var clearCacheEveryNSteps: Int = Flux2Pipeline.defaultClearCacheEveryNSteps
+
+  /// VAE decode tiling config selected from the current device's memory tier
+  /// (R4.2): the iPad tier tiles the decode (`.default`/`.aggressive` by RAM
+  /// sub-tier) to bound peak VAE-decode memory; the Mac tier decodes
+  /// single-shot (`.disabled`). Read at decode time via all `vae!.decode`
+  /// call sites, which route through `decodeWithTiling(_:tiling:)`.
+  var vaeTilingConfig: VAETilingConfig {
+    VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  // MARK: - Tier-Aware Default Knobs (Sortie A3, EXECUTION_PLAN.md §5 "iPad 16 GB" column)
+  //
+  // Resolves the pipeline's default generation knobs against the active
+  // device memory tier (`MemoryConfig.MemoryTier`, Sortie A1). The iPad tier
+  // (≤16 GB unified memory) gets the §5 "iPad 16 GB" column values below; the
+  // Mac tier (32 GB+) MUST stay at the pre-A3 flat literal — every
+  // `forRAMGB:` function here returns the historical Mac value on `.mac` so
+  // existing Mac callers see zero behavior change.
+  //
+  // Each knob follows the `forRAMGB:` / live-RAM-convenience pairing already
+  // established by `MemoryConfig.tier(forRAMGB:)` (A1), `MemoryConfig
+  // .hardMaxImagePixels(forRAMGB:)` (A4), and `VAETilingConfig.forRAMGB` (A5):
+  // parameterized by RAM for direct unit testability, plus a
+  // `Flux2MemoryManager.shared.physicalMemoryGB`-backed static var for real
+  // call sites (used as the actual default-parameter / stored-property
+  // values below).
+
+  /// Default square resolution (both height and width). iPad tier: 768×768
+  /// (§5 16 GB column). iPad 8 GB sub-tier: 512×512 (§5 8 GB column, Sortie
+  /// B4). Mac tier: 1024×1024 (unchanged historical default).
+  ///
+  /// - Parameter enable8GBTier: Threads through to
+  ///   `MemoryConfig.tier(forRAMGB:enable8GBTier:)` so the 8 GB sub-tier is
+  ///   directly testable without mutating the shared `MemoryConfig
+  ///   .enable8GBTier` global flag (matches the A1 `tier(forRAMGB:)` /
+  ///   B3 gating convention).
+  public static func defaultResolution(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad8GB: return 512
+    case .iPad: return 768
+    case .mac: return 1024
+    }
+  }
+
+  /// Live-device convenience over `defaultResolution(forRAMGB:)`.
+  public static var defaultResolution: Int {
+    defaultResolution(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default denoising step count. iPad tier AND the iPad 8 GB sub-tier: the
+  /// forced model's (`.klein4B`, per A2's `ModelTierGate`) recommended step
+  /// count (4) — §5 confirms this is unchanged on the 8 GB column (Sortie
+  /// B4). Mac tier: 50 (unchanged historical flat default).
+  public static func defaultSteps(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad, .iPad8GB: return Flux2Model.klein4B.defaultSteps
+    case .mac: return 50
+    }
+  }
+
+  /// Live-device convenience over `defaultSteps(forRAMGB:)`.
+  public static var defaultSteps: Int {
+    defaultSteps(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default guidance scale. iPad tier AND the iPad 8 GB sub-tier: the
+  /// forced model's (`.klein4B`) recommended guidance (1.0) — §5 confirms
+  /// this is unchanged on the 8 GB column (Sortie B4). Mac tier: 4.0
+  /// (unchanged historical flat default).
+  public static func defaultGuidance(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Float {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad, .iPad8GB: return Flux2Model.klein4B.defaultGuidance
+    case .mac: return 4.0
+    }
+  }
+
+  /// Live-device convenience over `defaultGuidance(forRAMGB:)`.
+  public static var defaultGuidance: Float {
+    defaultGuidance(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default GPU-cache clear cadence (denoising steps between clears). iPad
+  /// tier: 3 (§5 16 GB column). iPad 8 GB sub-tier: 2 (§5 8 GB column,
+  /// Sortie B4 — tighter than the shared 16 GB cadence). Mac tier: 5
+  /// (unchanged historical default).
+  public static func defaultClearCacheEveryNSteps(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad8GB: return 2
+    case .iPad: return 3
+    case .mac: return 5
+    }
+  }
+
+  /// Live-device convenience over `defaultClearCacheEveryNSteps(forRAMGB:)`.
+  public static var defaultClearCacheEveryNSteps: Int {
+    defaultClearCacheEveryNSteps(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default memory profile. iPad tier: `.conservative` (§5) via
+  /// `MemoryConfig.cacheProfile(forRAMGB:)` (A1). Mac tier: `.auto`
+  /// (unchanged historical default).
+  public static func defaultMemoryProfile(forRAMGB ramGB: Int) -> MemoryConfig.CacheProfile {
+    MemoryConfig.cacheProfile(forRAMGB: ramGB)
+  }
+
+  /// Live-device convenience over `defaultMemoryProfile(forRAMGB:)`.
+  public static var defaultMemoryProfile: MemoryConfig.CacheProfile {
+    defaultMemoryProfile(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
+  /// Default transformer quantization preset. iPad tier: qint8 — the only
+  /// currently-provisioned pre-quantized Klein 4B repo (A7 grounding notes);
+  /// int4 without pre-quantized weights falls back to bf16 + on-the-fly
+  /// `quantize()`, the B1 int4 OOM this Sortie must not trigger. iPad 8 GB
+  /// sub-tier: int4 — the pre-quantized `klein4B_4bit` variant shipped by B1
+  /// and loaded directly by B2 (`ModelRegistry.variant(for:quantization:)`
+  /// resolves `(klein4B, .int4)` to `klein4B_4bit`, never the on-the-fly
+  /// quantize block). Mac tier: `.balanced` (unchanged historical default)
+  /// — deliberately kept as a separate literal from the iPad branches so a
+  /// future change to `.balanced` cannot silently change an iPad default out
+  /// from under this guarantee.
+  public static func defaultQuantization(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Flux2QuantizationConfig {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
+    case .iPad8GB: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .int4)
+    case .mac: return .balanced
+    }
+  }
+
+  /// Live-device convenience over `defaultQuantization(forRAMGB:)`.
+  public static var defaultQuantization: Flux2QuantizationConfig {
+    defaultQuantization(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
+  }
 
   /// Initialize pipeline
   /// - Parameters:
@@ -152,7 +303,7 @@ public class Flux2Pipeline: @unchecked Sendable {
   ///   - hfToken: HuggingFace token for model downloads
   public init(
     model: Flux2Model = .dev,
-    quantization: Flux2QuantizationConfig = .balanced,
+    quantization: Flux2QuantizationConfig = Flux2Pipeline.defaultQuantization,
     memoryOptimization: MemoryOptimizationConfig? = nil,
     hfToken: String? = nil
   ) {
@@ -359,58 +510,99 @@ public class Flux2Pipeline: @unchecked Sendable {
     )
     Flux2Debug.log("Memory optimization: \(memoryOptimization)")
 
-    // Load weights with explicit memory management
-    // For large models (Dev), this can temporarily use 2x memory during mapping
-    Flux2Debug.log("Loading transformer weights from disk...")
-    let transformerLoadStart = Date()
-    var weights = try Flux2WeightLoader.loadWeights(from: modelPath)
-    let transformerParamCount = weights.values.reduce(0) { $0 + $1.size }
-
-    Flux2Debug.log("Applying weights to model...")
-    try Flux2WeightLoader.applyTransformerWeights(&weights, to: transformer!)
-    let transformerLoadDuration = Date().timeIntervalSince(transformerLoadStart)
-
-    // Explicitly release the raw weights dictionary to free memory
-    // This is important for Dev model where weights can be ~32GB
-    weights.removeAll()
-    eval([])  // Sync to ensure weights are released
-    memoryManager.fullCleanup()
-    Flux2Debug.log("Raw weights released from memory")
-
-    await currentTelemetry()?.capture(
-      .weightLoadComplete(
-        component: .transformer,
-        paramCount: transformerParamCount,
-        durationSeconds: transformerLoadDuration
-      ))
-
-    // Quantize transformer to native MLX QuantizedLinear if requested
-    // This handles both:
-    // 1. Pre-quantized weights (quanto→float16→MLX qint8): negligible precision loss
-    // 2. On-the-fly quantization from bf16 (e.g. Klein 9B qint8, any model int4)
-    // The quantization uses MLX's native QuantizedLinear format which:
-    // - Reduces memory usage proportionally to bit width (8-bit: ~50%, 4-bit: ~75%)
-    // - Uses optimized quantizedMM() for faster inference on Apple Silicon
-    // - Enables efficient dequant→merge→requant for LoRA weight merging
-    if quantization.transformer != .bf16 {
+    if variant.isPreQuantizedMLX {
+      // === Direct pre-quantized (int4) load path — Sortie B2, R2.1/R2.2/R2.3 ===
+      //
+      // The variant ships genuine MLX-native pre-quantized weights (packed uint32
+      // `.weight` + per-layer `.scales`/`.biases`). We load them STRAIGHT into
+      // `QuantizedLinear` with NO bf16 intermediate materialization and we do NOT
+      // enter the on-the-fly `quantize()` block below. This is what keeps peak
+      // `phys_footprint` under the steady-state + working pad (no ≥8 GB spike).
       let bits = quantization.transformer.bits
       let groupSize = quantization.transformer.groupSize
-      Flux2Debug.log("Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
-      memoryManager.logMemoryState()
-      let quantStart = Date()
+      Flux2Debug.log(
+        "Direct pre-quantized \(bits)-bit load (groupSize=\(groupSize)) — "
+          + "no bf16 intermediate, skipping on-the-fly quantize()")
+
+      // 1. Structural conversion: Linear → QuantizedLinear. MLX is lazy, so the
+      //    freshly-initialized (unevaluated) Linear weights are never materialized
+      //    to full bf16 — they are replaced by the loaded packed weights below
+      //    before any eval, so no 8 GB bf16 buffer is ever realized.
       quantize(model: transformer!, groupSize: groupSize, bits: bits)
+
+      // 2. mmap the packed safetensors directly (emits weightLoadComplete with
+      //    phys_footprint on its success path).
+      Flux2Debug.log("Loading pre-quantized transformer weights from disk (mmap)...")
+      var weights = try Flux2WeightLoader.loadQuantizedTransformer(
+        from: modelPath.path, quantization: quantization.transformer)
+
+      // 3. Apply the packed .weight/.scales/.biases onto the QuantizedLinear params.
+      Flux2Debug.log("Applying pre-quantized weights to QuantizedLinear model...")
+      try Flux2WeightLoader.applyTransformerWeights(&weights, to: transformer!)
+
+      weights.removeAll()
       eval(transformer!.parameters())
-      let quantDuration = Date().timeIntervalSince(quantStart)
       memoryManager.fullCleanup()
-      memoryManager.logMemoryState()
-      Flux2Debug.log("Transformer quantized to QuantizedLinear (\(bits)-bit)")
+      Flux2Debug.log("Pre-quantized transformer loaded directly into QuantizedLinear (\(bits)-bit)")
+    } else {
+      // === bf16 / quanto load path (with optional on-the-fly quantization) ===
+      // Load weights with explicit memory management
+      // For large models (Dev), this can temporarily use 2x memory during mapping
+      Flux2Debug.log("Loading transformer weights from disk...")
+      let transformerLoadStart = Date()
+      var weights = try Flux2WeightLoader.loadWeights(from: modelPath)
+      let transformerParamCount = weights.values.reduce(0) { $0 + $1.size }
+
+      Flux2Debug.log("Applying weights to model...")
+      try Flux2WeightLoader.applyTransformerWeights(&weights, to: transformer!)
+      let transformerLoadDuration = Date().timeIntervalSince(transformerLoadStart)
+
+      // Explicitly release the raw weights dictionary to free memory
+      // This is important for Dev model where weights can be ~32GB
+      weights.removeAll()
+      eval([])  // Sync to ensure weights are released
+      memoryManager.fullCleanup()
+      Flux2Debug.log("Raw weights released from memory")
+
       await currentTelemetry()?.capture(
-        .quantizationComplete(
+        .weightLoadComplete(
           component: .transformer,
-          bits: bits,
-          groupSize: groupSize,
-          durationSeconds: quantDuration
+          paramCount: transformerParamCount,
+          durationSeconds: transformerLoadDuration,
+          physFootprint: Flux2MemoryFootprint.current()
         ))
+
+      // Quantize transformer to native MLX QuantizedLinear if requested
+      // This handles both:
+      // 1. Pre-quantized quanto weights (quanto→float16→MLX qint8): negligible precision loss
+      // 2. On-the-fly quantization from bf16 (e.g. Klein 9B qint8, Dev int4)
+      //
+      // Genuine MLX-native pre-quantized variants (klein4B_4bit) never reach here
+      // — they take the direct-load branch above.
+      // The quantization uses MLX's native QuantizedLinear format which:
+      // - Reduces memory usage proportionally to bit width (8-bit: ~50%, 4-bit: ~75%)
+      // - Uses optimized quantizedMM() for faster inference on Apple Silicon
+      // - Enables efficient dequant→merge→requant for LoRA weight merging
+      if quantization.transformer != .bf16 {
+        let bits = quantization.transformer.bits
+        let groupSize = quantization.transformer.groupSize
+        Flux2Debug.log("Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
+        memoryManager.logMemoryState()
+        let quantStart = Date()
+        quantize(model: transformer!, groupSize: groupSize, bits: bits)
+        eval(transformer!.parameters())
+        let quantDuration = Date().timeIntervalSince(quantStart)
+        memoryManager.fullCleanup()
+        memoryManager.logMemoryState()
+        Flux2Debug.log("Transformer quantized to QuantizedLinear (\(bits)-bit)")
+        await currentTelemetry()?.capture(
+          .quantizationComplete(
+            component: .transformer,
+            bits: bits,
+            groupSize: groupSize,
+            durationSeconds: quantDuration
+          ))
+      }
     }
 
     // Merge LoRA weights if any are loaded
@@ -551,7 +743,8 @@ public class Flux2Pipeline: @unchecked Sendable {
       .weightLoadComplete(
         component: .vae,
         paramCount: vaeParamCount,
-        durationSeconds: vaeLoadDuration
+        durationSeconds: vaeLoadDuration,
+        physFootprint: Flux2MemoryFootprint.current()
       ))
 
     Flux2Debug.log("VAE loaded successfully")
@@ -581,10 +774,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   public func generateTextToImage(
     prompt: String,
     interpretImagePaths: [String]? = nil,
-    height: Int = 1024,
-    width: Int = 1024,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    height: Int = Flux2Pipeline.defaultResolution,
+    width: Int = Flux2Pipeline.defaultResolution,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -633,8 +826,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -679,8 +872,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -723,10 +916,10 @@ public class Flux2Pipeline: @unchecked Sendable {
   public func generateTextToImageWithResult(
     prompt: String,
     interpretImagePaths: [String]? = nil,
-    height: Int = 1024,
-    width: Int = 1024,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    height: Int = Flux2Pipeline.defaultResolution,
+    width: Int = Flux2Pipeline.defaultResolution,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -757,8 +950,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -803,8 +996,8 @@ public class Flux2Pipeline: @unchecked Sendable {
     interpretImagePaths: [String]? = nil,
     height: Int? = nil,
     width: Int? = nil,
-    steps: Int = 50,
-    guidance: Float = 4.0,
+    steps: Int = Flux2Pipeline.defaultSteps,
+    guidance: Float = Flux2Pipeline.defaultGuidance,
     seed: UInt64? = nil,
     upsamplePrompt: Bool = false,
     checkpointInterval: Int? = nil,
@@ -1103,7 +1296,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           encoderName: textEncodeEncoderName,
           finalPromptLength: textEmbeddings.shape[1],
           embeddingStat: embeddingStat,
-          durationSeconds: textEncodeDuration
+          durationSeconds: textEncodeDuration,
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — textEncode phase
       if let kind = AnomalyCheck.classify(embeddingStat) {
@@ -1314,7 +1508,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: 1,
               completedSteps: 1,
               finalLatentStat: kvExtractFinalStat,
-              durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvExtractFinalStat) {
@@ -1422,7 +1617,7 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decode(checkpointLatents)
+            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
@@ -1443,7 +1638,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: kvCachedTotalSteps,
               completedSteps: kvCachedTotalSteps,
               finalLatentStat: kvCachedFinalStat,
-              durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvCachedFinalStat) {
@@ -1565,7 +1761,7 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decode(checkpointLatents)
+            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
@@ -1587,7 +1783,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: effectiveSteps,
               completedSteps: effectiveSteps,
               finalLatentStat: fullRecomputeFinalStat,
-              durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(fullRecomputeFinalStat) {
@@ -1620,7 +1817,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       eval(finalLatents)
 
       let vaeDecodeStart = Date()
-      let decoded = vae!.decode(finalLatents)
+      let decoded = vae!.decodeWithTiling(finalLatents, tiling: vaeTilingConfig)
       eval(decoded)
       let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
       profiler.end("7. VAE Decode")
@@ -1631,7 +1828,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           .vaeDecodeComplete(
             pixelStat: pixelStat,
             outputDims: decoded.shape,
-            durationSeconds: vaeDecodeDuration
+            durationSeconds: vaeDecodeDuration,
+            physFootprint: Flux2MemoryFootprint.current()
           ))
         // B10: numericalAnomaly side-channel — vaeDecode phase
         if let kind = AnomalyCheck.classify(pixelStat) {
@@ -1821,7 +2019,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
         eval(checkpointLatents)
 
-        let checkpointDecoded = vae!.decode(checkpointLatents)
+        let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
         eval(checkpointDecoded)
         Flux2Debug.verbose("Checkpoint VAE output shape: \(checkpointDecoded.shape)")
 
@@ -1847,7 +2045,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           totalSteps: effectiveSteps,
           completedSteps: effectiveSteps,
           finalLatentStat: t2iFinalStat,
-          durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
+          durationSeconds: Date().timeIntervalSince(t2iDenoiseStart),
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
       if let kind = AnomalyCheck.classify(t2iFinalStat) {
@@ -1895,7 +2094,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("7. VAE Decode")
     let vaeDecodeStart = Date()
-    let decoded = vae!.decode(finalLatents)
+    let decoded = vae!.decodeWithTiling(finalLatents, tiling: vaeTilingConfig)
     eval(decoded)
     let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
     profiler.end("7. VAE Decode")
@@ -1906,7 +2105,8 @@ public class Flux2Pipeline: @unchecked Sendable {
         .vaeDecodeComplete(
           pixelStat: pixelStat,
           outputDims: decoded.shape,
-          durationSeconds: vaeDecodeDuration
+          durationSeconds: vaeDecodeDuration,
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — vaeDecode phase
       if let kind = AnomalyCheck.classify(pixelStat) {

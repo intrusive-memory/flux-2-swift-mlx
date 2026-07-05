@@ -9,7 +9,7 @@ import MLXRandom
 
 /// Configuration for spatial tiling during VAE decoding
 /// Used to decode large images in tiles to reduce peak memory usage
-public struct VAETilingConfig: Sendable {
+public struct VAETilingConfig: Sendable, Equatable {
   /// Tile size in latent space (e.g., 64 = 512px after 8x upscale)
   public var tileSize: Int
 
@@ -35,6 +35,46 @@ public struct VAETilingConfig: Sendable {
   /// Disabled - no tiling
   public static let disabled = VAETilingConfig(
     tileSize: 9999, tileOverlap: 0, minTileThreshold: 9999)
+}
+
+// MARK: - Tier-Based Selection (Sortie A5, R4.2)
+
+extension VAETilingConfig {
+  /// Select a `VAETilingConfig` appropriate for a given memory tier (R4.2).
+  ///
+  /// The iPad tier decodes in tiles to bound peak VAE-decode memory; the 8 GB
+  /// sub-tier (which shares the iPad `MemoryTier` bucket with 12–16 GB devices)
+  /// uses the more aggressive, smaller-tile config. Mac-class devices have
+  /// ample headroom and decode single-shot (no tiling).
+  ///
+  /// - Parameters:
+  ///   - tier: The resolved `MemoryConfig.MemoryTier`.
+  ///   - ramGB: The RAM (in GB) used to distinguish the 8 GB iPad sub-tier from
+  ///     the 12–16 GB iPad sub-tier. Ignored on the Mac tier.
+  public static func forTier(
+    _ tier: MemoryConfig.MemoryTier, ramGB: Int
+  ) -> VAETilingConfig {
+    switch tier {
+    case .iPad:
+      return ramGB <= 8 ? .aggressive : .default
+    // The distinct 8 GB sub-tier (reachable only when `enable8GBTier` is ON)
+    // always uses the aggressive small-tile config — the same choice the
+    // `.iPad` arm already makes for `ramGB <= 8`.
+    case .iPad8GB:
+      return .aggressive
+    case .mac:
+      return .disabled
+    }
+  }
+
+  /// Select a `VAETilingConfig` directly from a RAM value (resolves the tier
+  /// internally). Parameterized by RAM (rather than reading live device state)
+  /// so tier-selection logic is directly testable, matching the
+  /// `MemoryConfig.tier(forRAMGB:)` / `MemoryOptimizationConfig.recommended(forRAMGB:)`
+  /// convention established in Sortie A1.
+  public static func forRAMGB(_ ramGB: Int) -> VAETilingConfig {
+    forTier(MemoryConfig.tier(forRAMGB: ramGB), ramGB: ramGB)
+  }
 }
 
 /// Variational Autoencoder for Flux.2
@@ -199,8 +239,17 @@ public class AutoencoderKLFlux2: Module, @unchecked Sendable {
       var widths: [Int] = []
 
       for tileX in 0..<numTilesW {
-        let y0 = min(tileY * stride, max(0, H - tileSize))
-        let x0 = min(tileX * stride, max(0, W - tileSize))
+        // Place tiles on a uniform `stride` grid; the final tile is naturally
+        // shorter (clamped by H/W below) rather than shifted back to full size.
+        // Shifting the last tile back (the old `max(0, H - tileSize)` clamp)
+        // created a LARGER-than-nominal overlap on the last seam while the
+        // reconstruction below always crops a fixed `outOverlap/2` per seam —
+        // so the assembled image came out too large (e.g. a 96² latent decoded
+        // to 928² instead of 768²). `numTilesH/W` guarantees `k*stride < H/W`
+        // and full coverage, so uniform placement needs no clamp. See
+        // `tiledDecodeOutputSize(...)` and its test for the exact invariant.
+        let y0 = tileY * stride
+        let x0 = tileX * stride
         let y1 = min(y0 + tileSize, H)
         let x1 = min(x0 + tileSize, W)
 
@@ -251,6 +300,36 @@ public class AutoencoderKLFlux2: Module, @unchecked Sendable {
 
     Flux2Debug.log("VAE: Tiled decoding completed, output shape: \(result.shape)")
     return result
+  }
+
+  /// Pure geometry of the tiled decode: the reconstructed output size (in
+  /// pixels) that `decodeTiled` produces for a latent of `latentH × latentW`
+  /// with the given `tileSize`/`overlap`. Mirrors the placement + per-seam
+  /// crop in `decodeTiled` exactly, so a test can assert the invariant
+  /// `output == (latentH * 8, latentW * 8)` without a GPU or VAE weights.
+  ///
+  /// This is the regression guard for the 928-vs-768 tiling bug: any drift in
+  /// the placement/crop math that would inflate or shrink the decoded image is
+  /// caught here as a dimensional mismatch.
+  static func tiledDecodeOutputSize(
+    latentH: Int, latentW: Int, tileSize: Int, overlap: Int
+  ) -> (h: Int, w: Int) {
+    func reconstructed(_ dim: Int) -> Int {
+      let outOverlap = overlap * 8
+      let stride = tileSize - overlap
+      let numTiles = max(1, Int(ceil(Float(dim - overlap) / Float(stride))))
+      var total = 0
+      for k in 0..<numTiles {
+        let y0 = k * stride
+        let y1 = min(y0 + tileSize, dim)
+        let outH = (y1 - y0) * 8
+        let cropTop = (k > 0) ? outOverlap / 2 : 0
+        let cropBottom = (k < numTiles - 1) ? outOverlap / 2 : 0
+        total += outH - cropTop - cropBottom
+      }
+      return total
+    }
+    return (h: reconstructed(latentH), w: reconstructed(latentW))
   }
 
   /// Create a blending weight mask for tile overlap

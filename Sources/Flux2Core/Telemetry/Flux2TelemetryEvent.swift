@@ -25,7 +25,11 @@ public enum Flux2TelemetryEvent: Sendable {
   case pipelineDispose
 
   // --- Weight loading (one event per component, on success) ---
-  case weightLoadComplete(component: WeightComponent, paramCount: Int, durationSeconds: Double)
+  // `physFootprint`: process phys_footprint (bytes) at this phase boundary,
+  // or nil if the Mach `task_info` sample failed. Boundaries, not internals.
+  case weightLoadComplete(
+    component: WeightComponent, paramCount: Int, durationSeconds: Double,
+    physFootprint: Int64?)
 
   // --- Quantization (fires once per on-the-fly transformer quant pass) ---
   case quantizationComplete(
@@ -34,7 +38,7 @@ public enum Flux2TelemetryEvent: Sendable {
   // --- Text encoding (boundary event with NaN/Inf check on the embedding) ---
   case textEncodeComplete(
     encoderName: String, finalPromptLength: Int, embeddingStat: TuberiaTensorStat,
-    durationSeconds: Double)
+    durationSeconds: Double, physFootprint: Int64?)
 
   // --- Scheduler ---
   case schedulerConfigured(numInferenceSteps: Int, shift: Float, imageSeqLen: Int, mu: Float)
@@ -48,7 +52,7 @@ public enum Flux2TelemetryEvent: Sendable {
     variant: DenoiseVariant, totalSteps: Int, latentShape: [Int], latentDtype: String)
   case denoiseLoopEnd(
     variant: DenoiseVariant, totalSteps: Int, completedSteps: Int,
-    finalLatentStat: TuberiaTensorStat, durationSeconds: Double)
+    finalLatentStat: TuberiaTensorStat, durationSeconds: Double, physFootprint: Int64?)
   case denoiseStepStart(
     variant: DenoiseVariant, stepIndex: Int, totalSteps: Int, t: Float,
     latentShape: [Int], latentDtype: String)
@@ -57,7 +61,9 @@ public enum Flux2TelemetryEvent: Sendable {
     latentStat: TuberiaTensorStat, durationSeconds: Double)
 
   // --- VAE decode (boundary event with pixel-range check) ---
-  case vaeDecodeComplete(pixelStat: TuberiaTensorStat, outputDims: [Int], durationSeconds: Double)
+  case vaeDecodeComplete(
+    pixelStat: TuberiaTensorStat, outputDims: [Int], durationSeconds: Double,
+    physFootprint: Int64?)
 
   // --- Anomaly side-channel (fires alongside any of the *Complete / *End events
   //     whose stat shows NaN, Inf, or out-of-range magnitude). One signal, not

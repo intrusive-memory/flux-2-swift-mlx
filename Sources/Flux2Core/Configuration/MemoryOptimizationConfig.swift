@@ -141,6 +141,13 @@ extension MemoryOptimizationConfig {
   /// - Parameter ramGB: System RAM in gigabytes
   /// - Returns: Recommended memory optimization preset
   public static func recommended(forRAMGB ramGB: Int) -> MemoryOptimizationConfig {
+    // iPad tier (≤16 GB unified memory): route explicitly to ultra-low-memory
+    // (eval every 2 blocks + clear cache) rather than relying on the shared
+    // `<32` bucket below.
+    if MemoryConfig.tier(forRAMGB: ramGB) == .iPad {
+      return .ultraLowMemory
+    }
+
     switch ramGB {
     case 0..<32:
       return .ultraLowMemory

@@ -72,9 +72,9 @@ import Testing
       ModelRegistry.TransformerVariant.variant(for: .dev, quantization: .int4) == .bf16
     )
 
-    // Klein 4B int4 should return bf16 variant (quantize on-the-fly)
+    // Klein 4B int4 now returns the pre-quantized MLX 4-bit variant (B2 direct load)
     #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4) == .klein4B_bf16
+      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4) == .klein4B_4bit
     )
   }
 
@@ -547,6 +547,25 @@ import Testing
     #expect(Flux2Model.klein4B.maxReferenceImages == 4)
     #expect(Flux2Model.klein9B.maxReferenceImages == 4)
   }
+
+  // MARK: Tier-aware max reference images (Sortie A3, EXECUTION_PLAN.md §5)
+
+  @Test func maxReferenceImagesCapsAt2OnIPadTier() {
+    // §5 "iPad 16 GB" column: 2 reference images, regardless of Klein 4B's
+    // unqualified ceiling of 4.
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .iPad) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 8) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 12) == 2)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+  }
+
+  @Test func maxReferenceImagesUnchangedOnMacTier() {
+    // No regression: the Mac tier passes the per-model ceiling through.
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .mac) == 4)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 32) == 4)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 64) == 4)
+    #expect(Flux2Model.dev.maxReferenceImages(forRAMGB: 64) == 6)
+  }
 }
 
 // MARK: - VAE Config Extended Tests
@@ -689,6 +708,71 @@ import Testing
     #expect(recommended.textEncoder != nil)
     #expect(recommended.transformer != nil)
   }
+
+  // MARK: - checkImageSize (Sortie A4, R3 / §5 hard max)
+
+  @Test func checkImageSizeThrowsAboveHardMaxOnIPadTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // iPad 16 GB tier hard max is 1024x1024 (1,048,576 px). Just above it
+    // must resolve to .insufficientMemory (the case the pipeline converts
+    // into a `throw Flux2Error.insufficientMemory`).
+    let result = manager.checkImageSize(width: 1025, height: 1025, ramGB: 16)
+    guard case .insufficientMemory = result else {
+      Issue.record("Expected .insufficientMemory above 1024x1024 on the iPad 16 GB tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeAllowsExactlyHardMaxOnIPadTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // Exactly at the 1024x1024 boundary must NOT error (the cap is "above",
+    // not "at or above").
+    let result = manager.checkImageSize(width: 1024, height: 1024, ramGB: 16)
+    #expect(result.isOk)
+  }
+
+  @Test func checkImageSizeReorderedErrorBranchIsReachableOnMacTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // Regression for the unreachable-error-branch bug: on the Mac tier
+    // (hard max 4096x4096 = 16,777,216 px), a size above the hard max used to
+    // return .warning (from the >2048x2048 check firing first) instead of
+    // .insufficientMemory, because the warning check ran — and returned —
+    // before the error check could ever execute. 5000x5000 = 25,000,000 px
+    // is above both the old warn threshold and the hard max, so it now must
+    // report .insufficientMemory, proving the error branch fires.
+    let result = manager.checkImageSize(width: 5000, height: 5000, ramGB: 64)
+    guard case .insufficientMemory = result else {
+      Issue.record("Expected the previously-unreachable .insufficientMemory branch to fire on the Mac tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeMacTierRetainsExistingThreshold() {
+    let manager = Flux2MemoryManager.shared
+
+    // Mac tier: between the 2048x2048 warn threshold and the 4096x4096 hard
+    // max, the soft warning still fires (no regression from tier-awareness).
+    let warnResult = manager.checkImageSize(width: 3000, height: 3000, ramGB: 64)
+    guard case .warning = warnResult else {
+      Issue.record("Expected .warning between 2048x2048 and 4096x4096 on the Mac tier, got \(warnResult)")
+      return
+    }
+
+    // At or below 2048x2048, still .ok.
+    let okResult = manager.checkImageSize(width: 2048, height: 2048, ramGB: 64)
+    #expect(okResult.isOk)
+
+    // Above the 4096x4096 hard max, still .insufficientMemory (existing
+    // Mac-tier ceiling unchanged by the iPad tier-awareness added in A4).
+    let errorResult = manager.checkImageSize(width: 4097, height: 4097, ramGB: 64)
+    guard case .insufficientMemory = errorResult else {
+      Issue.record("Expected .insufficientMemory above 4096x4096 on the Mac tier, got \(errorResult)")
+      return
+    }
+  }
 }
 
 // MARK: - Transformer Config Tests
@@ -818,9 +902,139 @@ import Testing
     #expect(minimal <= balanced)
     #expect(balanced <= high)
   }
+
+  // MARK: - Working-set recalibration (Sortie B3, OQ-4)
+
+  /// The Mac property estimate is `maxWeight + macWorkingSetOverheadGB` — the
+  /// named constant, not a bare `+8` literal buried in the property.
+  @Test func macEstimateUsesNamedWorkingSetConstant() {
+    // Klein 4B int4 config == ultraMinimal (mlx4bit encoder + int4 transformer).
+    let klein4BInt4 = Flux2QuantizationConfig.ultraMinimal
+    let maxWeight = max(
+      klein4BInt4.textEncoder.estimatedMemoryGB,
+      klein4BInt4.transformer.estimatedMemoryGB)
+    #expect(
+      klein4BInt4.estimatedTotalMemoryGB
+        == maxWeight + Flux2QuantizationConfig.macWorkingSetOverheadGB)
+  }
+
+  /// The recalibrated iPad estimate for Klein 4B int4 uses the named
+  /// `iPadWorkingSetOverheadGB` constant and is strictly below the retired bare
+  /// `+8` value (the A7 VAE correction removed ~2 GB of overstated overhead).
+  @Test func klein4BRecalibratedIPadEstimateUsesNamedConstant() {
+    let klein4BInt4 = Flux2QuantizationConfig.ultraMinimal
+    let maxWeight = max(
+      klein4BInt4.textEncoder.estimatedMemoryGB,
+      klein4BInt4.transformer.estimatedMemoryGB)
+
+    let iPadEstimate = klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad8GB)
+    // Uses the named constant, not the bare +8.
+    #expect(iPadEstimate == maxWeight + Flux2QuantizationConfig.iPadWorkingSetOverheadGB)
+    // Recalibrated strictly below the old Mac-shaped `+8` guess.
+    #expect(iPadEstimate < maxWeight + 8)
+    // `.iPad` and `.iPad8GB` share the iPad overhead at B3.
+    #expect(
+      klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad)
+        == klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad8GB))
+  }
+
+  /// The working-set overhead is tier-aware: the iPad constant is a distinct,
+  /// smaller value than the Mac constant — proving it is no longer a single
+  /// Mac-shaped `+8`.
+  @Test func workingSetOverheadIsTierAware() {
+    #expect(Flux2QuantizationConfig.macWorkingSetOverheadGB == 8)
+    #expect(Flux2QuantizationConfig.iPadWorkingSetOverheadGB == 6)
+    #expect(
+      Flux2QuantizationConfig.iPadWorkingSetOverheadGB
+        < Flux2QuantizationConfig.macWorkingSetOverheadGB)
+  }
 }
 
 // MARK: - On-the-fly Quantization Variant Tests
+
+// MARK: - B2: Direct pre-quantized int4 load routing (pure logic)
+
+/// Sortie B2 (OPERATION THIMBLE TYPHOON) — pure-logic assertions for the
+/// direct pre-quantized int4 load path. These always run in test-core (no
+/// model weights, no GPU): they pin the variant resolution and the
+/// `isPreQuantizedMLX` flag that the pipeline branches on to BYPASS the
+/// on-the-fly `quantize()` block for `(klein4B, .int4)`.
+@Suite struct PreQuantizedInt4RoutingTests {
+
+  /// (klein4B, .int4) must resolve to the pre-quantized MLX 4-bit variant.
+  @Test func klein4BInt4ResolvesToPreQuantized4bit() {
+    #expect(
+      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4)
+        == .klein4B_4bit,
+      "(klein4B, .int4) must route to klein4B_4bit, not klein4B_bf16 + on-the-fly quantize"
+    )
+  }
+
+  /// The resolved variant is flagged as genuine MLX-native pre-quantized, and
+  /// carries the int4 quantization + themindstudio repo metadata (B1).
+  @Test func klein4B4bitIsPreQuantizedMLX() {
+    let variant = ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4)
+    #expect(variant.isPreQuantizedMLX, "klein4B_4bit must be flagged isPreQuantizedMLX")
+    #expect(variant.quantization == .int4)
+    #expect(variant.repoId == "themindstudio/flux2-klein-4b-mlx-4bit")
+    #expect(variant.repoSubfolder == "transformer")
+    #expect(variant.estimatedSizeGB == 2.18)
+  }
+
+  /// Routing/bypass proof (pure logic): the pipeline enters the on-the-fly
+  /// `quantize()` block iff `!variant.isPreQuantizedMLX && quantization != .bf16`.
+  /// For (klein4B, .int4) the guard is false, so the block is bypassed even
+  /// though the requested quantization is non-bf16 (.int4).
+  @Test func klein4BInt4BypassesOnTheFlyQuantizeBlock() {
+    let quantization: TransformerQuantization = .int4
+    let variant = ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: quantization)
+
+    // This boolean mirrors the pipeline's branch condition exactly.
+    let entersOnTheFlyQuantizeBlock = !variant.isPreQuantizedMLX && quantization != .bf16
+
+    #expect(quantization != .bf16, "precondition: requested quant is non-bf16")
+    #expect(
+      !entersOnTheFlyQuantizeBlock,
+      "(klein4B, .int4) must take the direct-load branch and skip on-the-fly quantize()"
+    )
+  }
+
+  /// Only klein4B_4bit is pre-quantized MLX. All other variants — including the
+  /// quanto qint8 repos and every bf16 variant — must take the existing path.
+  @Test func onlyKlein4B4bitIsPreQuantizedMLX() {
+    for variant in ModelRegistry.TransformerVariant.allCases {
+      let expected = (variant == .klein4B_4bit)
+      #expect(
+        variant.isPreQuantizedMLX == expected,
+        "isPreQuantizedMLX for \(variant.rawValue) should be \(expected)"
+      )
+    }
+  }
+
+  /// The quanto qint8 community repos are NOT pre-quantized MLX — they stay on
+  /// the dequant→re-quantize path (they must still enter the on-the-fly block).
+  @Test func qint8VariantsAreNotPreQuantizedMLX() {
+    #expect(!ModelRegistry.TransformerVariant.klein4B_8bit.isPreQuantizedMLX)
+    #expect(!ModelRegistry.TransformerVariant.qint8.isPreQuantizedMLX)
+  }
+
+  /// Klein 9B int4 still falls back to bf16 + on-the-fly quantize (no CDN int4
+  /// variant), so it must NOT be flagged pre-quantized and MUST enter the block.
+  @Test func klein9BInt4StillUsesOnTheFlyQuantize() {
+    let variant = ModelRegistry.TransformerVariant.variant(for: .klein9B, quantization: .int4)
+    #expect(variant == .klein9B_bf16)
+    #expect(!variant.isPreQuantizedMLX)
+    let entersOnTheFlyQuantizeBlock = !variant.isPreQuantizedMLX && TransformerQuantization.int4 != .bf16
+    #expect(entersOnTheFlyQuantizeBlock, "Klein 9B int4 must still quantize on-the-fly")
+  }
+
+  /// Dev int4 also falls back to bf16 + on-the-fly quantize.
+  @Test func devInt4StillUsesOnTheFlyQuantize() {
+    let variant = ModelRegistry.TransformerVariant.variant(for: .dev, quantization: .int4)
+    #expect(variant == .bf16)
+    #expect(!variant.isPreQuantizedMLX)
+  }
+}
 
 @Suite struct OnTheFlyQuantizationTests {
 
@@ -849,8 +1063,8 @@ import Testing
       "Klein 4B qint8 should use pre-quantized variant"
     )
     #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4) == .klein4B_bf16,
-      "Klein 4B int4 should load bf16 and quantize on-the-fly"
+      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4) == .klein4B_4bit,
+      "Klein 4B int4 should resolve to the pre-quantized MLX 4-bit variant (B2 direct load)"
     )
   }
 
@@ -2168,6 +2382,35 @@ import Testing
   }
 }
 
+// MARK: - Klein 4B int4 Registry Tests (Sortie B1 — OPERATION THIMBLE TYPHOON)
+
+@Suite struct Klein4BInt4RegistryTests {
+
+  @Test func klein4BInt4TransformerVariant() {
+    let variant = ModelRegistry.TransformerVariant.klein4B_4bit
+
+    // OQ-1: verified genuine MLX 4-bit — .scales/.biases per layer,
+    // quantization_level "4", mflux_version 0.15.2, Apache 2.0,
+    // transformer/ subfolder = 2.18 GB. No self-quantization required.
+    #expect(variant.rawValue == "klein4b-4bit")
+    #expect(variant.repoId == "themindstudio/flux2-klein-4b-mlx-4bit")
+    #expect(variant.repoSubfolder == "transformer")
+    #expect(variant.estimatedSizeGB == 2.18)
+    #expect(!variant.isGated)
+    #expect(variant.modelType == .klein4B)
+    #expect(variant.quantization == .int4)
+    #expect(variant.isForInference)
+    #expect(!variant.isForTraining)
+  }
+
+  @Test func klein4BInt4IsProvisionedOnCDN() {
+    // Confirmed .available on the SwiftAcervo CDN during B1 (manifest.json
+    // resolves at $R2_PUBLIC_URL/models/themindstudio_flux2-klein-4b-mlx-4bit/manifest.json,
+    // same mechanism as CDN_PROVISIONING.md / Sortie A7).
+    #expect(ModelRegistry.TransformerVariant.klein4B_4bit.isProvisionedOnCDN)
+  }
+}
+
 // MARK: - TransformerKVCache Tests
 
 @Suite struct TransformerKVCacheTests {
@@ -2284,9 +2527,9 @@ import Testing
   }
 
   @Test func transformerVariantCaseCount() {
-    // bf16, qint8, klein4b-bf16, klein4b-8bit, klein4b-base-bf16,
-    // klein9b-bf16, klein9b-base-bf16, klein9b-kv-bf16 = 8
-    #expect(ModelRegistry.TransformerVariant.allCases.count == 8)
+    // bf16, qint8, klein4b-bf16, klein4b-8bit, klein4b-4bit, klein4b-base-bf16,
+    // klein9b-bf16, klein9b-base-bf16, klein9b-kv-bf16 = 9
+    #expect(ModelRegistry.TransformerVariant.allCases.count == 9)
   }
 
   @Test func klein9BKVMemoryConfigDoesNotCrash() {
@@ -2302,5 +2545,446 @@ import Testing
     // Manual profiles fallback to dynamic
     let conservativeLimits = MemoryConfig.PhaseLimits.forModel(.klein9BKV, profile: .conservative)
     #expect(conservativeLimits.denoising > 0)
+  }
+}
+
+// MARK: - iPad Memory Tier (Sortie A1)
+
+@Suite struct iPadMemoryTierTests {
+
+  // MARK: Tier resolution
+
+  @Test func iPadTierResolvesFor8GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
+  }
+
+  @Test func iPadTierResolvesFor12GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 12) == .iPad)
+  }
+
+  @Test func iPadTierResolvesFor16GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
+  }
+
+  @Test func macTierResolvesFor32GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 32) == .mac)
+  }
+
+  @Test func macTierResolvesFor64GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 64) == .mac)
+  }
+
+  @Test func iPadTierBoundaryIsInclusiveAt16() {
+    // 16 GB is the inclusive top of the iPad tier; 17 GB tips into Mac.
+    #expect(MemoryConfig.iPadTierMaxRAMGB == 16)
+    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 17) == .mac)
+  }
+
+  // MARK: 8 GB sub-tier feature flag (Sortie B3)
+
+  /// The `enable8GBTier` feature flag defaults OFF.
+  @Test func eightGBTierFlagDefaultsOff() {
+    #expect(MemoryConfig.enable8GBTier == false)
+  }
+
+  /// While the flag is OFF, the distinct 8 GB sub-tier is UNREACHABLE: 8 GB
+  /// resolves to the shared `.iPad` bucket, never `.iPad8GB`. Uses the default
+  /// (global-flag) resolution to prove the shipped default is gated OFF.
+  @Test func eightGBSubTierUnreachableWhenFlagOff() {
+    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: false) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 8) != .iPad8GB)
+  }
+
+  /// The distinct `.iPad8GB` sub-tier is reachable ONLY when the flag is ON.
+  @Test func eightGBSubTierReachableOnlyWhenFlagOn() {
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: true) == .iPad8GB)
+    // The boundary matches the named sub-tier ceiling.
+    #expect(MemoryConfig.iPad8GBTierMaxRAMGB == 8)
+    // Above the 8 GB ceiling stays `.iPad` even with the flag ON.
+    #expect(MemoryConfig.tier(forRAMGB: 12, enable8GBTier: true) == .iPad)
+  }
+
+  // MARK: Forced cache profile (conservative = 512 MB)
+
+  @Test func iPadTierForcesConservativeCacheProfileAt8GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 8) == .conservative)
+  }
+
+  @Test func iPadTierForcesConservativeCacheProfileAt12GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 12) == .conservative)
+  }
+
+  @Test func iPadTierForcesConservativeCacheProfileAt16GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 16) == .conservative)
+  }
+
+  @Test func conservativeProfileMapsTo512MB() {
+    // The iPad tier forces .conservative, which caps the GPU cache at 512 MB.
+    #expect(MemoryConfig.cacheLimitForProfile(.conservative) == 512 * 1024 * 1024)
+  }
+
+  @Test func macTierDoesNotForceConservativeCacheProfile() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 32) == .auto)
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 64) == .auto)
+  }
+
+  // MARK: MemoryOptimizationConfig routing
+
+  @Test func iPadTierUsesUltraLowMemoryAt8GB() {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  }
+
+  @Test func iPadTierUsesUltraLowMemoryAt12GB() {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 12) == .ultraLowMemory)
+  }
+
+  @Test func iPadTierUsesUltraLowMemoryAt16GB() {
+    let config = MemoryOptimizationConfig.recommended(forRAMGB: 16)
+    #expect(config == .ultraLowMemory)
+    // ultraLowMemory == eval every 2 blocks + clear cache
+    #expect(config.evalFrequency == 2)
+    #expect(config.clearCacheOnEval)
+  }
+
+  @Test func macTiersKeepExistingMemoryOptimization() {
+    // No regression: 32+ GB still resolves to the pre-existing Mac presets.
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 32) == .aggressive)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 64) == .moderate)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 96) == .light)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 128) == .disabled)
+  }
+
+  // MARK: ModelRegistry quantization routing
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (String-backed, hence Equatable) against the reference presets instead.
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt8GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 8), as: .ultraMinimal)
+    // ultraMinimal == int4 transformer.
+    #expect(ModelRegistry.recommendedConfig(forRAMGB: 8).transformer == .int4)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt12GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 12), as: .ultraMinimal)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt16GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 16), as: .ultraMinimal)
+  }
+
+  @Test func macTiersKeepExistingQuantConfig() {
+    // No regression: 32+ GB still resolves to the pre-existing Mac configs.
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 32), as: .minimal)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 48), as: .memoryEfficient)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 64), as: .balanced)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 128), as: .highQuality)
+  }
+}
+
+// MARK: - VAE Tiling Tier Selection (Sortie A5)
+
+@Suite struct VAETilingTierSelectionTests {
+
+  @Test func iPad16GBSubtierSelectsDefaultTiling() {
+    #expect(VAETilingConfig.forRAMGB(16) == .default)
+  }
+
+  @Test func iPad12GBSubtierSelectsDefaultTiling() {
+    #expect(VAETilingConfig.forRAMGB(12) == .default)
+  }
+
+  @Test func iPad8GBSubtierSelectsAggressiveTiling() {
+    #expect(VAETilingConfig.forRAMGB(8) == .aggressive)
+  }
+
+  @Test func macTierSelectsDisabledSingleShot() {
+    #expect(VAETilingConfig.forRAMGB(32) == .disabled)
+    #expect(VAETilingConfig.forRAMGB(64) == .disabled)
+  }
+
+  @Test func forTierIsConsistentWithForRAMGB() {
+    #expect(VAETilingConfig.forTier(.iPad, ramGB: 16) == VAETilingConfig.forRAMGB(16))
+    #expect(VAETilingConfig.forTier(.iPad, ramGB: 8) == VAETilingConfig.forRAMGB(8))
+    #expect(VAETilingConfig.forTier(.mac, ramGB: 64) == VAETilingConfig.forRAMGB(64))
+  }
+
+  // MARK: - Tiled decode output-size invariant (regression: 928-vs-768 bug)
+
+  /// The exact case the CI smoke test hit: a 768² image = 96² latent decoded
+  /// with the `.aggressive` config (tileSize 32, overlap 4) must reconstruct to
+  /// EXACTLY 768², not 928². This is the dimensional invariant of `decodeTiled`.
+  @Test func aggressiveTiledDecodeReconstructs768Exactly() {
+    let size = AutoencoderKLFlux2.tiledDecodeOutputSize(
+      latentH: 96, latentW: 96,
+      tileSize: VAETilingConfig.aggressive.tileSize,
+      overlap: VAETilingConfig.aggressive.tileOverlap)
+    #expect(size.h == 768, "tiled decode of a 96² latent must be 768px tall, got \(size.h)")
+    #expect(size.w == 768, "tiled decode of a 96² latent must be 768px wide, got \(size.w)")
+  }
+
+  /// The tiled-decode output must ALWAYS equal (latent * 8) — the whole point
+  /// of tiling is lower peak memory, never a different image size. Sweep the
+  /// latent sizes and configs that can actually trigger tiling on the iPad
+  /// tiers (default: 768–1024px images; aggressive: 512–768px images).
+  @Test(arguments: [
+    (96, VAETilingConfig.aggressive),  // 768px on 8GB tier (aggressive, threshold 64)
+    (80, VAETilingConfig.aggressive),  // 640px on 8GB tier
+    (128, VAETilingConfig.default),  // 1024px on 16GB tier (default, threshold 128 boundary)
+    (144, VAETilingConfig.default),  // 1152px (above 16GB cap, but exercises geometry)
+    (100, VAETilingConfig.aggressive),  // non-stride-aligned latent
+    (97, VAETilingConfig.aggressive),  // odd, non-aligned latent
+  ])
+  func tiledDecodeOutputIsAlwaysLatentTimesEight(latent: Int, config: VAETilingConfig) {
+    let size = AutoencoderKLFlux2.tiledDecodeOutputSize(
+      latentH: latent, latentW: latent,
+      tileSize: config.tileSize, overlap: config.tileOverlap)
+    #expect(
+      size.h == latent * 8 && size.w == latent * 8,
+      "latent \(latent) tileSize \(config.tileSize) overlap \(config.tileOverlap) must decode to \(latent * 8)², got \(size.h)×\(size.w)")
+  }
+
+  @Test func disabledTilingNeverTriggersTiling() {
+    // .disabled uses an effectively unreachable minTileThreshold, so any
+    // latent size stays on the single-shot decode path.
+    let disabled = VAETilingConfig.disabled
+    #expect(disabled.minTileThreshold == 9999)
+  }
+
+  @Test func pipelineVAETilingConfigMatchesRAMDerivedSelection() {
+    // Flux2Pipeline.vaeTilingConfig must route through the same
+    // VAETilingConfig.forRAMGB selection exercised above — this is the actual
+    // wiring point the five vae!.decode call sites read at decode time.
+    let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
+    let expected = VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
+    #expect(pipeline.vaeTilingConfig == expected)
+  }
+}
+
+// MARK: - iPad 16 GB Default Knobs (Sortie A3, EXECUTION_PLAN.md §5)
+
+@Suite struct Flux2PipelineDefaultKnobsTests {
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (String-backed, hence Equatable) against the reference presets instead
+  // (mirrors the `expectSameQuant` helper in `iPadMemoryTierTests`).
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  // MARK: iPad 16 GB column values (§5)
+
+  @Test func resolutionIs768OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
+  }
+
+  @Test func stepsIs4OnIPad16GBTier() {
+    // Klein 4B's recommended step count (`Flux2Model.klein4B.defaultSteps`),
+    // matching the model A2's ModelTierGate forces on the iPad tier.
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
+  }
+
+  @Test func guidanceIs1PointOOnIPad16GBTier() {
+    // Klein 4B's recommended guidance (`Flux2Model.klein4B.defaultGuidance`).
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
+  }
+
+  @Test func memoryProfileIsConservativeOnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: 16) == .conservative)
+  }
+
+  @Test func clearCacheEveryNStepsIs3OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
+  }
+
+  @Test func maxReferenceImagesIs2OnIPad16GBTier() {
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+  }
+
+  @Test func transformerQuantIsQint8OnIPad16GBTier() {
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
+  }
+
+  // The same knobs must also resolve correctly at the other iPad sub-tiers
+  // (8 GB, 12 GB) sharing the `.iPad` `MemoryTier` bucket per A1 — the §5
+  // 16 GB column applies to the whole iPad tier until B4 layers the tighter
+  // 8 GB column on top.
+  @Test func allSevenKnobsResolveConsistentlyAcrossIPadSubtiers() {
+    for ramGB in [8, 12, 16] {
+      #expect(Flux2Pipeline.defaultResolution(forRAMGB: ramGB) == 768)
+      #expect(Flux2Pipeline.defaultSteps(forRAMGB: ramGB) == 4)
+      #expect(Flux2Pipeline.defaultGuidance(forRAMGB: ramGB) == 1.0)
+      #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .conservative)
+      #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 3)
+      #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 2)
+      #expect(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB).transformer == .qint8)
+    }
+  }
+
+  // MARK: Mac tier regression — none of the seven knobs may change
+
+  @Test func macTierDefaultKnobsAreUnchanged() {
+    for ramGB in [32, 64, 128] {
+      #expect(Flux2Pipeline.defaultResolution(forRAMGB: ramGB) == 1024)
+      #expect(Flux2Pipeline.defaultSteps(forRAMGB: ramGB) == 50)
+      #expect(Flux2Pipeline.defaultGuidance(forRAMGB: ramGB) == 4.0)
+      #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .auto)
+      #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 5)
+      #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 4)
+      expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB), as: .balanced)
+    }
+  }
+
+  // MARK: Live wiring — the actual stored-property / init-param defaults
+
+  @Test func pipelinePropertyDefaultsMatchTierAwareStatics() {
+    // Constructing a pipeline with no explicit overrides must pick up
+    // memoryProfile / clearCacheEveryNSteps / quantization from the
+    // tier-aware statics above (this is the actual property-declaration and
+    // init-parameter wiring, not just the standalone functions).
+    let pipeline = Flux2Pipeline(model: .klein4B)
+    #expect(pipeline.memoryProfile == Flux2Pipeline.defaultMemoryProfile)
+    #expect(pipeline.clearCacheEveryNSteps == Flux2Pipeline.defaultClearCacheEveryNSteps)
+    expectSameQuant(pipeline.quantization, as: Flux2Pipeline.defaultQuantization)
+  }
+}
+
+// MARK: - iPad 8 GB Default Knobs (Sortie B4, EXECUTION_PLAN.md §5 "iPad 8 GB" column)
+//
+// The `.iPad8GB` sub-tier is only reachable when `enable8GBTier` is ON
+// (default OFF, per B3). Every test below reaches it via the
+// `enable8GBTier:` parameter overrides B4 threaded onto the tier-aware knob
+// functions (`Flux2Pipeline.default*(forRAMGB:enable8GBTier:)`,
+// `MemoryConfig.hardMaxImagePixels(forRAMGB:enable8GBTier:)`,
+// `Flux2MemoryManager.checkImageSize(...enable8GBTier:)`) or via the
+// tier-parameterized overloads (`...(forTier: .iPad8GB)`) — never by
+// mutating the shared `MemoryConfig.enable8GBTier` global flag, so these
+// tests are race-free under swift-testing's parallel execution and never
+// touch the flag's default (which MUST stay OFF).
+@Suite struct IPad8GBDefaultKnobsTests {
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (mirrors the `expectSameQuant` helper used elsewhere in this file).
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  // MARK: §5 8 GB column values — differentiated from the shared iPad tier
+
+  @Test func resolutionIs512OnIPad8GBSubTier() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 8, enable8GBTier: true) == 512)
+  }
+
+  @Test func hardMaxIs768SquaredOnIPad8GBSubTier() {
+    #expect(MemoryConfig.hardMaxImagePixels(forTier: .iPad8GB) == 768 * 768)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 8, enable8GBTier: true) == 768 * 768)
+  }
+
+  @Test func clearCacheEveryNStepsIs2OnIPad8GBSubTier() {
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 8, enable8GBTier: true) == 2)
+  }
+
+  @Test func transformerQuantIsInt4OnIPad8GBSubTier() {
+    let config = Flux2Pipeline.defaultQuantization(forRAMGB: 8, enable8GBTier: true)
+    #expect(config.transformer == .int4)
+  }
+
+  @Test func maxReferenceImagesIs1OnIPad8GBSubTier() {
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .iPad8GB) == 1)
+  }
+
+  // MARK: Inherited from the shared iPad tier — confirmed, not reinvented
+
+  @Test func stepsIs4OnIPad8GBSubTier() {
+    // Klein 4B's recommended step count — unchanged from the §5 16 GB column.
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 8, enable8GBTier: true) == 4)
+  }
+
+  @Test func guidanceIs1PointOOnIPad8GBSubTier() {
+    // Klein 4B's recommended guidance — unchanged from the §5 16 GB column.
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 8, enable8GBTier: true) == 1.0)
+  }
+
+  @Test func memoryProfileIsConservativeOnIPad8GBSubTier() {
+    #expect(MemoryConfig.cacheProfile(forTier: .iPad8GB) == .conservative)
+  }
+
+  @Test func memoryOptimizationIsUltraLowMemoryOnIPad8GBSubTier() {
+    // The `.iPad8GB` sub-tier still falls in `MemoryOptimizationConfig
+    // .recommended(forRAMGB:)`'s `0..<32` bucket at ramGB=8, which already
+    // resolves to `.ultraLowMemory` (B3) — confirmed here without mutating
+    // the shared `enable8GBTier` flag.
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: true) == .iPad8GB)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  }
+
+  // MARK: checkImageSize integration (Sortie A4, extended by B4)
+
+  @Test func checkImageSizeThrowsAboveHardMaxOnIPad8GBSubTier() {
+    let manager = Flux2MemoryManager.shared
+    let result = manager.checkImageSize(width: 769, height: 769, ramGB: 8, enable8GBTier: true)
+    guard case .insufficientMemory = result else {
+      Issue.record(
+        "Expected .insufficientMemory above 768x768 on the iPad 8 GB sub-tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeAllowsExactlyHardMaxOnIPad8GBSubTier() {
+    let manager = Flux2MemoryManager.shared
+    let result = manager.checkImageSize(width: 768, height: 768, ramGB: 8, enable8GBTier: true)
+    #expect(result.isOk)
+  }
+
+  // MARK: Regression — 16 GB iPad tier and Mac tier values unchanged by B4
+
+  @Test func sixteenGBIPadTierValuesUnchangedByB4() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 16) == 1024 * 1024)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
+  }
+
+  @Test func eightGBRamWithFlagOffStillResolvesToSharedIPadTierValues() {
+    // The flag stays OFF by default (B3's guarantee): 8 GB devices continue
+    // to resolve to the shared `.iPad` bucket (768²/3/qint8) — the §5 8 GB
+    // column this Sortie added is inert until `enable8GBTier` flips ON.
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 8) == 768)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 8) == 3)
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 8).transformer == .qint8)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 8) == 1024 * 1024)
+  }
+
+  @Test func macTierValuesUnchangedByB4() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 64) == 1024)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 64) == 4096 * 4096)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 64) == 5)
+    expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: 64), as: .balanced)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 64) == 4)
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 64) == 50)
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 64) == 4.0)
   }
 }
