@@ -101,7 +101,7 @@ Run `make help` for the full list. CI (`.github/workflows/tests.yml`) currently 
 
 ## 6. Testing Standard
 
-Authoritative document: [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md). Summary:
+Authoritative document: [TESTING_REQUIREMENTS.md](requirements/TESTING_REQUIREMENTS.md). Summary:
 
 | Target | CI | Local | Requires |
 |---|---|---|---|
@@ -167,7 +167,7 @@ The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries
 ## Queryable Codemap
 
 A prebuilt [graphify](https://pypi.org/project/graphifyy/) knowledge graph of this
-codebase lives in [`graphify-out/`](graphify-out/) (2989 nodes · 5609 edges · 188
+codebase lives in [`graphify-out/`](graphify-out/) (3193 nodes · 5973 edges · 193
 communities). **Prefer querying it before grepping** for architecture or "what
 connects to what" questions:
 
@@ -186,7 +186,7 @@ Refresh after significant changes with `/codemap` (or
 ## 9. Documentation Index
 
 - [README.md](README.md) — End-user / library-consumer entry point
-- [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md) — Authoritative testing standard
+- [TESTING_REQUIREMENTS.md](requirements/TESTING_REQUIREMENTS.md) — Authoritative testing standard
 - [docs/CLI.md](docs/CLI.md) — `flux2` CLI reference
 - [docs/TextEncoders.md](docs/TextEncoders.md) — `FluxTextEncoders` library and CLI
 - [docs/LoRA.md](docs/LoRA.md) — Loading LoRA adapters
@@ -195,7 +195,7 @@ Refresh after significant changes with `/codemap` (or
 - [docs/Flux2App.md](docs/Flux2App.md) — Demo app guide
 - [docs/missions/](docs/missions/) — Active mission supervisor state
 - [docs/complete/](docs/complete/) — Archived mission briefs and execution plans
-- [REQUIREMENTS-instrumentation.md](REQUIREMENTS-instrumentation.md) — Telemetry event surface for flux; reference implementation of the §11 cross-library chokepoint convention
+- [REQUIREMENTS-instrumentation.md](requirements/REQUIREMENTS-instrumentation.md) — Telemetry event surface for flux; reference implementation of the §11 cross-library chokepoint convention
 
 ---
 
@@ -289,7 +289,7 @@ Every ML library in this ecosystem should emit (at minimum) the following bounda
 | **Side-channel — error** | `errorThrown(phase:errorDescription:)` | `<lib>_error_<phase>` | no |
 | **Side-channel — cancellation** | `generationCancelled(stepIndex:)` | `<lib>_cancelled` | no |
 
-`flux-2-swift-mlx` uses the prefix **`flux`** and instantiates this catalog as: `pipelineInit`, `pipelineDispose`, `weightLoadComplete`, `textEncodeComplete`, `schedulerConfigured`, `denoiseLoopStart`, `denoiseLoopEnd`, `vaeDecodeComplete`, `numericalAnomaly`, `errorThrown`, `generationCancelled`. The full event surface and emission spec live in [REQUIREMENTS-instrumentation.md](REQUIREMENTS-instrumentation.md).
+`flux-2-swift-mlx` uses the prefix **`flux`** and instantiates this catalog as: `pipelineInit`, `pipelineDispose`, `weightLoadComplete`, `textEncodeComplete`, `schedulerConfigured`, `denoiseLoopStart`, `denoiseLoopEnd`, `vaeDecodeComplete`, `numericalAnomaly`, `errorThrown`, `generationCancelled`. The full event surface and emission spec live in [REQUIREMENTS-instrumentation.md](requirements/REQUIREMENTS-instrumentation.md).
 
 ### 11.2 Naming rules
 
@@ -353,7 +353,7 @@ Each library that adopts this pattern should ship a `REQUIREMENTS-instrumentatio
 6. **Tests** — at least: boundary-sequence test, noop-overhead test (±2% wall-clock bound), anomaly side-channel test, error-path test, lock-contention test.
 7. **Out of scope** — explicit list of per-step / per-block detail the library is *not* instrumenting this iteration.
 
-Flux's [REQUIREMENTS-instrumentation.md](REQUIREMENTS-instrumentation.md) is the reference implementation of this template.
+Flux's [REQUIREMENTS-instrumentation.md](requirements/REQUIREMENTS-instrumentation.md) is the reference implementation of this template.
 
 ---
 
@@ -374,7 +374,7 @@ SwiftAcervo 0.16 moves the library from "give me a path on disk and I'll trust t
 
 Multi-component models can additionally be addressed by a single deployment slug via the new slug-keyed `availability(slug:url:)` / `ensureAvailable(slug:url:files:progress:)` surface. This repo does **not** yet adopt the slug-keyed API for the Klein 4B transformer+VAE+text-encoder bundle (each component is still addressed by its own `org/repo`); it is a forward-looking opportunity, not a current capability.
 
-For depth and concrete grep-and-replace patterns see [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md). For the per-call-site disposition in this repo (which sites were verified compile-clean against 0.16, which were deferred), see [`TODO.md`](TODO.md) Groups A–H. Groups C and D (UI `.partial` adoption + FileManager-probe removal in `Flux2ModelPaths` / `ModelManager`) are deliberately **deferred** — the async-cascade through `@MainActor` UI code is non-trivial and gated on a synchronous local-manifest accessor that may not exist in the 0.16 public API. The mechanical bump compiled clean with zero source-file changes.
+For depth and concrete grep-and-replace patterns see [SwiftAcervo's `UPGRADING.md`](https://github.com/intrusive-memory/SwiftAcervo/blob/main/UPGRADING.md). For the per-call-site disposition in this repo (which sites were verified compile-clean against 0.16, which were deferred), see the historical `TODO.md` Groups A–H. Groups C and D (UI `.partial` adoption + FileManager-probe removal in `Flux2ModelPaths` / `ModelManager`) are deliberately **deferred** — the async-cascade through `@MainActor` UI code is non-trivial and gated on a synchronous local-manifest accessor that may not exist in the 0.16 public API. The mechanical bump compiled clean with zero source-file changes.
 
 ### App Group configuration (required)
 

@@ -586,7 +586,8 @@ public class Flux2Pipeline: @unchecked Sendable {
       if quantization.transformer != .bf16 {
         let bits = quantization.transformer.bits
         let groupSize = quantization.transformer.groupSize
-        Flux2Debug.log("Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
+        Flux2Debug.log(
+          "Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
         memoryManager.logMemoryState()
         let quantStart = Date()
         quantize(model: transformer!, groupSize: groupSize, bits: bits)
@@ -1617,7 +1618,8 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
+            let checkpointDecoded = vae!.decodeWithTiling(
+              checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
@@ -1761,7 +1763,8 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
+            let checkpointDecoded = vae!.decodeWithTiling(
+              checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {

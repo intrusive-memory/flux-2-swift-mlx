@@ -15,6 +15,7 @@ A native Swift implementation of [Flux.2](https://blackforestlabs.ai/) image gen
 - **MLX Acceleration**: Optimized for Apple Silicon (M1/M2/M3/M4) using MLX
 - **Multiple Models**: Dev (32B), Klein 4B, and Klein 9B variants
 - **Quantized Models**: On-the-fly quantization (qint8/int4) for all models — Dev fits in ~17GB at int4
+- **Memory-Tier Defaults**: Device-RAM-aware resolution/step/quantization defaults, direct pre-quantized int4 loading, and model gating for memory-constrained tiers (8–16GB, including iPad)
 - **Text-to-Image**: Generate images from text prompts
 - **Image-to-Image**: Transform images with text prompts and configurable strength
 - **Multi-Image Conditioning**: Combine elements from up to 3 reference images
@@ -205,7 +206,7 @@ Configure quantization on `Flux2Config` (or `Flux2Pipeline.init` overrides) befo
 | [AGENTS.md](AGENTS.md) | Universal — read first |
 | [CLAUDE.md](CLAUDE.md) | Claude Code (XcodeBuildMCP, build conventions) |
 | [GEMINI.md](GEMINI.md) | Gemini (standard `xcodebuild`) |
-| [TESTING_REQUIREMENTS.md](TESTING_REQUIREMENTS.md) | Authoritative testing standard |
+| [TESTING_REQUIREMENTS.md](requirements/TESTING_REQUIREMENTS.md) | Authoritative testing standard |
 
 ### Examples and Benchmarks
 

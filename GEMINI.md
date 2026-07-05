@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Gemini-Specific Agent Instructions
 
 **⚠️ Read [AGENTS.md](AGENTS.md) first.** That file holds the universal project documentation, branching/release flow, testing standard, and critical rules. This file only adds Gemini-specific tooling guidance on top.
@@ -63,7 +67,7 @@ The 0.16 release shifts SwiftAcervo's contract: stop poking the filesystem for m
 
 When adding or reviewing instrumentation in this repo *or* in any sibling library (`SwiftTuberia`, `Produciesta`, `Vinetas`, etc.), follow the cross-library chokepoint pattern in [AGENTS.md §11](./AGENTS.md#11-telemetry-chokepoint-convention-cross-library). Shared event names (`pipelineInit`, `weightLoadComplete`, `<phase>Complete`, `<loop>LoopStart` / `<loop>LoopEnd`, `numericalAnomaly`, `errorThrown`, `generationCancelled`) and snake_case sink phases (`<lib>_<noun>_<lifecycle>`) let a single Vinetas-style adapter route events from every library uniformly.
 
-This repo's [REQUIREMENTS-instrumentation.md](./REQUIREMENTS-instrumentation.md) is the reference implementation.
+This repo's [REQUIREMENTS-instrumentation.md](./requirements/REQUIREMENTS-instrumentation.md) is the reference implementation.
 
 Two non-negotiable rules from §11:
 - **Boundaries, not internals.** Per-step / per-block / per-attention-head events are deferred until a real anomaly points the agent at the region.

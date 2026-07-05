@@ -719,7 +719,8 @@ import Testing
     // into a `throw Flux2Error.insufficientMemory`).
     let result = manager.checkImageSize(width: 1025, height: 1025, ramGB: 16)
     guard case .insufficientMemory = result else {
-      Issue.record("Expected .insufficientMemory above 1024x1024 on the iPad 16 GB tier, got \(result)")
+      Issue.record(
+        "Expected .insufficientMemory above 1024x1024 on the iPad 16 GB tier, got \(result)")
       return
     }
   }
@@ -745,7 +746,9 @@ import Testing
     // report .insufficientMemory, proving the error branch fires.
     let result = manager.checkImageSize(width: 5000, height: 5000, ramGB: 64)
     guard case .insufficientMemory = result else {
-      Issue.record("Expected the previously-unreachable .insufficientMemory branch to fire on the Mac tier, got \(result)")
+      Issue.record(
+        "Expected the previously-unreachable .insufficientMemory branch to fire on the Mac tier, got \(result)"
+      )
       return
     }
   }
@@ -757,7 +760,8 @@ import Testing
     // max, the soft warning still fires (no regression from tier-awareness).
     let warnResult = manager.checkImageSize(width: 3000, height: 3000, ramGB: 64)
     guard case .warning = warnResult else {
-      Issue.record("Expected .warning between 2048x2048 and 4096x4096 on the Mac tier, got \(warnResult)")
+      Issue.record(
+        "Expected .warning between 2048x2048 and 4096x4096 on the Mac tier, got \(warnResult)")
       return
     }
 
@@ -769,7 +773,8 @@ import Testing
     // Mac-tier ceiling unchanged by the iPad tier-awareness added in A4).
     let errorResult = manager.checkImageSize(width: 4097, height: 4097, ramGB: 64)
     guard case .insufficientMemory = errorResult else {
-      Issue.record("Expected .insufficientMemory above 4096x4096 on the Mac tier, got \(errorResult)")
+      Issue.record(
+        "Expected .insufficientMemory above 4096x4096 on the Mac tier, got \(errorResult)")
       return
     }
   }
@@ -987,7 +992,8 @@ import Testing
   /// though the requested quantization is non-bf16 (.int4).
   @Test func klein4BInt4BypassesOnTheFlyQuantizeBlock() {
     let quantization: TransformerQuantization = .int4
-    let variant = ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: quantization)
+    let variant = ModelRegistry.TransformerVariant.variant(
+      for: .klein4B, quantization: quantization)
 
     // This boolean mirrors the pipeline's branch condition exactly.
     let entersOnTheFlyQuantizeBlock = !variant.isPreQuantizedMLX && quantization != .bf16
@@ -1024,7 +1030,8 @@ import Testing
     let variant = ModelRegistry.TransformerVariant.variant(for: .klein9B, quantization: .int4)
     #expect(variant == .klein9B_bf16)
     #expect(!variant.isPreQuantizedMLX)
-    let entersOnTheFlyQuantizeBlock = !variant.isPreQuantizedMLX && TransformerQuantization.int4 != .bf16
+    let entersOnTheFlyQuantizeBlock =
+      !variant.isPreQuantizedMLX && TransformerQuantization.int4 != .bf16
     #expect(entersOnTheFlyQuantizeBlock, "Klein 9B int4 must still quantize on-the-fly")
   }
 
@@ -2751,7 +2758,8 @@ import Testing
       tileSize: config.tileSize, overlap: config.tileOverlap)
     #expect(
       size.h == latent * 8 && size.w == latent * 8,
-      "latent \(latent) tileSize \(config.tileSize) overlap \(config.tileOverlap) must decode to \(latent * 8)², got \(size.h)×\(size.w)")
+      "latent \(latent) tileSize \(config.tileSize) overlap \(config.tileOverlap) must decode to \(latent * 8)², got \(size.h)×\(size.w)"
+    )
   }
 
   @Test func disabledTilingNeverTriggersTiling() {

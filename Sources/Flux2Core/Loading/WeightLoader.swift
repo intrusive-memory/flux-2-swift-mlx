@@ -758,7 +758,8 @@ public class Flux2WeightLoader {
     let weights = try loadWeights(from: modelPath)
 
     if quantization != .bf16 {
-      Flux2Debug.log("Direct pre-quantized load of \(quantization.rawValue) weights (no bf16 intermediate)")
+      Flux2Debug.log(
+        "Direct pre-quantized load of \(quantization.rawValue) weights (no bf16 intermediate)")
     }
 
     // Emit weightLoadComplete for transformer on success path only.

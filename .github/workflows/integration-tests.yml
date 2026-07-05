@@ -44,7 +44,7 @@ jobs:
         lmstudio-community_Qwen3-4B-MLX-4bit
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache SwiftPM dependencies
         uses: actions/cache@v6

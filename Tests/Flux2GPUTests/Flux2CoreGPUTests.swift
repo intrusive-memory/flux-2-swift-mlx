@@ -384,7 +384,8 @@ struct Flux2CoreGPUTests {
     eval(decoded)
 
     let image = postprocessVAEOutput(decoded)
-    #expect(image != nil, "Tiled VAE decode at 768x768 (96x96 latent) should produce a non-nil image")
+    #expect(
+      image != nil, "Tiled VAE decode at 768x768 (96x96 latent) should produce a non-nil image")
     if let image {
       #expect(image.width == 768, "Decoded image width should be 768")
       #expect(image.height == 768, "Decoded image height should be 768")

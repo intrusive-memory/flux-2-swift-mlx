@@ -205,7 +205,8 @@ extension Flux2MemoryManager {
     enable8GBTier: Bool = MemoryConfig.enable8GBTier
   ) -> MemoryCheckResult {
     let pixels = width * height
-    let hardMaxPixels = MemoryConfig.hardMaxImagePixels(forRAMGB: ramGB, enable8GBTier: enable8GBTier)
+    let hardMaxPixels = MemoryConfig.hardMaxImagePixels(
+      forRAMGB: ramGB, enable8GBTier: enable8GBTier)
 
     if pixels > hardMaxPixels {
       let maxDimension = Int(Double(hardMaxPixels).squareRoot())
