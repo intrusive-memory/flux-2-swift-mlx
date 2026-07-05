@@ -31,7 +31,7 @@
 #
 set -euo pipefail
 
-CDN_BASE="${ACERVO_CDN_BASE:-https://pub-8e049ed02be340cbb18f921765fd24f3.r2.dev/models}"
+CDN_BASE="${ACERVO_CDN_BASE:-https://cdn.intrusive-memory.productions/models}"
 JOBS="${ACERVO_PRIME_JOBS:-4}"
 
 if [[ -z "${ACERVO_MODELS_DIR:-}" ]]; then
@@ -64,7 +64,7 @@ prime_one() {
   local manifest="$dest/manifest.json"
   if ! fetch -o "$manifest" "$model_url/manifest.json"; then
     echo "::error::Cannot fetch manifest for '$slug' at $model_url/manifest.json." >&2
-    echo "::error::Has this model been shipped? Run /acervo-download-ship or /acervo-cdn-setup first." >&2
+    echo "::error::Has this model been shipped? Ship it with 'acervo ship <org/repo>' (see /acervo-download-ship)." >&2
     return 1
   fi
 

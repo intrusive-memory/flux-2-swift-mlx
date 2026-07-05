@@ -17,7 +17,7 @@
 #
 set -euo pipefail
 
-CDN_BASE="${ACERVO_CDN_BASE:-https://pub-8e049ed02be340cbb18f921765fd24f3.r2.dev/models}"
+CDN_BASE="${ACERVO_CDN_BASE:-https://cdn.intrusive-memory.productions/models}"
 read -r -a SLUGS <<< "$(printf '%s %s' "${ACERVO_CI_MODELS:-}" "$*" | tr '\n' ' ')"
 
 acc=""
