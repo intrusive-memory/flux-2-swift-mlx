@@ -2423,3 +2423,47 @@ import Testing
     expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 128), as: .highQuality)
   }
 }
+
+// MARK: - VAE Tiling Tier Selection (Sortie A5)
+
+@Suite struct VAETilingTierSelectionTests {
+
+  @Test func iPad16GBSubtierSelectsDefaultTiling() {
+    #expect(VAETilingConfig.forRAMGB(16) == .default)
+  }
+
+  @Test func iPad12GBSubtierSelectsDefaultTiling() {
+    #expect(VAETilingConfig.forRAMGB(12) == .default)
+  }
+
+  @Test func iPad8GBSubtierSelectsAggressiveTiling() {
+    #expect(VAETilingConfig.forRAMGB(8) == .aggressive)
+  }
+
+  @Test func macTierSelectsDisabledSingleShot() {
+    #expect(VAETilingConfig.forRAMGB(32) == .disabled)
+    #expect(VAETilingConfig.forRAMGB(64) == .disabled)
+  }
+
+  @Test func forTierIsConsistentWithForRAMGB() {
+    #expect(VAETilingConfig.forTier(.iPad, ramGB: 16) == VAETilingConfig.forRAMGB(16))
+    #expect(VAETilingConfig.forTier(.iPad, ramGB: 8) == VAETilingConfig.forRAMGB(8))
+    #expect(VAETilingConfig.forTier(.mac, ramGB: 64) == VAETilingConfig.forRAMGB(64))
+  }
+
+  @Test func disabledTilingNeverTriggersTiling() {
+    // .disabled uses an effectively unreachable minTileThreshold, so any
+    // latent size stays on the single-shot decode path.
+    let disabled = VAETilingConfig.disabled
+    #expect(disabled.minTileThreshold == 9999)
+  }
+
+  @Test func pipelineVAETilingConfigMatchesRAMDerivedSelection() {
+    // Flux2Pipeline.vaeTilingConfig must route through the same
+    // VAETilingConfig.forRAMGB selection exercised above — this is the actual
+    // wiring point the five vae!.decode call sites read at decode time.
+    let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
+    let expected = VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
+    #expect(pipeline.vaeTilingConfig == expected)
+  }
+}

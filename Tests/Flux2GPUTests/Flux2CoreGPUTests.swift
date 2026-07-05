@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import MLX
 import TestHelpers
 // Flux2CoreGPUTests.swift — GPU-gated Flux2Core pipeline integration tests
 import Testing
@@ -379,5 +380,31 @@ struct Flux2CoreGPUTests {
     let callCount = await counter.value
     #expect(
       callCount == steps, "Progress callback should fire exactly \(steps) times, got \(callCount)")
+  }
+
+  // MARK: - Test 12: Tiled VAE decode at 768x768 produces a non-nil image (Sortie A5)
+
+  @Test(.timeLimit(.minutes(2))) func tiledVAEDecodeAt768ReturnsNonNilImage() {
+    guard checkGPUPreconditions(minimumBytes: 8 * 1_073_741_824) else { return }
+
+    // This exercises decodeWithTiling directly on a freshly-initialized VAE
+    // module (random weights) — no CDN model weights are required, only a
+    // Metal device, so it is not gated on KLEIN_MODEL_PATH.
+    let vae = AutoencoderKLFlux2(config: .flux2Dev)
+
+    // A 768x768 image corresponds to a 96x96 latent (VAE downsamples by 8x).
+    // .aggressive tiling (minTileThreshold=64) forces the multi-tile path at
+    // this size, proving decodeWithTiling's tiled branch — not just the
+    // small-image passthrough — produces a valid image.
+    let latent = MLXRandom.normal([1, 32, 96, 96])
+    let decoded = vae.decodeWithTiling(latent, tiling: .aggressive)
+    eval(decoded)
+
+    let image = postprocessVAEOutput(decoded)
+    #expect(image != nil, "Tiled VAE decode at 768x768 (96x96 latent) should produce a non-nil image")
+    if let image {
+      #expect(image.width == 768, "Decoded image width should be 768")
+      #expect(image.height == 768, "Decoded image height should be 768")
+    }
   }
 }

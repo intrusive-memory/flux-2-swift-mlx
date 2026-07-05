@@ -9,7 +9,7 @@ import MLXRandom
 
 /// Configuration for spatial tiling during VAE decoding
 /// Used to decode large images in tiles to reduce peak memory usage
-public struct VAETilingConfig: Sendable {
+public struct VAETilingConfig: Sendable, Equatable {
   /// Tile size in latent space (e.g., 64 = 512px after 8x upscale)
   public var tileSize: Int
 
@@ -35,6 +35,41 @@ public struct VAETilingConfig: Sendable {
   /// Disabled - no tiling
   public static let disabled = VAETilingConfig(
     tileSize: 9999, tileOverlap: 0, minTileThreshold: 9999)
+}
+
+// MARK: - Tier-Based Selection (Sortie A5, R4.2)
+
+extension VAETilingConfig {
+  /// Select a `VAETilingConfig` appropriate for a given memory tier (R4.2).
+  ///
+  /// The iPad tier decodes in tiles to bound peak VAE-decode memory; the 8 GB
+  /// sub-tier (which shares the iPad `MemoryTier` bucket with 12–16 GB devices)
+  /// uses the more aggressive, smaller-tile config. Mac-class devices have
+  /// ample headroom and decode single-shot (no tiling).
+  ///
+  /// - Parameters:
+  ///   - tier: The resolved `MemoryConfig.MemoryTier`.
+  ///   - ramGB: The RAM (in GB) used to distinguish the 8 GB iPad sub-tier from
+  ///     the 12–16 GB iPad sub-tier. Ignored on the Mac tier.
+  public static func forTier(
+    _ tier: MemoryConfig.MemoryTier, ramGB: Int
+  ) -> VAETilingConfig {
+    switch tier {
+    case .iPad:
+      return ramGB <= 8 ? .aggressive : .default
+    case .mac:
+      return .disabled
+    }
+  }
+
+  /// Select a `VAETilingConfig` directly from a RAM value (resolves the tier
+  /// internally). Parameterized by RAM (rather than reading live device state)
+  /// so tier-selection logic is directly testable, matching the
+  /// `MemoryConfig.tier(forRAMGB:)` / `MemoryOptimizationConfig.recommended(forRAMGB:)`
+  /// convention established in Sortie A1.
+  public static func forRAMGB(_ ramGB: Int) -> VAETilingConfig {
+    forTier(MemoryConfig.tier(forRAMGB: ramGB), ramGB: ramGB)
+  }
 }
 
 /// Variational Autoencoder for Flux.2

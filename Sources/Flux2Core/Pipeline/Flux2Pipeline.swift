@@ -139,6 +139,15 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// Clear cache every N denoising steps (0 = disabled)
   public var clearCacheEveryNSteps: Int = 5
 
+  /// VAE decode tiling config selected from the current device's memory tier
+  /// (R4.2): the iPad tier tiles the decode (`.default`/`.aggressive` by RAM
+  /// sub-tier) to bound peak VAE-decode memory; the Mac tier decodes
+  /// single-shot (`.disabled`). Read at decode time via all `vae!.decode`
+  /// call sites, which route through `decodeWithTiling(_:tiling:)`.
+  var vaeTilingConfig: VAETilingConfig {
+    VAETilingConfig.forRAMGB(Flux2MemoryManager.shared.physicalMemoryGB)
+  }
+
   /// Initialize pipeline
   /// - Parameters:
   ///   - model: Model variant to use (default: .dev)
@@ -1426,7 +1435,7 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decode(checkpointLatents)
+            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
@@ -1570,7 +1579,7 @@ public class Flux2Pipeline: @unchecked Sendable {
             let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
             eval(checkpointLatents)
 
-            let checkpointDecoded = vae!.decode(checkpointLatents)
+            let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
             eval(checkpointDecoded)
 
             if let checkpointImage = postprocessVAEOutput(checkpointDecoded) {
@@ -1626,7 +1635,7 @@ public class Flux2Pipeline: @unchecked Sendable {
       eval(finalLatents)
 
       let vaeDecodeStart = Date()
-      let decoded = vae!.decode(finalLatents)
+      let decoded = vae!.decodeWithTiling(finalLatents, tiling: vaeTilingConfig)
       eval(decoded)
       let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
       profiler.end("7. VAE Decode")
@@ -1828,7 +1837,7 @@ public class Flux2Pipeline: @unchecked Sendable {
         let checkpointLatents = LatentUtils.unpatchifyLatents(checkpointPatchified)
         eval(checkpointLatents)
 
-        let checkpointDecoded = vae!.decode(checkpointLatents)
+        let checkpointDecoded = vae!.decodeWithTiling(checkpointLatents, tiling: vaeTilingConfig)
         eval(checkpointDecoded)
         Flux2Debug.verbose("Checkpoint VAE output shape: \(checkpointDecoded.shape)")
 
@@ -1903,7 +1912,7 @@ public class Flux2Pipeline: @unchecked Sendable {
 
     profiler.start("7. VAE Decode")
     let vaeDecodeStart = Date()
-    let decoded = vae!.decode(finalLatents)
+    let decoded = vae!.decodeWithTiling(finalLatents, tiling: vaeTilingConfig)
     eval(decoded)
     let vaeDecodeDuration = Date().timeIntervalSince(vaeDecodeStart)
     profiler.end("7. VAE Decode")
