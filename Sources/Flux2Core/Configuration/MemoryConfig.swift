@@ -53,9 +53,12 @@ public struct MemoryConfig {
   /// Sortie B3 adds `.iPad8GB` as a DISTINCT sub-tier for 8 GB devices. It is
   /// only reachable when the `enable8GBTier` feature flag is ON (default OFF).
   /// While OFF, 8 GB devices continue to resolve to the shared `.iPad` bucket,
-  /// so the distinct 8 GB sub-tier is unreachable. Until Sortie B4 wires the
-  /// §5 "iPad 8 GB" knobs, `.iPad8GB` deliberately mirrors `.iPad` everywhere
-  /// it is switched on.
+  /// so the distinct 8 GB sub-tier is unreachable. Sortie B4 wires the §5
+  /// "iPad 8 GB" knobs: `.iPad8GB` now DIFFERS from `.iPad` on resolution
+  /// (512² vs 768²), hard-max (768² vs 1024²), cache cadence (2 vs 3), and
+  /// transformer quant (int4 vs qint8); it still shares `.iPad`'s cache
+  /// profile (`.conservative`), memory optimization (`.ultraLowMemory`),
+  /// steps (4), and guidance (1.0).
   public enum MemoryTier: String, CaseIterable, Sendable {
     /// iPad-class devices: 8 GB and 12–16 GB unified-memory Apple Silicon.
     case iPad
@@ -124,8 +127,8 @@ public struct MemoryConfig {
   /// cache budget. Mac tiers keep `.auto` (dynamic, RAM-scaled).
   public static func cacheProfile(forTier tier: MemoryTier) -> CacheProfile {
     switch tier {
-    // `.iPad8GB` mirrors `.iPad` here (both force `.conservative`); B4 layers
-    // any tighter 8 GB cache behaviour on top.
+    // `.iPad8GB` deliberately stays `.conservative` too — Sortie B4's §5 8 GB
+    // column confirms `.conservative`, it does not tighten this knob further.
     case .iPad, .iPad8GB: return .conservative
     case .mac: return .auto
     }
@@ -138,17 +141,16 @@ public struct MemoryConfig {
 
   /// Hard-max image resolution (in total pixels) above which generation must
   /// be refused outright, tier-aware (Sortie A4, EXECUTION_PLAN.md §5 "hard
-  /// max" row).
+  /// max" row; sub-tier differentiated at Sortie B4).
   ///
-  /// - `.iPad`: errors above **1024×1024** (the §5 16 GB column value). The
-  ///   8 GB sub-tier's tighter 768×768 cap is layered on top in Sortie B4 —
-  ///   this mechanism only needs to be tier-aware here, not sub-tier-aware.
+  /// - `.iPad`: errors above **1024×1024** (the §5 16 GB column value).
+  /// - `.iPad8GB`: errors above **768×768** (the §5 8 GB column value,
+  ///   Sortie B4 — tighter than the shared `.iPad` cap above).
   /// - `.mac`: retains the historical 4096×4096 hard max (no regression).
   public static func hardMaxImagePixels(forTier tier: MemoryTier) -> Int {
     switch tier {
-    // `.iPad8GB` mirrors `.iPad` (1024²) at B3. B4 tightens the 8 GB arm to
-    // the §5 768² cap; this mechanism only needs to be tier-aware here.
-    case .iPad, .iPad8GB: return 1024 * 1024
+    case .iPad8GB: return 768 * 768
+    case .iPad: return 1024 * 1024
     case .mac: return 4096 * 4096
     }
   }
@@ -157,8 +159,15 @@ public struct MemoryConfig {
   /// (via its resolved tier). Parameterized by RAM rather than reading live
   /// device state so tier-selection is directly testable, matching the
   /// `tier(forRAMGB:)` / `cacheProfile(forRAMGB:)` convention above.
-  public static func hardMaxImagePixels(forRAMGB ramGB: Int) -> Int {
-    hardMaxImagePixels(forTier: tier(forRAMGB: ramGB))
+  ///
+  /// - Parameter enable8GBTier: Threads through to `tier(forRAMGB:enable8GBTier:)`
+  ///   so the 8 GB sub-tier's tighter 768² cap is directly testable without
+  ///   mutating the shared `enable8GBTier` global flag (Sortie B4).
+  public static func hardMaxImagePixels(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    hardMaxImagePixels(forTier: tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier))
   }
 
   // MARK: - System Information

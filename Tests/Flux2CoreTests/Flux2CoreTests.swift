@@ -2828,3 +2828,128 @@ import Testing
     expectSameQuant(pipeline.quantization, as: Flux2Pipeline.defaultQuantization)
   }
 }
+
+// MARK: - iPad 8 GB Default Knobs (Sortie B4, EXECUTION_PLAN.md §5 "iPad 8 GB" column)
+//
+// The `.iPad8GB` sub-tier is only reachable when `enable8GBTier` is ON
+// (default OFF, per B3). Every test below reaches it via the
+// `enable8GBTier:` parameter overrides B4 threaded onto the tier-aware knob
+// functions (`Flux2Pipeline.default*(forRAMGB:enable8GBTier:)`,
+// `MemoryConfig.hardMaxImagePixels(forRAMGB:enable8GBTier:)`,
+// `Flux2MemoryManager.checkImageSize(...enable8GBTier:)`) or via the
+// tier-parameterized overloads (`...(forTier: .iPad8GB)`) — never by
+// mutating the shared `MemoryConfig.enable8GBTier` global flag, so these
+// tests are race-free under swift-testing's parallel execution and never
+// touch the flag's default (which MUST stay OFF).
+@Suite struct IPad8GBDefaultKnobsTests {
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (mirrors the `expectSameQuant` helper used elsewhere in this file).
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  // MARK: §5 8 GB column values — differentiated from the shared iPad tier
+
+  @Test func resolutionIs512OnIPad8GBSubTier() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 8, enable8GBTier: true) == 512)
+  }
+
+  @Test func hardMaxIs768SquaredOnIPad8GBSubTier() {
+    #expect(MemoryConfig.hardMaxImagePixels(forTier: .iPad8GB) == 768 * 768)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 8, enable8GBTier: true) == 768 * 768)
+  }
+
+  @Test func clearCacheEveryNStepsIs2OnIPad8GBSubTier() {
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 8, enable8GBTier: true) == 2)
+  }
+
+  @Test func transformerQuantIsInt4OnIPad8GBSubTier() {
+    let config = Flux2Pipeline.defaultQuantization(forRAMGB: 8, enable8GBTier: true)
+    #expect(config.transformer == .int4)
+  }
+
+  @Test func maxReferenceImagesIs1OnIPad8GBSubTier() {
+    #expect(Flux2Model.klein4B.maxReferenceImages(forTier: .iPad8GB) == 1)
+  }
+
+  // MARK: Inherited from the shared iPad tier — confirmed, not reinvented
+
+  @Test func stepsIs4OnIPad8GBSubTier() {
+    // Klein 4B's recommended step count — unchanged from the §5 16 GB column.
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 8, enable8GBTier: true) == 4)
+  }
+
+  @Test func guidanceIs1PointOOnIPad8GBSubTier() {
+    // Klein 4B's recommended guidance — unchanged from the §5 16 GB column.
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 8, enable8GBTier: true) == 1.0)
+  }
+
+  @Test func memoryProfileIsConservativeOnIPad8GBSubTier() {
+    #expect(MemoryConfig.cacheProfile(forTier: .iPad8GB) == .conservative)
+  }
+
+  @Test func memoryOptimizationIsUltraLowMemoryOnIPad8GBSubTier() {
+    // The `.iPad8GB` sub-tier still falls in `MemoryOptimizationConfig
+    // .recommended(forRAMGB:)`'s `0..<32` bucket at ramGB=8, which already
+    // resolves to `.ultraLowMemory` (B3) — confirmed here without mutating
+    // the shared `enable8GBTier` flag.
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: true) == .iPad8GB)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  }
+
+  // MARK: checkImageSize integration (Sortie A4, extended by B4)
+
+  @Test func checkImageSizeThrowsAboveHardMaxOnIPad8GBSubTier() {
+    let manager = Flux2MemoryManager.shared
+    let result = manager.checkImageSize(width: 769, height: 769, ramGB: 8, enable8GBTier: true)
+    guard case .insufficientMemory = result else {
+      Issue.record(
+        "Expected .insufficientMemory above 768x768 on the iPad 8 GB sub-tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeAllowsExactlyHardMaxOnIPad8GBSubTier() {
+    let manager = Flux2MemoryManager.shared
+    let result = manager.checkImageSize(width: 768, height: 768, ramGB: 8, enable8GBTier: true)
+    #expect(result.isOk)
+  }
+
+  // MARK: Regression — 16 GB iPad tier and Mac tier values unchanged by B4
+
+  @Test func sixteenGBIPadTierValuesUnchangedByB4() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 16) == 1024 * 1024)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
+  }
+
+  @Test func eightGBRamWithFlagOffStillResolvesToSharedIPadTierValues() {
+    // The flag stays OFF by default (B3's guarantee): 8 GB devices continue
+    // to resolve to the shared `.iPad` bucket (768²/3/qint8) — the §5 8 GB
+    // column this Sortie added is inert until `enable8GBTier` flips ON.
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 8) == 768)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 8) == 3)
+    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 8).transformer == .qint8)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 8) == 1024 * 1024)
+  }
+
+  @Test func macTierValuesUnchangedByB4() {
+    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 64) == 1024)
+    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 64) == 4096 * 4096)
+    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 64) == 5)
+    expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: 64), as: .balanced)
+    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 64) == 4)
+    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 64) == 50)
+    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 64) == 4.0)
+  }
+}

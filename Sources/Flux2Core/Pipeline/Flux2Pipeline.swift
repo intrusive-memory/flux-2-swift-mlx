@@ -169,9 +169,23 @@ public class Flux2Pipeline: @unchecked Sendable {
   // values below).
 
   /// Default square resolution (both height and width). iPad tier: 768×768
-  /// (§5). Mac tier: 1024×1024 (unchanged historical default).
-  public static func defaultResolution(forRAMGB ramGB: Int) -> Int {
-    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? 768 : 1024
+  /// (§5 16 GB column). iPad 8 GB sub-tier: 512×512 (§5 8 GB column, Sortie
+  /// B4). Mac tier: 1024×1024 (unchanged historical default).
+  ///
+  /// - Parameter enable8GBTier: Threads through to
+  ///   `MemoryConfig.tier(forRAMGB:enable8GBTier:)` so the 8 GB sub-tier is
+  ///   directly testable without mutating the shared `MemoryConfig
+  ///   .enable8GBTier` global flag (matches the A1 `tier(forRAMGB:)` /
+  ///   B3 gating convention).
+  public static func defaultResolution(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad8GB: return 512
+    case .iPad: return 768
+    case .mac: return 1024
+    }
   }
 
   /// Live-device convenience over `defaultResolution(forRAMGB:)`.
@@ -179,11 +193,18 @@ public class Flux2Pipeline: @unchecked Sendable {
     defaultResolution(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
   }
 
-  /// Default denoising step count. iPad tier: the forced model's
-  /// (`.klein4B`, per A2's `ModelTierGate`) recommended step count (4). Mac
-  /// tier: 50 (unchanged historical flat default).
-  public static func defaultSteps(forRAMGB ramGB: Int) -> Int {
-    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? Flux2Model.klein4B.defaultSteps : 50
+  /// Default denoising step count. iPad tier AND the iPad 8 GB sub-tier: the
+  /// forced model's (`.klein4B`, per A2's `ModelTierGate`) recommended step
+  /// count (4) — §5 confirms this is unchanged on the 8 GB column (Sortie
+  /// B4). Mac tier: 50 (unchanged historical flat default).
+  public static func defaultSteps(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad, .iPad8GB: return Flux2Model.klein4B.defaultSteps
+    case .mac: return 50
+    }
   }
 
   /// Live-device convenience over `defaultSteps(forRAMGB:)`.
@@ -191,11 +212,18 @@ public class Flux2Pipeline: @unchecked Sendable {
     defaultSteps(forRAMGB: Flux2MemoryManager.shared.physicalMemoryGB)
   }
 
-  /// Default guidance scale. iPad tier: the forced model's (`.klein4B`)
-  /// recommended guidance (1.0). Mac tier: 4.0 (unchanged historical flat
-  /// default).
-  public static func defaultGuidance(forRAMGB ramGB: Int) -> Float {
-    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? Flux2Model.klein4B.defaultGuidance : 4.0
+  /// Default guidance scale. iPad tier AND the iPad 8 GB sub-tier: the
+  /// forced model's (`.klein4B`) recommended guidance (1.0) — §5 confirms
+  /// this is unchanged on the 8 GB column (Sortie B4). Mac tier: 4.0
+  /// (unchanged historical flat default).
+  public static func defaultGuidance(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Float {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad, .iPad8GB: return Flux2Model.klein4B.defaultGuidance
+    case .mac: return 4.0
+    }
   }
 
   /// Live-device convenience over `defaultGuidance(forRAMGB:)`.
@@ -204,9 +232,18 @@ public class Flux2Pipeline: @unchecked Sendable {
   }
 
   /// Default GPU-cache clear cadence (denoising steps between clears). iPad
-  /// tier: 3 (§5). Mac tier: 5 (unchanged historical default).
-  public static func defaultClearCacheEveryNSteps(forRAMGB ramGB: Int) -> Int {
-    MemoryConfig.tier(forRAMGB: ramGB) == .iPad ? 3 : 5
+  /// tier: 3 (§5 16 GB column). iPad 8 GB sub-tier: 2 (§5 8 GB column,
+  /// Sortie B4 — tighter than the shared 16 GB cadence). Mac tier: 5
+  /// (unchanged historical default).
+  public static func defaultClearCacheEveryNSteps(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad8GB: return 2
+    case .iPad: return 3
+    case .mac: return 5
+    }
   }
 
   /// Live-device convenience over `defaultClearCacheEveryNSteps(forRAMGB:)`.
@@ -229,15 +266,21 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// Default transformer quantization preset. iPad tier: qint8 — the only
   /// currently-provisioned pre-quantized Klein 4B repo (A7 grounding notes);
   /// int4 without pre-quantized weights falls back to bf16 + on-the-fly
-  /// `quantize()`, the B1 int4 OOM this Sortie must not trigger. Mac tier:
-  /// `.balanced` (unchanged historical default) — deliberately kept as a
-  /// separate literal from the iPad branch so a future change to `.balanced`
-  /// cannot silently change the iPad default out from under this guarantee.
-  public static func defaultQuantization(forRAMGB ramGB: Int) -> Flux2QuantizationConfig {
-    switch MemoryConfig.tier(forRAMGB: ramGB) {
-    // `.iPad8GB` mirrors `.iPad` (qint8) at B3; B4 switches the 8 GB transformer
-    // default to pre-quantized int4 via B1/B2.
-    case .iPad, .iPad8GB: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
+  /// `quantize()`, the B1 int4 OOM this Sortie must not trigger. iPad 8 GB
+  /// sub-tier: int4 — the pre-quantized `klein4B_4bit` variant shipped by B1
+  /// and loaded directly by B2 (`ModelRegistry.variant(for:quantization:)`
+  /// resolves `(klein4B, .int4)` to `klein4B_4bit`, never the on-the-fly
+  /// quantize block). Mac tier: `.balanced` (unchanged historical default)
+  /// — deliberately kept as a separate literal from the iPad branches so a
+  /// future change to `.balanced` cannot silently change an iPad default out
+  /// from under this guarantee.
+  public static func defaultQuantization(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Flux2QuantizationConfig {
+    switch MemoryConfig.tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier) {
+    case .iPad: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
+    case .iPad8GB: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .int4)
     case .mac: return .balanced
     }
   }

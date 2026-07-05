@@ -170,14 +170,15 @@ public enum Flux2Model: String, CaseIterable, Sendable {
   }
 
   /// Tier-aware max reference images (Sortie A3, EXECUTION_PLAN.md §5 "iPad
-  /// 16 GB" column). The iPad tier caps I2I reference images at **2**
-  /// regardless of the per-model ceiling above (Klein 4B's unqualified
-  /// `maxReferenceImages` is 4); the Mac tier passes the per-model ceiling
-  /// through unchanged (no regression).
+  /// 16 GB" column; sub-tier differentiated at Sortie B4). The iPad tier caps
+  /// I2I reference images at **2** regardless of the per-model ceiling above
+  /// (Klein 4B's unqualified `maxReferenceImages` is 4); the 8 GB sub-tier
+  /// tightens that to **1** (§5 8 GB column); the Mac tier passes the
+  /// per-model ceiling through unchanged (no regression).
   public func maxReferenceImages(forTier tier: MemoryConfig.MemoryTier) -> Int {
     switch tier {
-    // `.iPad8GB` mirrors `.iPad` (cap 2) at B3; B4 tightens the 8 GB arm to 1.
-    case .iPad, .iPad8GB: return 2
+    case .iPad8GB: return 1
+    case .iPad: return 2
     case .mac: return maxReferenceImages
     }
   }
