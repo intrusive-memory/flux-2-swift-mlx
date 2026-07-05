@@ -120,7 +120,8 @@ public class LoRAManager: @unchecked Sendable {
           .weightLoadComplete(
             component: .lora,
             paramCount: info.numParameters,
-            durationSeconds: loadDuration))
+            durationSeconds: loadDuration,
+            physFootprint: Flux2MemoryFootprint.current()))
       }
     }
 

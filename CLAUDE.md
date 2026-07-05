@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Claude-Specific Agent Instructions
 
 **⚠️ Read [AGENTS.md](AGENTS.md) first.** That file holds the universal project documentation, branching/release flow, testing standard, and critical rules. This file only adds Claude-specific tooling guidance on top.
@@ -101,7 +105,7 @@ The 0.16 release shifts SwiftAcervo's contract: stop poking the filesystem for m
 
 When adding or reviewing instrumentation in this repo *or* in any sibling library (`SwiftTuberia`, `Produciesta`, `Vinetas`, etc.), follow the cross-library chokepoint pattern in [AGENTS.md §11](./AGENTS.md#11-telemetry-chokepoint-convention-cross-library). The canonical event names (`pipelineInit`, `weightLoadComplete`, `<phase>Complete`, `<loop>LoopStart` / `<loop>LoopEnd`, `numericalAnomaly`, `errorThrown`, `generationCancelled`) and adapter sink-phase strings (`<lib>_<noun>_<lifecycle>`) are shared across libraries so Vinetas can route every event without per-library special cases.
 
-The live event surface for this repo is [REQUIREMENTS-instrumentation.md](./REQUIREMENTS-instrumentation.md); use it as the reference implementation when wiring a new library.
+The live event surface for this repo is [REQUIREMENTS-instrumentation.md](./requirements/REQUIREMENTS-instrumentation.md); use it as the reference implementation when wiring a new library.
 
 Two non-negotiable rules from §11 that agents have historically gotten wrong:
 - **Boundaries, not internals.** Do not introduce per-step / per-block / per-attention-head events at the baseline. Per-step detail is a follow-up iteration triggered by a real anomaly.

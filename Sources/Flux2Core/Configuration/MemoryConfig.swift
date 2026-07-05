@@ -40,6 +40,136 @@ public struct MemoryConfig {
     }
   }
 
+  // MARK: - Memory Tiers
+
+  /// Coarse device memory tier used to pick tier-appropriate defaults.
+  ///
+  /// The historical thresholds bottomed out at 16 GB and treated everything
+  /// `<32 GB` as a single bucket sized for Mac hardware. iPad-class Apple
+  /// Silicon (8 GB and 12–16 GB unified memory) needs its own explicit tier so
+  /// callers can force conservative memory behaviour rather than inheriting a
+  /// Mac-shaped configuration.
+  ///
+  /// Sortie B3 adds `.iPad8GB` as a DISTINCT sub-tier for 8 GB devices. It is
+  /// only reachable when the `enable8GBTier` feature flag is ON (default OFF).
+  /// While OFF, 8 GB devices continue to resolve to the shared `.iPad` bucket,
+  /// so the distinct 8 GB sub-tier is unreachable. Sortie B4 wires the §5
+  /// "iPad 8 GB" knobs: `.iPad8GB` now DIFFERS from `.iPad` on resolution
+  /// (512² vs 768²), hard-max (768² vs 1024²), cache cadence (2 vs 3), and
+  /// transformer quant (int4 vs qint8); it still shares `.iPad`'s cache
+  /// profile (`.conservative`), memory optimization (`.ultraLowMemory`),
+  /// steps (4), and guidance (1.0).
+  public enum MemoryTier: String, CaseIterable, Sendable {
+    /// iPad-class devices: 8 GB and 12–16 GB unified-memory Apple Silicon.
+    case iPad
+    /// Distinct 8 GB iPad sub-tier (gated by `enable8GBTier`, default OFF).
+    case iPad8GB
+    /// Mac-class devices: 32 GB and up.
+    case mac
+
+    /// Human-readable description
+    public var description: String {
+      switch self {
+      case .iPad: return "iPad tier (\u{2264}16 GB unified memory)"
+      case .iPad8GB: return "iPad 8 GB sub-tier (\u{2264}8 GB unified memory)"
+      case .mac: return "Mac tier (32 GB+)"
+      }
+    }
+  }
+
+  /// Inclusive upper bound (in GB) of the iPad memory tier.
+  ///
+  /// Devices with at most this much unified memory (8 GB, 12 GB, 16 GB) resolve
+  /// to `.iPad`; anything above resolves to `.mac`.
+  public static let iPadTierMaxRAMGB = 16
+
+  /// Inclusive upper bound (in GB) of the distinct 8 GB iPad sub-tier.
+  ///
+  /// Devices with at most this much unified memory resolve to `.iPad8GB`
+  /// **only when `enable8GBTier` is ON**; otherwise they fall through to the
+  /// shared `.iPad` bucket.
+  public static let iPad8GBTierMaxRAMGB = 8
+
+  /// Feature flag gating the distinct 8 GB iPad sub-tier (Sortie B3,
+  /// requirements §3 B2 / §8).
+  ///
+  /// Defaults **OFF**. The 8 GB floor is only recoverable once on-device A6/A8
+  /// `phys_footprint` telemetry confirms the working set fits — until then the
+  /// distinct `.iPad8GB` sub-tier stays UNREACHABLE and 8 GB devices resolve to
+  /// the shared `.iPad` bucket. Flip this ON (in a follow-up, after the
+  /// measurement lands and B4 wires the §5 8 GB knobs) to activate the
+  /// sub-tier. Kept as a mutable flag rather than a compile-time constant so
+  /// the measurement follow-up can enable it without an API change.
+  nonisolated(unsafe) public static var enable8GBTier = false
+
+  /// Resolve the memory tier for a given amount of unified/​system RAM.
+  ///
+  /// The `enable8GBTier` parameter defaults to the global feature flag but is
+  /// exposed so the gating is directly testable in both states without mutating
+  /// shared global state (matching the `forRAMGB:` testability convention).
+  public static func tier(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> MemoryTier {
+    if enable8GBTier, ramGB <= iPad8GBTierMaxRAMGB { return .iPad8GB }
+    return ramGB <= iPadTierMaxRAMGB ? .iPad : .mac
+  }
+
+  /// Resolve the memory tier for the current device's RAM.
+  public static var tier: MemoryTier {
+    tier(forRAMGB: systemRAMGB)
+  }
+
+  /// Cache profile that a tier forces.
+  ///
+  /// The iPad tier forces `.conservative` (512 MB cap via
+  /// `cacheLimitForProfile`) so low-memory devices never inherit a Mac-shaped
+  /// cache budget. Mac tiers keep `.auto` (dynamic, RAM-scaled).
+  public static func cacheProfile(forTier tier: MemoryTier) -> CacheProfile {
+    switch tier {
+    // `.iPad8GB` deliberately stays `.conservative` too — Sortie B4's §5 8 GB
+    // column confirms `.conservative`, it does not tighten this knob further.
+    case .iPad, .iPad8GB: return .conservative
+    case .mac: return .auto
+    }
+  }
+
+  /// Cache profile forced for a given amount of RAM (via its resolved tier).
+  public static func cacheProfile(forRAMGB ramGB: Int) -> CacheProfile {
+    cacheProfile(forTier: tier(forRAMGB: ramGB))
+  }
+
+  /// Hard-max image resolution (in total pixels) above which generation must
+  /// be refused outright, tier-aware (Sortie A4, EXECUTION_PLAN.md §5 "hard
+  /// max" row; sub-tier differentiated at Sortie B4).
+  ///
+  /// - `.iPad`: errors above **1024×1024** (the §5 16 GB column value).
+  /// - `.iPad8GB`: errors above **768×768** (the §5 8 GB column value,
+  ///   Sortie B4 — tighter than the shared `.iPad` cap above).
+  /// - `.mac`: retains the historical 4096×4096 hard max (no regression).
+  public static func hardMaxImagePixels(forTier tier: MemoryTier) -> Int {
+    switch tier {
+    case .iPad8GB: return 768 * 768
+    case .iPad: return 1024 * 1024
+    case .mac: return 4096 * 4096
+    }
+  }
+
+  /// Hard-max image resolution (in total pixels) for a given amount of RAM
+  /// (via its resolved tier). Parameterized by RAM rather than reading live
+  /// device state so tier-selection is directly testable, matching the
+  /// `tier(forRAMGB:)` / `cacheProfile(forRAMGB:)` convention above.
+  ///
+  /// - Parameter enable8GBTier: Threads through to `tier(forRAMGB:enable8GBTier:)`
+  ///   so the 8 GB sub-tier's tighter 768² cap is directly testable without
+  ///   mutating the shared `enable8GBTier` global flag (Sortie B4).
+  public static func hardMaxImagePixels(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> Int {
+    hardMaxImagePixels(forTier: tier(forRAMGB: ramGB, enable8GBTier: enable8GBTier))
+  }
+
   // MARK: - System Information
 
   /// Get system RAM in GB

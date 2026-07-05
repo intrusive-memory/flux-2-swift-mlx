@@ -12,7 +12,7 @@ jobs:
     name: "Test FluxTextEncoders (macOS)"
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Full cache hit: same Package.swift → reuse resolved deps.
       # No restore-keys: any Package.swift change forces a clean re-resolve.
@@ -53,7 +53,7 @@ jobs:
     name: "Test Flux2Core — Config Only (macOS)"
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache SwiftPM dependencies
         uses: actions/cache@v6

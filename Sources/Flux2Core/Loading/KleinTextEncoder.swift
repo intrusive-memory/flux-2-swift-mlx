@@ -127,7 +127,8 @@ public class KleinTextEncoder: @unchecked Sendable {
         .weightLoadComplete(
           component: .textEncoderKlein,
           paramCount: paramCount,
-          durationSeconds: loadDuration))
+          durationSeconds: loadDuration,
+          physFootprint: Flux2MemoryFootprint.current()))
     }
   }
 

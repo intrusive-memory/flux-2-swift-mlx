@@ -7,7 +7,7 @@ import MLXNN
 
 /// Main entry point for Flux.2 image generation
 public enum Flux2Core {
-  public static let version = "3.3.4"
+  public static let version = "3.4.0"
 }
 
 /// Errors that can occur during Flux.2 operations
@@ -19,6 +19,14 @@ public enum Flux2Error: Error, LocalizedError {
   case imageProcessingFailed(String)
   case generationFailed(String)
   case generationCancelled
+  /// A requested model is refused on the active memory tier.
+  ///
+  /// This is a typed refusal, **not** an out-of-memory failure. It fires for
+  /// two product/hardware reasons:
+  /// - Klein 9B (all variants) is excluded on *every* tier by product decision
+  ///   (unconditional; never memory-gated).
+  /// - Flux.2 Dev (32B) is refused on the iPad tier on hardware grounds.
+  case modelNotSupportedOnTier(model: String, tier: String, reason: String)
 
   public var errorDescription: String? {
     switch self {
@@ -37,6 +45,8 @@ public enum Flux2Error: Error, LocalizedError {
       return "Generation failed: \(message)"
     case .generationCancelled:
       return "Generation was cancelled"
+    case .modelNotSupportedOnTier(let model, let tier, let reason):
+      return "Model \(model) is not supported on the \(tier) tier: \(reason)"
     }
   }
 }

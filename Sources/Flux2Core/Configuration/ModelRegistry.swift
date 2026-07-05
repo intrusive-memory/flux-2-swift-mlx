@@ -18,6 +18,11 @@ public enum ModelRegistry {
     case klein4B_bf16 = "klein4b-bf16"
     case klein4B_8bit = "klein4b-8bit"
 
+    // Flux.2 Klein 4B int4 (community pre-quantized MLX 4-bit; verified genuine
+    // MLX quantization — .scales/.biases per layer, quantization_level "4" —
+    // Apache 2.0, transformer/ subfolder only. See EXECUTION_PLAN.md OQ-1.)
+    case klein4B_4bit = "klein4b-4bit"
+
     // Flux.2 Klein 4B Base (non-distilled - for LoRA training only)
     case klein4B_base_bf16 = "klein4b-base-bf16"
 
@@ -43,6 +48,9 @@ public enum ModelRegistry {
       case .klein4B_8bit:
         // Community 8-bit quantization (contains only transformer weights)
         return "aydin99/FLUX.2-klein-4B-int8"
+      case .klein4B_4bit:
+        // Community pre-quantized MLX 4-bit (OQ-1); transformer/ subfolder only.
+        return "themindstudio/flux2-klein-4b-mlx-4bit"
       case .klein4B_base_bf16:
         // Base model (non-distilled) for LoRA training
         return "black-forest-labs/FLUX.2-klein-base-4B"
@@ -67,6 +75,11 @@ public enum ModelRegistry {
         // Community 8-bit repo (aydin99/FLUX.2-klein-4B-int8) ships only the
         // transformer weights, at the repo root — no diffusers subfolder.
         return nil
+      case .klein4B_4bit:
+        // Community int4 repo (themindstudio/flux2-klein-4b-mlx-4bit) nests
+        // the pre-quantized MLX weights under a `transformer/` subfolder
+        // (2.18 GB), unlike the flat aydin99 int8 repo (OQ-1).
+        return "transformer"
       case .klein4B_bf16, .klein4B_base_bf16, .klein9B_bf16, .klein9B_base_bf16,
         .klein9B_kv_bf16:
         // The black-forest-labs Klein repos ship the full diffusers layout, so
@@ -76,12 +89,13 @@ public enum ModelRegistry {
       }
     }
 
-    public var estimatedSizeGB: Int {
+    public var estimatedSizeGB: Double {
       switch self {
       case .bf16: return 64
       case .qint8: return 32
       case .klein4B_bf16: return 8
       case .klein4B_8bit: return 4
+      case .klein4B_4bit: return 2.18  // themindstudio transformer/ subfolder (OQ-1)
       case .klein4B_base_bf16: return 8  // Same size as distilled
       case .klein9B_bf16: return 18
       case .klein9B_base_bf16: return 18  // Same size as distilled
@@ -103,6 +117,9 @@ public enum ModelRegistry {
         return false
       case .klein4B_8bit:
         // Community 8-bit quantization is NOT gated
+        return false
+      case .klein4B_4bit:
+        // Community int4 quantization (themindstudio) is NOT gated
         return false
       case .klein4B_base_bf16:
         // Klein 4B Base from black-forest-labs is NOT gated
@@ -150,6 +167,26 @@ public enum ModelRegistry {
         .klein9B_kv_bf16:
         return .bf16
       case .qint8, .klein4B_8bit: return .qint8
+      case .klein4B_4bit: return .int4
+      }
+    }
+
+    /// Whether this variant ships **genuine MLX-native pre-quantized** weights —
+    /// a packed uint32 `.weight` plus per-layer `.scales`/`.biases` — that load
+    /// DIRECTLY into `QuantizedLinear` with no bf16/float16 intermediate and no
+    /// on-the-fly `quantize()` pass (Sortie B2, R2.1/R2.2/R2.3).
+    ///
+    /// Only `klein4B_4bit` (themindstudio/flux2-klein-4b-mlx-4bit, OQ-1) qualifies.
+    /// The qint8 community repos (`qint8`, `klein4B_8bit`) are quanto-format —
+    /// they are dequantized to float16 and re-quantized on-the-fly, so they are
+    /// NOT pre-quantized MLX and stay on the existing load path.
+    public var isPreQuantizedMLX: Bool {
+      switch self {
+      case .klein4B_4bit:
+        return true
+      case .bf16, .qint8, .klein4B_bf16, .klein4B_8bit, .klein4B_base_bf16,
+        .klein9B_bf16, .klein9B_base_bf16, .klein9B_kv_bf16:
+        return false
       }
     }
 
@@ -158,7 +195,7 @@ public enum ModelRegistry {
       switch self {
       case .bf16, .qint8:
         return .dev
-      case .klein4B_bf16, .klein4B_8bit:
+      case .klein4B_bf16, .klein4B_8bit, .klein4B_4bit:
         return .klein4B
       case .klein4B_base_bf16:
         return .klein4BBase
@@ -177,7 +214,7 @@ public enum ModelRegistry {
       switch self {
       case .bf16, .qint8:  // Dev
         return true
-      case .klein4B_bf16, .klein4B_8bit:  // Klein 4B distilled
+      case .klein4B_bf16, .klein4B_8bit, .klein4B_4bit:  // Klein 4B distilled
         return true
       case .klein9B_bf16:  // Klein 9B distilled
         return true
@@ -196,7 +233,7 @@ public enum ModelRegistry {
         return true
       case .qint8:  // Dev int8 - cannot train (quantized)
         return false
-      case .klein4B_bf16, .klein4B_8bit:  // Distilled - cannot train
+      case .klein4B_bf16, .klein4B_8bit, .klein4B_4bit:  // Distilled - cannot train
         return false
       case .klein9B_bf16:  // Distilled - cannot train
         return false
@@ -209,8 +246,13 @@ public enum ModelRegistry {
 
     /// Get the appropriate variant for a model type and quantization
     ///
-    /// For quantization levels without a pre-quantized variant (e.g. Klein 9B qint8, any model int4),
+    /// For quantization levels without a pre-quantized variant (e.g. Klein 9B qint8, Dev int4),
     /// this returns the bf16 variant. The pipeline will then quantize on-the-fly after loading.
+    ///
+    /// `(klein4B, .int4)` is the exception: it resolves to `klein4B_4bit`, a genuine
+    /// MLX-native pre-quantized variant (`isPreQuantizedMLX == true`) that the pipeline
+    /// loads DIRECTLY into `QuantizedLinear` — no bf16 intermediate, no on-the-fly
+    /// `quantize()` (Sortie B2, R2.1/R2.2/R2.3).
     public static func variant(for model: Flux2Model, quantization: TransformerQuantization)
       -> TransformerVariant
     {
@@ -220,7 +262,7 @@ public enum ModelRegistry {
       case (.dev, .int4): return .bf16  // Load bf16, quantize on-the-fly
       case (.klein4B, .bf16): return .klein4B_bf16
       case (.klein4B, .qint8): return .klein4B_8bit
-      case (.klein4B, .int4): return .klein4B_bf16  // Load bf16, quantize on-the-fly
+      case (.klein4B, .int4): return .klein4B_4bit  // Direct pre-quantized MLX 4-bit load (B2)
       // Base models only available in bf16
       case (.klein4BBase, _): return .klein4B_base_bf16
       case (.klein9BBase, _): return .klein9B_base_bf16
@@ -366,11 +408,11 @@ public enum ModelRegistry {
       }
     }
 
-    public var estimatedSizeGB: Int {
+    public var estimatedSizeGB: Double {
       switch self {
       case .transformer(let variant): return variant.estimatedSizeGB
-      case .textEncoder(let variant): return variant.estimatedSizeGB
-      case .vae(let variant): return variant.estimatedSizeGB
+      case .textEncoder(let variant): return Double(variant.estimatedSizeGB)
+      case .vae(let variant): return Double(variant.estimatedSizeGB)
       }
     }
 
@@ -395,6 +437,7 @@ public enum ModelRegistry {
         case .bf16: return "FLUX.2-dev-bf16"
         case .qint8: return "FLUX.2-dev-qint8"
         case .klein4B_8bit: return "FLUX.2-klein-4B-int8"
+        case .klein4B_4bit: return "FLUX.2-klein-4B-int4"
         case .klein4B_base_bf16: return "FLUX.2-klein-base-4B"
         case .klein9B_base_bf16: return "FLUX.2-klein-base-9B"
         case .klein9B_kv_bf16: return "FLUX.2-klein-9b-kv"
@@ -460,7 +503,7 @@ public enum ModelRegistry {
       switch variant {
       case .bf16, .qint8:
         modelName = "FLUX.2-dev-transformer-\(variant.rawValue)"
-      case .klein4B_bf16, .klein4B_8bit:
+      case .klein4B_bf16, .klein4B_8bit, .klein4B_4bit:
         modelName = "FLUX.2-klein-4B-\(variant.rawValue)"
       case .klein4B_base_bf16:
         modelName = "FLUX.2-klein-base-4B-\(variant.rawValue)"
@@ -511,6 +554,12 @@ extension ModelRegistry {
 
   /// Recommended configuration for given RAM amount
   public static func recommendedConfig(forRAMGB ram: Int) -> Flux2QuantizationConfig {
+    // iPad tier (≤16 GB unified memory): select the tier explicitly so
+    // iPad-class devices don't inherit the shared `<32` Mac bucket.
+    if MemoryConfig.tier(forRAMGB: ram) == .iPad {
+      return .ultraMinimal  // ~30GB (4-bit transformer)
+    }
+
     switch ram {
     case 0..<32:
       return .ultraMinimal  // ~30GB (4-bit transformer)

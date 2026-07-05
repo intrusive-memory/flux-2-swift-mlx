@@ -169,6 +169,27 @@ public enum Flux2Model: String, CaseIterable, Sendable {
     }
   }
 
+  /// Tier-aware max reference images (Sortie A3, EXECUTION_PLAN.md §5 "iPad
+  /// 16 GB" column; sub-tier differentiated at Sortie B4). The iPad tier caps
+  /// I2I reference images at **2** regardless of the per-model ceiling above
+  /// (Klein 4B's unqualified `maxReferenceImages` is 4); the 8 GB sub-tier
+  /// tightens that to **1** (§5 8 GB column); the Mac tier passes the
+  /// per-model ceiling through unchanged (no regression).
+  public func maxReferenceImages(forTier tier: MemoryConfig.MemoryTier) -> Int {
+    switch tier {
+    case .iPad8GB: return 1
+    case .iPad: return 2
+    case .mac: return maxReferenceImages
+    }
+  }
+
+  /// Convenience overload that resolves the tier from a RAM amount first
+  /// (matches the `forRAMGB:` convention introduced in Sortie A1 and reused
+  /// by A4/A5).
+  public func maxReferenceImages(forRAMGB ramGB: Int) -> Int {
+    maxReferenceImages(forTier: MemoryConfig.tier(forRAMGB: ramGB))
+  }
+
   /// Whether this model supports KV-cached denoising for faster I2I
   /// When true, step 0 extracts KV cache from reference tokens, and steps 1+ reuse cached KV
   public var supportsKVCache: Bool {
