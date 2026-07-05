@@ -239,8 +239,17 @@ public class AutoencoderKLFlux2: Module, @unchecked Sendable {
       var widths: [Int] = []
 
       for tileX in 0..<numTilesW {
-        let y0 = min(tileY * stride, max(0, H - tileSize))
-        let x0 = min(tileX * stride, max(0, W - tileSize))
+        // Place tiles on a uniform `stride` grid; the final tile is naturally
+        // shorter (clamped by H/W below) rather than shifted back to full size.
+        // Shifting the last tile back (the old `max(0, H - tileSize)` clamp)
+        // created a LARGER-than-nominal overlap on the last seam while the
+        // reconstruction below always crops a fixed `outOverlap/2` per seam —
+        // so the assembled image came out too large (e.g. a 96² latent decoded
+        // to 928² instead of 768²). `numTilesH/W` guarantees `k*stride < H/W`
+        // and full coverage, so uniform placement needs no clamp. See
+        // `tiledDecodeOutputSize(...)` and its test for the exact invariant.
+        let y0 = tileY * stride
+        let x0 = tileX * stride
         let y1 = min(y0 + tileSize, H)
         let x1 = min(x0 + tileSize, W)
 
@@ -291,6 +300,36 @@ public class AutoencoderKLFlux2: Module, @unchecked Sendable {
 
     Flux2Debug.log("VAE: Tiled decoding completed, output shape: \(result.shape)")
     return result
+  }
+
+  /// Pure geometry of the tiled decode: the reconstructed output size (in
+  /// pixels) that `decodeTiled` produces for a latent of `latentH × latentW`
+  /// with the given `tileSize`/`overlap`. Mirrors the placement + per-seam
+  /// crop in `decodeTiled` exactly, so a test can assert the invariant
+  /// `output == (latentH * 8, latentW * 8)` without a GPU or VAE weights.
+  ///
+  /// This is the regression guard for the 928-vs-768 tiling bug: any drift in
+  /// the placement/crop math that would inflate or shrink the decoded image is
+  /// caught here as a dimensional mismatch.
+  static func tiledDecodeOutputSize(
+    latentH: Int, latentW: Int, tileSize: Int, overlap: Int
+  ) -> (h: Int, w: Int) {
+    func reconstructed(_ dim: Int) -> Int {
+      let outOverlap = overlap * 8
+      let stride = tileSize - overlap
+      let numTiles = max(1, Int(ceil(Float(dim - overlap) / Float(stride))))
+      var total = 0
+      for k in 0..<numTiles {
+        let y0 = k * stride
+        let y1 = min(y0 + tileSize, dim)
+        let outH = (y1 - y0) * 8
+        let cropTop = (k > 0) ? outOverlap / 2 : 0
+        let cropBottom = (k < numTiles - 1) ? outOverlap / 2 : 0
+        total += outH - cropTop - cropBottom
+      }
+      return total
+    }
+    return (h: reconstructed(latentH), w: reconstructed(latentW))
   }
 
   /// Create a blending weight mask for tile overlap

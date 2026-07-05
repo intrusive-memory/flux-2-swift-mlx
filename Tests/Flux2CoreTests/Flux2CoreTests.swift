@@ -2719,6 +2719,41 @@ import Testing
     #expect(VAETilingConfig.forTier(.mac, ramGB: 64) == VAETilingConfig.forRAMGB(64))
   }
 
+  // MARK: - Tiled decode output-size invariant (regression: 928-vs-768 bug)
+
+  /// The exact case the CI smoke test hit: a 768² image = 96² latent decoded
+  /// with the `.aggressive` config (tileSize 32, overlap 4) must reconstruct to
+  /// EXACTLY 768², not 928². This is the dimensional invariant of `decodeTiled`.
+  @Test func aggressiveTiledDecodeReconstructs768Exactly() {
+    let size = AutoencoderKLFlux2.tiledDecodeOutputSize(
+      latentH: 96, latentW: 96,
+      tileSize: VAETilingConfig.aggressive.tileSize,
+      overlap: VAETilingConfig.aggressive.tileOverlap)
+    #expect(size.h == 768, "tiled decode of a 96² latent must be 768px tall, got \(size.h)")
+    #expect(size.w == 768, "tiled decode of a 96² latent must be 768px wide, got \(size.w)")
+  }
+
+  /// The tiled-decode output must ALWAYS equal (latent * 8) — the whole point
+  /// of tiling is lower peak memory, never a different image size. Sweep the
+  /// latent sizes and configs that can actually trigger tiling on the iPad
+  /// tiers (default: 768–1024px images; aggressive: 512–768px images).
+  @Test(arguments: [
+    (96, VAETilingConfig.aggressive),  // 768px on 8GB tier (aggressive, threshold 64)
+    (80, VAETilingConfig.aggressive),  // 640px on 8GB tier
+    (128, VAETilingConfig.default),  // 1024px on 16GB tier (default, threshold 128 boundary)
+    (144, VAETilingConfig.default),  // 1152px (above 16GB cap, but exercises geometry)
+    (100, VAETilingConfig.aggressive),  // non-stride-aligned latent
+    (97, VAETilingConfig.aggressive),  // odd, non-aligned latent
+  ])
+  func tiledDecodeOutputIsAlwaysLatentTimesEight(latent: Int, config: VAETilingConfig) {
+    let size = AutoencoderKLFlux2.tiledDecodeOutputSize(
+      latentH: latent, latentW: latent,
+      tileSize: config.tileSize, overlap: config.tileOverlap)
+    #expect(
+      size.h == latent * 8 && size.w == latent * 8,
+      "latent \(latent) tileSize \(config.tileSize) overlap \(config.tileOverlap) must decode to \(latent * 8)², got \(size.h)×\(size.w)")
+  }
+
   @Test func disabledTilingNeverTriggersTiling() {
     // .disabled uses an effectively unreachable minTileThreshold, so any
     // latent size stays on the single-shot decode path.
