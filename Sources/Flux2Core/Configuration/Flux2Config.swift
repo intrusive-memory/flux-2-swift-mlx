@@ -176,7 +176,8 @@ public enum Flux2Model: String, CaseIterable, Sendable {
   /// through unchanged (no regression).
   public func maxReferenceImages(forTier tier: MemoryConfig.MemoryTier) -> Int {
     switch tier {
-    case .iPad: return 2
+    // `.iPad8GB` mirrors `.iPad` (cap 2) at B3; B4 tightens the 8 GB arm to 1.
+    case .iPad, .iPad8GB: return 2
     case .mac: return maxReferenceImages
     }
   }

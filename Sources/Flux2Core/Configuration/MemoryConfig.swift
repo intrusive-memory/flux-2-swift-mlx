@@ -49,9 +49,18 @@ public struct MemoryConfig {
   /// Silicon (8 GB and 12–16 GB unified memory) needs its own explicit tier so
   /// callers can force conservative memory behaviour rather than inheriting a
   /// Mac-shaped configuration.
+  ///
+  /// Sortie B3 adds `.iPad8GB` as a DISTINCT sub-tier for 8 GB devices. It is
+  /// only reachable when the `enable8GBTier` feature flag is ON (default OFF).
+  /// While OFF, 8 GB devices continue to resolve to the shared `.iPad` bucket,
+  /// so the distinct 8 GB sub-tier is unreachable. Until Sortie B4 wires the
+  /// §5 "iPad 8 GB" knobs, `.iPad8GB` deliberately mirrors `.iPad` everywhere
+  /// it is switched on.
   public enum MemoryTier: String, CaseIterable, Sendable {
     /// iPad-class devices: 8 GB and 12–16 GB unified-memory Apple Silicon.
     case iPad
+    /// Distinct 8 GB iPad sub-tier (gated by `enable8GBTier`, default OFF).
+    case iPad8GB
     /// Mac-class devices: 32 GB and up.
     case mac
 
@@ -59,6 +68,7 @@ public struct MemoryConfig {
     public var description: String {
       switch self {
       case .iPad: return "iPad tier (\u{2264}16 GB unified memory)"
+      case .iPad8GB: return "iPad 8 GB sub-tier (\u{2264}8 GB unified memory)"
       case .mac: return "Mac tier (32 GB+)"
       }
     }
@@ -70,9 +80,36 @@ public struct MemoryConfig {
   /// to `.iPad`; anything above resolves to `.mac`.
   public static let iPadTierMaxRAMGB = 16
 
+  /// Inclusive upper bound (in GB) of the distinct 8 GB iPad sub-tier.
+  ///
+  /// Devices with at most this much unified memory resolve to `.iPad8GB`
+  /// **only when `enable8GBTier` is ON**; otherwise they fall through to the
+  /// shared `.iPad` bucket.
+  public static let iPad8GBTierMaxRAMGB = 8
+
+  /// Feature flag gating the distinct 8 GB iPad sub-tier (Sortie B3,
+  /// requirements §3 B2 / §8).
+  ///
+  /// Defaults **OFF**. The 8 GB floor is only recoverable once on-device A6/A8
+  /// `phys_footprint` telemetry confirms the working set fits — until then the
+  /// distinct `.iPad8GB` sub-tier stays UNREACHABLE and 8 GB devices resolve to
+  /// the shared `.iPad` bucket. Flip this ON (in a follow-up, after the
+  /// measurement lands and B4 wires the §5 8 GB knobs) to activate the
+  /// sub-tier. Kept as a mutable flag rather than a compile-time constant so
+  /// the measurement follow-up can enable it without an API change.
+  nonisolated(unsafe) public static var enable8GBTier = false
+
   /// Resolve the memory tier for a given amount of unified/​system RAM.
-  public static func tier(forRAMGB ramGB: Int) -> MemoryTier {
-    ramGB <= iPadTierMaxRAMGB ? .iPad : .mac
+  ///
+  /// The `enable8GBTier` parameter defaults to the global feature flag but is
+  /// exposed so the gating is directly testable in both states without mutating
+  /// shared global state (matching the `forRAMGB:` testability convention).
+  public static func tier(
+    forRAMGB ramGB: Int,
+    enable8GBTier: Bool = MemoryConfig.enable8GBTier
+  ) -> MemoryTier {
+    if enable8GBTier, ramGB <= iPad8GBTierMaxRAMGB { return .iPad8GB }
+    return ramGB <= iPadTierMaxRAMGB ? .iPad : .mac
   }
 
   /// Resolve the memory tier for the current device's RAM.
@@ -87,7 +124,9 @@ public struct MemoryConfig {
   /// cache budget. Mac tiers keep `.auto` (dynamic, RAM-scaled).
   public static func cacheProfile(forTier tier: MemoryTier) -> CacheProfile {
     switch tier {
-    case .iPad: return .conservative
+    // `.iPad8GB` mirrors `.iPad` here (both force `.conservative`); B4 layers
+    // any tighter 8 GB cache behaviour on top.
+    case .iPad, .iPad8GB: return .conservative
     case .mac: return .auto
     }
   }
@@ -107,7 +146,9 @@ public struct MemoryConfig {
   /// - `.mac`: retains the historical 4096×4096 hard max (no regression).
   public static func hardMaxImagePixels(forTier tier: MemoryTier) -> Int {
     switch tier {
-    case .iPad: return 1024 * 1024
+    // `.iPad8GB` mirrors `.iPad` (1024²) at B3. B4 tightens the 8 GB arm to
+    // the §5 768² cap; this mechanism only needs to be tier-aware here.
+    case .iPad, .iPad8GB: return 1024 * 1024
     case .mac: return 4096 * 4096
     }
   }

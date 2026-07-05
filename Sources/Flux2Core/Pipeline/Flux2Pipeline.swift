@@ -235,7 +235,9 @@ public class Flux2Pipeline: @unchecked Sendable {
   /// cannot silently change the iPad default out from under this guarantee.
   public static func defaultQuantization(forRAMGB ramGB: Int) -> Flux2QuantizationConfig {
     switch MemoryConfig.tier(forRAMGB: ramGB) {
-    case .iPad: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
+    // `.iPad8GB` mirrors `.iPad` (qint8) at B3; B4 switches the 8 GB transformer
+    // default to pre-quantized int4 via B1/B2.
+    case .iPad, .iPad8GB: return Flux2QuantizationConfig(textEncoder: .mlx8bit, transformer: .qint8)
     case .mac: return .balanced
     }
   }

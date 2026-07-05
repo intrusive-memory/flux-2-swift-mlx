@@ -78,11 +78,68 @@ public struct Flux2QuantizationConfig: Codable, Sendable {
     self.transformer = transformer
   }
 
-  /// Total estimated memory requirement in GB
+  // MARK: - Working-set overhead (Sortie B3, OQ-4)
+
+  /// Working-set overhead (GB) added on top of the larger of the text-encoder /
+  /// transformer weight budgets to estimate peak resident memory — **Mac tier**.
+  ///
+  /// This replaces the historical magic `+8`, whose inline comment read
+  /// "VAE 3 + working 5". Two named inputs revise that derivation:
+  ///
+  ///   • **VAE (A7 correction).** The Klein 4B `vae/` subfolder on the CDN is
+  ///     ~0.168 GB, NOT the ~3 GB the old `+8` assumed — a ~2.8 GB
+  ///     overstatement (see `CDN_PROVISIONING.md`, "Discrepancy note").
+  ///   • **Working / scratch buffers** (denoise activations + VAE-decode
+  ///     activations): unmeasured on-device as of B3.
+  ///
+  /// Per OQ-4 we ship a NAMED, DOCUMENTED constant now and keep a CONSERVATIVE
+  /// floor; the precise value is set from measured on-device A6/A8
+  /// `phys_footprint` telemetry (16 GB hardware, extrapolated via the §2
+  /// max-phase model) in a FOLLOW-UP once the measurement lands. No on-device
+  /// number exists yet — the A8 smoke test skips headless when weights are
+  /// absent. We therefore deliberately do **not** bank the ~2.8 GB the VAE
+  /// correction frees on the Mac tier: this floor stays at the historical
+  /// **8 GB** (VAE-decode headroom + ~5 GB working, generously rounded), so the
+  /// Mac estimate is unchanged (no regression).
+  public static let macWorkingSetOverheadGB = 8
+
+  /// Working-set overhead (GB) — **iPad tier** (`.iPad` and the `.iPad8GB`
+  /// sub-tier).
+  ///
+  /// iPad generation is driven at low resolution (≤1024², and 512² on the 8 GB
+  /// sub-tier once B4 lands), so the denoise/VAE activation buffers are
+  /// materially smaller than the Mac working budget. Applying the A7 VAE
+  /// correction we budget ~1 GB for the VAE (0.168 GB of weights rounded up to
+  /// cover decode activations) + ~5 GB working = **6 GB**. This is still a
+  /// conservative floor — it does NOT drop to an aggressive unmeasured value;
+  /// it only removes the ~2 GB the corrected VAE figure no longer needs. Like
+  /// the Mac constant, the precise value is pending the A6/A8 measurement.
+  public static let iPadWorkingSetOverheadGB = 6
+
+  /// Total estimated memory requirement in GB.
+  ///
+  /// Text encoder and transformer are never resident simultaneously, so we take
+  /// the max of the two weight budgets and add the working-set overhead. This
+  /// property uses the conservative **Mac** overhead so existing callers and
+  /// estimates are unchanged; tier-aware callers should use
+  /// `estimatedTotalMemoryGB(forTier:)`.
   public var estimatedTotalMemoryGB: Int {
-    // Text encoder and transformer are never loaded simultaneously
-    // So we take the max of the two, plus VAE (~3GB) and working memory (~5GB)
-    max(textEncoder.estimatedMemoryGB, transformer.estimatedMemoryGB) + 8
+    max(textEncoder.estimatedMemoryGB, transformer.estimatedMemoryGB)
+      + Self.macWorkingSetOverheadGB
+  }
+
+  /// Tier-aware total estimated memory requirement in GB.
+  ///
+  /// Uses the named, documented working-set overhead for the given tier
+  /// (`macWorkingSetOverheadGB` / `iPadWorkingSetOverheadGB`) rather than the
+  /// retired Mac-shaped `+8` guess.
+  public func estimatedTotalMemoryGB(forTier tier: MemoryConfig.MemoryTier) -> Int {
+    let overhead: Int
+    switch tier {
+    case .iPad, .iPad8GB: overhead = Self.iPadWorkingSetOverheadGB
+    case .mac: overhead = Self.macWorkingSetOverheadGB
+    }
+    return max(textEncoder.estimatedMemoryGB, transformer.estimatedMemoryGB) + overhead
   }
 
   /// Peak memory during text encoding phase

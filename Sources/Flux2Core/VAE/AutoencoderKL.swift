@@ -57,6 +57,11 @@ extension VAETilingConfig {
     switch tier {
     case .iPad:
       return ramGB <= 8 ? .aggressive : .default
+    // The distinct 8 GB sub-tier (reachable only when `enable8GBTier` is ON)
+    // always uses the aggressive small-tile config — the same choice the
+    // `.iPad` arm already makes for `ramGB <= 8`.
+    case .iPad8GB:
+      return .aggressive
     case .mac:
       return .disabled
     }

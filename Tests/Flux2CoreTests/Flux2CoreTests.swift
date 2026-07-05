@@ -902,6 +902,52 @@ import Testing
     #expect(minimal <= balanced)
     #expect(balanced <= high)
   }
+
+  // MARK: - Working-set recalibration (Sortie B3, OQ-4)
+
+  /// The Mac property estimate is `maxWeight + macWorkingSetOverheadGB` — the
+  /// named constant, not a bare `+8` literal buried in the property.
+  @Test func macEstimateUsesNamedWorkingSetConstant() {
+    // Klein 4B int4 config == ultraMinimal (mlx4bit encoder + int4 transformer).
+    let klein4BInt4 = Flux2QuantizationConfig.ultraMinimal
+    let maxWeight = max(
+      klein4BInt4.textEncoder.estimatedMemoryGB,
+      klein4BInt4.transformer.estimatedMemoryGB)
+    #expect(
+      klein4BInt4.estimatedTotalMemoryGB
+        == maxWeight + Flux2QuantizationConfig.macWorkingSetOverheadGB)
+  }
+
+  /// The recalibrated iPad estimate for Klein 4B int4 uses the named
+  /// `iPadWorkingSetOverheadGB` constant and is strictly below the retired bare
+  /// `+8` value (the A7 VAE correction removed ~2 GB of overstated overhead).
+  @Test func klein4BRecalibratedIPadEstimateUsesNamedConstant() {
+    let klein4BInt4 = Flux2QuantizationConfig.ultraMinimal
+    let maxWeight = max(
+      klein4BInt4.textEncoder.estimatedMemoryGB,
+      klein4BInt4.transformer.estimatedMemoryGB)
+
+    let iPadEstimate = klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad8GB)
+    // Uses the named constant, not the bare +8.
+    #expect(iPadEstimate == maxWeight + Flux2QuantizationConfig.iPadWorkingSetOverheadGB)
+    // Recalibrated strictly below the old Mac-shaped `+8` guess.
+    #expect(iPadEstimate < maxWeight + 8)
+    // `.iPad` and `.iPad8GB` share the iPad overhead at B3.
+    #expect(
+      klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad)
+        == klein4BInt4.estimatedTotalMemoryGB(forTier: .iPad8GB))
+  }
+
+  /// The working-set overhead is tier-aware: the iPad constant is a distinct,
+  /// smaller value than the Mac constant — proving it is no longer a single
+  /// Mac-shaped `+8`.
+  @Test func workingSetOverheadIsTierAware() {
+    #expect(Flux2QuantizationConfig.macWorkingSetOverheadGB == 8)
+    #expect(Flux2QuantizationConfig.iPadWorkingSetOverheadGB == 6)
+    #expect(
+      Flux2QuantizationConfig.iPadWorkingSetOverheadGB
+        < Flux2QuantizationConfig.macWorkingSetOverheadGB)
+  }
 }
 
 // MARK: - On-the-fly Quantization Variant Tests
@@ -2449,6 +2495,31 @@ import Testing
     #expect(MemoryConfig.iPadTierMaxRAMGB == 16)
     #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
     #expect(MemoryConfig.tier(forRAMGB: 17) == .mac)
+  }
+
+  // MARK: 8 GB sub-tier feature flag (Sortie B3)
+
+  /// The `enable8GBTier` feature flag defaults OFF.
+  @Test func eightGBTierFlagDefaultsOff() {
+    #expect(MemoryConfig.enable8GBTier == false)
+  }
+
+  /// While the flag is OFF, the distinct 8 GB sub-tier is UNREACHABLE: 8 GB
+  /// resolves to the shared `.iPad` bucket, never `.iPad8GB`. Uses the default
+  /// (global-flag) resolution to prove the shipped default is gated OFF.
+  @Test func eightGBSubTierUnreachableWhenFlagOff() {
+    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: false) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 8) != .iPad8GB)
+  }
+
+  /// The distinct `.iPad8GB` sub-tier is reachable ONLY when the flag is ON.
+  @Test func eightGBSubTierReachableOnlyWhenFlagOn() {
+    #expect(MemoryConfig.tier(forRAMGB: 8, enable8GBTier: true) == .iPad8GB)
+    // The boundary matches the named sub-tier ceiling.
+    #expect(MemoryConfig.iPad8GBTierMaxRAMGB == 8)
+    // Above the 8 GB ceiling stays `.iPad` even with the flag ON.
+    #expect(MemoryConfig.tier(forRAMGB: 12, enable8GBTier: true) == .iPad)
   }
 
   // MARK: Forced cache profile (conservative = 512 MB)
