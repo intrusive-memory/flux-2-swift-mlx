@@ -689,6 +689,71 @@ import Testing
     #expect(recommended.textEncoder != nil)
     #expect(recommended.transformer != nil)
   }
+
+  // MARK: - checkImageSize (Sortie A4, R3 / §5 hard max)
+
+  @Test func checkImageSizeThrowsAboveHardMaxOnIPadTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // iPad 16 GB tier hard max is 1024x1024 (1,048,576 px). Just above it
+    // must resolve to .insufficientMemory (the case the pipeline converts
+    // into a `throw Flux2Error.insufficientMemory`).
+    let result = manager.checkImageSize(width: 1025, height: 1025, ramGB: 16)
+    guard case .insufficientMemory = result else {
+      Issue.record("Expected .insufficientMemory above 1024x1024 on the iPad 16 GB tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeAllowsExactlyHardMaxOnIPadTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // Exactly at the 1024x1024 boundary must NOT error (the cap is "above",
+    // not "at or above").
+    let result = manager.checkImageSize(width: 1024, height: 1024, ramGB: 16)
+    #expect(result.isOk)
+  }
+
+  @Test func checkImageSizeReorderedErrorBranchIsReachableOnMacTier() {
+    let manager = Flux2MemoryManager.shared
+
+    // Regression for the unreachable-error-branch bug: on the Mac tier
+    // (hard max 4096x4096 = 16,777,216 px), a size above the hard max used to
+    // return .warning (from the >2048x2048 check firing first) instead of
+    // .insufficientMemory, because the warning check ran — and returned —
+    // before the error check could ever execute. 5000x5000 = 25,000,000 px
+    // is above both the old warn threshold and the hard max, so it now must
+    // report .insufficientMemory, proving the error branch fires.
+    let result = manager.checkImageSize(width: 5000, height: 5000, ramGB: 64)
+    guard case .insufficientMemory = result else {
+      Issue.record("Expected the previously-unreachable .insufficientMemory branch to fire on the Mac tier, got \(result)")
+      return
+    }
+  }
+
+  @Test func checkImageSizeMacTierRetainsExistingThreshold() {
+    let manager = Flux2MemoryManager.shared
+
+    // Mac tier: between the 2048x2048 warn threshold and the 4096x4096 hard
+    // max, the soft warning still fires (no regression from tier-awareness).
+    let warnResult = manager.checkImageSize(width: 3000, height: 3000, ramGB: 64)
+    guard case .warning = warnResult else {
+      Issue.record("Expected .warning between 2048x2048 and 4096x4096 on the Mac tier, got \(warnResult)")
+      return
+    }
+
+    // At or below 2048x2048, still .ok.
+    let okResult = manager.checkImageSize(width: 2048, height: 2048, ramGB: 64)
+    #expect(okResult.isOk)
+
+    // Above the 4096x4096 hard max, still .insufficientMemory (existing
+    // Mac-tier ceiling unchanged by the iPad tier-awareness added in A4).
+    let errorResult = manager.checkImageSize(width: 4097, height: 4097, ramGB: 64)
+    guard case .insufficientMemory = errorResult else {
+      Issue.record("Expected .insufficientMemory above 4096x4096 on the Mac tier, got \(errorResult)")
+      return
+    }
+  }
 }
 
 // MARK: - Transformer Config Tests

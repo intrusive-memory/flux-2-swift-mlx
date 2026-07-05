@@ -97,6 +97,29 @@ public struct MemoryConfig {
     cacheProfile(forTier: tier(forRAMGB: ramGB))
   }
 
+  /// Hard-max image resolution (in total pixels) above which generation must
+  /// be refused outright, tier-aware (Sortie A4, EXECUTION_PLAN.md §5 "hard
+  /// max" row).
+  ///
+  /// - `.iPad`: errors above **1024×1024** (the §5 16 GB column value). The
+  ///   8 GB sub-tier's tighter 768×768 cap is layered on top in Sortie B4 —
+  ///   this mechanism only needs to be tier-aware here, not sub-tier-aware.
+  /// - `.mac`: retains the historical 4096×4096 hard max (no regression).
+  public static func hardMaxImagePixels(forTier tier: MemoryTier) -> Int {
+    switch tier {
+    case .iPad: return 1024 * 1024
+    case .mac: return 4096 * 4096
+    }
+  }
+
+  /// Hard-max image resolution (in total pixels) for a given amount of RAM
+  /// (via its resolved tier). Parameterized by RAM rather than reading live
+  /// device state so tier-selection is directly testable, matching the
+  /// `tier(forRAMGB:)` / `cacheProfile(forRAMGB:)` convention above.
+  public static func hardMaxImagePixels(forRAMGB ramGB: Int) -> Int {
+    hardMaxImagePixels(forTier: tier(forRAMGB: ramGB))
+  }
+
   // MARK: - System Information
 
   /// Get system RAM in GB
