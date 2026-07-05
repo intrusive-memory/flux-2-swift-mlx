@@ -739,12 +739,14 @@ public class Flux2WeightLoader {
     let paramCount = weights.values.reduce(0) { $0 + $1.size }
     let loadDuration = Date().timeIntervalSince(loadStart)
     if let telemetry = currentTelemetry() {
+      let physFootprint = Flux2MemoryFootprint.current()
       Task {
         await telemetry.capture(
           .weightLoadComplete(
             component: .transformer,
             paramCount: paramCount,
-            durationSeconds: loadDuration))
+            durationSeconds: loadDuration,
+            physFootprint: physFootprint))
       }
     }
 

@@ -381,7 +381,8 @@ public class Flux2Pipeline: @unchecked Sendable {
       .weightLoadComplete(
         component: .transformer,
         paramCount: transformerParamCount,
-        durationSeconds: transformerLoadDuration
+        durationSeconds: transformerLoadDuration,
+        physFootprint: Flux2MemoryFootprint.current()
       ))
 
     // Quantize transformer to native MLX QuantizedLinear if requested
@@ -551,7 +552,8 @@ public class Flux2Pipeline: @unchecked Sendable {
       .weightLoadComplete(
         component: .vae,
         paramCount: vaeParamCount,
-        durationSeconds: vaeLoadDuration
+        durationSeconds: vaeLoadDuration,
+        physFootprint: Flux2MemoryFootprint.current()
       ))
 
     Flux2Debug.log("VAE loaded successfully")
@@ -1103,7 +1105,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           encoderName: textEncodeEncoderName,
           finalPromptLength: textEmbeddings.shape[1],
           embeddingStat: embeddingStat,
-          durationSeconds: textEncodeDuration
+          durationSeconds: textEncodeDuration,
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — textEncode phase
       if let kind = AnomalyCheck.classify(embeddingStat) {
@@ -1314,7 +1317,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: 1,
               completedSteps: 1,
               finalLatentStat: kvExtractFinalStat,
-              durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(kvExtractDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvExtractFinalStat) {
@@ -1443,7 +1447,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: kvCachedTotalSteps,
               completedSteps: kvCachedTotalSteps,
               finalLatentStat: kvCachedFinalStat,
-              durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(kvCachedDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(kvCachedFinalStat) {
@@ -1587,7 +1592,8 @@ public class Flux2Pipeline: @unchecked Sendable {
               totalSteps: effectiveSteps,
               completedSteps: effectiveSteps,
               finalLatentStat: fullRecomputeFinalStat,
-              durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart)
+              durationSeconds: Date().timeIntervalSince(fullRecomputeDenoiseStart),
+              physFootprint: Flux2MemoryFootprint.current()
             ))
           // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
           if let kind = AnomalyCheck.classify(fullRecomputeFinalStat) {
@@ -1631,7 +1637,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           .vaeDecodeComplete(
             pixelStat: pixelStat,
             outputDims: decoded.shape,
-            durationSeconds: vaeDecodeDuration
+            durationSeconds: vaeDecodeDuration,
+            physFootprint: Flux2MemoryFootprint.current()
           ))
         // B10: numericalAnomaly side-channel — vaeDecode phase
         if let kind = AnomalyCheck.classify(pixelStat) {
@@ -1847,7 +1854,8 @@ public class Flux2Pipeline: @unchecked Sendable {
           totalSteps: effectiveSteps,
           completedSteps: effectiveSteps,
           finalLatentStat: t2iFinalStat,
-          durationSeconds: Date().timeIntervalSince(t2iDenoiseStart)
+          durationSeconds: Date().timeIntervalSince(t2iDenoiseStart),
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — denoiseLoopEnd phase
       if let kind = AnomalyCheck.classify(t2iFinalStat) {
@@ -1906,7 +1914,8 @@ public class Flux2Pipeline: @unchecked Sendable {
         .vaeDecodeComplete(
           pixelStat: pixelStat,
           outputDims: decoded.shape,
-          durationSeconds: vaeDecodeDuration
+          durationSeconds: vaeDecodeDuration,
+          physFootprint: Flux2MemoryFootprint.current()
         ))
       // B10: numericalAnomaly side-channel — vaeDecode phase
       if let kind = AnomalyCheck.classify(pixelStat) {

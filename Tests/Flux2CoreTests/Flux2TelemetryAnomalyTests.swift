@@ -162,7 +162,8 @@ struct Flux2TelemetryAnomalySideChannelTests {
       totalSteps: 20,
       completedSteps: 20,
       finalLatentStat: nanStat,
-      durationSeconds: 1.234
+      durationSeconds: 1.234,
+      physFootprint: nil
     )
     let anomalyEvent = Flux2TelemetryEvent.numericalAnomaly(
       phase: .denoiseLoopEnd,
@@ -193,7 +194,7 @@ struct Flux2TelemetryAnomalySideChannelTests {
     }
 
     // Verify the denoiseLoopEnd stat carries hasNaN == true.
-    if case .denoiseLoopEnd(_, _, _, let finalStat, _) = events[loopEndIndex!] {
+    if case .denoiseLoopEnd(_, _, _, let finalStat, _, _) = events[loopEndIndex!] {
       #expect(finalStat.hasNaN == true, "finalLatentStat.hasNaN must be true")
     }
 
