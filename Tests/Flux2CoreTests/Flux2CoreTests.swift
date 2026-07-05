@@ -2304,3 +2304,122 @@ import Testing
     #expect(conservativeLimits.denoising > 0)
   }
 }
+
+// MARK: - iPad Memory Tier (Sortie A1)
+
+@Suite struct iPadMemoryTierTests {
+
+  // MARK: Tier resolution
+
+  @Test func iPadTierResolvesFor8GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
+  }
+
+  @Test func iPadTierResolvesFor12GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 12) == .iPad)
+  }
+
+  @Test func iPadTierResolvesFor16GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
+  }
+
+  @Test func macTierResolvesFor32GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 32) == .mac)
+  }
+
+  @Test func macTierResolvesFor64GB() {
+    #expect(MemoryConfig.tier(forRAMGB: 64) == .mac)
+  }
+
+  @Test func iPadTierBoundaryIsInclusiveAt16() {
+    // 16 GB is the inclusive top of the iPad tier; 17 GB tips into Mac.
+    #expect(MemoryConfig.iPadTierMaxRAMGB == 16)
+    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
+    #expect(MemoryConfig.tier(forRAMGB: 17) == .mac)
+  }
+
+  // MARK: Forced cache profile (conservative = 512 MB)
+
+  @Test func iPadTierForcesConservativeCacheProfileAt8GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 8) == .conservative)
+  }
+
+  @Test func iPadTierForcesConservativeCacheProfileAt12GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 12) == .conservative)
+  }
+
+  @Test func iPadTierForcesConservativeCacheProfileAt16GB() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 16) == .conservative)
+  }
+
+  @Test func conservativeProfileMapsTo512MB() {
+    // The iPad tier forces .conservative, which caps the GPU cache at 512 MB.
+    #expect(MemoryConfig.cacheLimitForProfile(.conservative) == 512 * 1024 * 1024)
+  }
+
+  @Test func macTierDoesNotForceConservativeCacheProfile() {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 32) == .auto)
+    #expect(MemoryConfig.cacheProfile(forRAMGB: 64) == .auto)
+  }
+
+  // MARK: MemoryOptimizationConfig routing
+
+  @Test func iPadTierUsesUltraLowMemoryAt8GB() {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  }
+
+  @Test func iPadTierUsesUltraLowMemoryAt12GB() {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 12) == .ultraLowMemory)
+  }
+
+  @Test func iPadTierUsesUltraLowMemoryAt16GB() {
+    let config = MemoryOptimizationConfig.recommended(forRAMGB: 16)
+    #expect(config == .ultraLowMemory)
+    // ultraLowMemory == eval every 2 blocks + clear cache
+    #expect(config.evalFrequency == 2)
+    #expect(config.clearCacheOnEval)
+  }
+
+  @Test func macTiersKeepExistingMemoryOptimization() {
+    // No regression: 32+ GB still resolves to the pre-existing Mac presets.
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 32) == .aggressive)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 64) == .moderate)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 96) == .light)
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 128) == .disabled)
+  }
+
+  // MARK: ModelRegistry quantization routing
+
+  // Flux2QuantizationConfig isn't Equatable; compare its component fields
+  // (String-backed, hence Equatable) against the reference presets instead.
+  private func expectSameQuant(
+    _ config: Flux2QuantizationConfig,
+    as reference: Flux2QuantizationConfig,
+    sourceLocation: SourceLocation = #_sourceLocation
+  ) {
+    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
+    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt8GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 8), as: .ultraMinimal)
+    // ultraMinimal == int4 transformer.
+    #expect(ModelRegistry.recommendedConfig(forRAMGB: 8).transformer == .int4)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt12GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 12), as: .ultraMinimal)
+  }
+
+  @Test func iPadTierUsesUltraMinimalQuantAt16GB() {
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 16), as: .ultraMinimal)
+  }
+
+  @Test func macTiersKeepExistingQuantConfig() {
+    // No regression: 32+ GB still resolves to the pre-existing Mac configs.
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 32), as: .minimal)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 48), as: .memoryEfficient)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 64), as: .balanced)
+    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 128), as: .highQuality)
+  }
+}

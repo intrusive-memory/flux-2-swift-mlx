@@ -511,6 +511,12 @@ extension ModelRegistry {
 
   /// Recommended configuration for given RAM amount
   public static func recommendedConfig(forRAMGB ram: Int) -> Flux2QuantizationConfig {
+    // iPad tier (≤16 GB unified memory): select the tier explicitly so
+    // iPad-class devices don't inherit the shared `<32` Mac bucket.
+    if MemoryConfig.tier(forRAMGB: ram) == .iPad {
+      return .ultraMinimal  // ~30GB (4-bit transformer)
+    }
+
     switch ram {
     case 0..<32:
       return .ultraMinimal  // ~30GB (4-bit transformer)

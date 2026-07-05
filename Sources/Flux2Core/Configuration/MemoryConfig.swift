@@ -40,6 +40,63 @@ public struct MemoryConfig {
     }
   }
 
+  // MARK: - Memory Tiers
+
+  /// Coarse device memory tier used to pick tier-appropriate defaults.
+  ///
+  /// The historical thresholds bottomed out at 16 GB and treated everything
+  /// `<32 GB` as a single bucket sized for Mac hardware. iPad-class Apple
+  /// Silicon (8 GB and 12–16 GB unified memory) needs its own explicit tier so
+  /// callers can force conservative memory behaviour rather than inheriting a
+  /// Mac-shaped configuration.
+  public enum MemoryTier: String, CaseIterable, Sendable {
+    /// iPad-class devices: 8 GB and 12–16 GB unified-memory Apple Silicon.
+    case iPad
+    /// Mac-class devices: 32 GB and up.
+    case mac
+
+    /// Human-readable description
+    public var description: String {
+      switch self {
+      case .iPad: return "iPad tier (\u{2264}16 GB unified memory)"
+      case .mac: return "Mac tier (32 GB+)"
+      }
+    }
+  }
+
+  /// Inclusive upper bound (in GB) of the iPad memory tier.
+  ///
+  /// Devices with at most this much unified memory (8 GB, 12 GB, 16 GB) resolve
+  /// to `.iPad`; anything above resolves to `.mac`.
+  public static let iPadTierMaxRAMGB = 16
+
+  /// Resolve the memory tier for a given amount of unified/​system RAM.
+  public static func tier(forRAMGB ramGB: Int) -> MemoryTier {
+    ramGB <= iPadTierMaxRAMGB ? .iPad : .mac
+  }
+
+  /// Resolve the memory tier for the current device's RAM.
+  public static var tier: MemoryTier {
+    tier(forRAMGB: systemRAMGB)
+  }
+
+  /// Cache profile that a tier forces.
+  ///
+  /// The iPad tier forces `.conservative` (512 MB cap via
+  /// `cacheLimitForProfile`) so low-memory devices never inherit a Mac-shaped
+  /// cache budget. Mac tiers keep `.auto` (dynamic, RAM-scaled).
+  public static func cacheProfile(forTier tier: MemoryTier) -> CacheProfile {
+    switch tier {
+    case .iPad: return .conservative
+    case .mac: return .auto
+    }
+  }
+
+  /// Cache profile forced for a given amount of RAM (via its resolved tier).
+  public static func cacheProfile(forRAMGB ramGB: Int) -> CacheProfile {
+    cacheProfile(forTier: tier(forRAMGB: ramGB))
+  }
+
   // MARK: - System Information
 
   /// Get system RAM in GB
