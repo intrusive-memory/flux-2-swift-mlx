@@ -42,17 +42,46 @@ public enum Flux2ModelPaths {
         path = subPath
       }
     }
-    // Require either config.json or model_index.json at the resolved depth so
-    // we don't hand callers an empty directory. The full manifest check lives
-    // in `Acervo.isModelAvailable` — use that for the "ready to load" gate.
-    let hasConfig = FileManager.default.fileExists(
-      atPath: path.appendingPathComponent("config.json").path)
-    let hasModelIndex = FileManager.default.fileExists(
-      atPath: path.appendingPathComponent("model_index.json").path)
-    guard hasConfig || hasModelIndex else {
+    guard hasResolvedDepthMarker(at: path, for: component) else {
       return nil
     }
     return path
+  }
+
+  /// Whether the resolved directory carries a marker proving the weight loaders
+  /// have something to read, so we don't hand callers an empty directory. The
+  /// full manifest check lives in `Acervo.isModelAvailable` — use that for the
+  /// "ready to load" gate.
+  ///
+  /// Normally we require a diffusers-style `config.json` or `model_index.json`.
+  /// Pre-quantized MLX transformer variants (`isPreQuantizedMLX == true`, e.g.
+  /// `.klein4B_4bit` / `themindstudio/flux2-klein-4b-mlx-4bit`) ship neither —
+  /// their `transformer/` subfolder carries only sharded `*.safetensors` plus a
+  /// `model.safetensors.index.json`. For those we additionally accept a
+  /// safetensors index or any `*.safetensors` file as a valid marker. The strict
+  /// requirement is unchanged for every other component.
+  static func hasResolvedDepthMarker(
+    at path: URL, for component: ModelRegistry.ModelComponent
+  ) -> Bool {
+    let fm = FileManager.default
+    let hasConfig = fm.fileExists(atPath: path.appendingPathComponent("config.json").path)
+    let hasModelIndex = fm.fileExists(
+      atPath: path.appendingPathComponent("model_index.json").path)
+    if hasConfig || hasModelIndex {
+      return true
+    }
+    if case .transformer(let variant) = component, variant.isPreQuantizedMLX {
+      let hasSafetensorsIndex = fm.fileExists(
+        atPath: path.appendingPathComponent("model.safetensors.index.json").path)
+      if hasSafetensorsIndex {
+        return true
+      }
+      let contents = (try? fm.contentsOfDirectory(atPath: path.path)) ?? []
+      if contents.contains(where: { $0.hasSuffix(".safetensors") }) {
+        return true
+      }
+    }
+    return false
   }
 
   /// Total on-disk size of a downloaded component in bytes.
