@@ -1,20 +1,24 @@
-// Int4DirectLoadGPUTests.swift — Sortie B2 (OPERATION THIMBLE TYPHOON)
+// Int4DirectLoadGPUTests.swift — Klein 4B int4 load routing (GPU)
 //
-// R2.3 acceptance: the direct pre-quantized int4 transformer load must NOT
-// spike physical memory. The old fallback (bf16 + on-the-fly quantize) briefly
-// materialized the full ~8 GB float transformer before quantizing; the B2
-// direct path loads the packed MLX 4-bit weights (~2.18 GB) STRAIGHT into
-// QuantizedLinear with no bf16 intermediate. We assert the process's
-// `phys_footprint` captured at the transformer `weightLoadComplete` boundary
-// (Sortie A6 telemetry) stays UNDER the 8 GB no-spike ceiling.
+// HISTORY: This suite originally validated the R2.3 "no phys_footprint spike"
+// acceptance for the DIRECT pre-quantized int4 transformer load
+// (`themindstudio/flux2-klein-4b-mlx-4bit`, mflux 0.15.2) — packed MLX 4-bit
+// weights loaded STRAIGHT into QuantizedLinear with no bf16 intermediate.
 //
-// This half REQUIRES the 2.18 GB themindstudio int4 weights (plus the VAE and
-// Qwen3 encoder, since the transformer is only loaded during generation). Those
-// are NOT cached on a headless dev box, so the suite is MODEL-PRESENCE-GATED via
-// a `.enabled(if:)` trait (the A8 IPadDeviceMatrixGPUTests pattern): it SKIPS
-// cleanly when the weights are absent and runs in CI against cached SwiftAcervo
-// models. A clean skip locally is the expected result.
+// That direct-load path empirically produced PURE NOISE. `(klein4B, .int4)` now
+// resolves to `.klein4B_bf16` and takes the proven bf16 + on-the-fly `quantize()`
+// path (the same route Klein 9B uses): load the full-precision bf16 transformer
+// via the mature diffusers→Swift remapper, then quantize to 4-bit in-process.
+// The memory optimization of the old direct load is intentionally traded away
+// for a correct image, so the "< 8 GB no-spike" ceiling no longer applies.
+//
+// This suite now proves the NEW routing (bf16, not pre-quantized) and that a
+// small int4 generation completes and returns an image of the requested size.
+// It REQUIRES the bf16 Klein 4B transformer, the VAE, and a Qwen3 encoder on
+// disk, so it is MODEL-PRESENCE-GATED via `.enabled(if:)` and SKIPS cleanly
+// when the weights are absent (running in CI against cached SwiftAcervo models).
 
+import CoreGraphics
 import Foundation
 import Metal
 import SwiftAcervo
@@ -23,26 +27,21 @@ import Testing
 
 @testable import Flux2Core
 
-/// The R2.3 no-spike ceiling: the requirement is "no ≥8 GB `phys_footprint`
-/// spike", so the transformer-load footprint must be strictly under 8 GB.
-private let noSpikeCeilingBytes: Int64 = 8 * 1_024 * 1_024 * 1_024
-
 /// True only when a Metal device is present AND all three components needed to
-/// drive the int4 transformer load — the themindstudio int4 transformer, the
-/// VAE, and a Qwen3 text encoder — are on disk (cached / primed). Mirrors the
-/// A8 gate: `Acervo.isModelAvailable` is synchronous local-only I/O.
+/// drive the int4 (bf16 + on-the-fly quantize) transformer load — the bf16
+/// Klein 4B transformer, the VAE, and a Qwen3 text encoder — are on disk.
 func int4DirectLoadTestEnabled() -> Bool {
   guard MTLCreateSystemDefaultDevice() != nil else { return false }
 
-  // Same crash-guard as A8: `Acervo.isModelAvailable` fatalErrors when neither
+  // Crash-guard: `Acervo.isModelAvailable` fatalErrors when neither
   // ACERVO_MODELS_DIR nor an App Group is configured (unentitled local runner).
   let env = ProcessInfo.processInfo.environment
   let hasModelsDir = (env[Acervo.modelsDirectoryOverrideVariable]?.isEmpty == false)
   let hasAppGroup = (env[Acervo.appGroupEnvironmentVariable]?.isEmpty == false)
   guard hasModelsDir || hasAppGroup else { return false }
 
-  // Derive the int4 repoId from the registry so a rename can't silently desync
-  // this gate: (klein4B, .int4) → .klein4B_4bit → themindstudio/…-mlx-4bit.
+  // Derive the transformer repoId from the registry so a rename can't silently
+  // desync this gate: (klein4B, .int4) → .klein4B_bf16 → black-forest-labs/FLUX.2-klein-4B.
   let transformerRepoId =
     ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4).repoId
   let vaeRepoId = ModelRegistry.VAEVariant.standard.repoId
@@ -54,29 +53,34 @@ func int4DirectLoadTestEnabled() -> Bool {
     && (Acervo.isModelAvailable(qwen3_8bit) || Acervo.isModelAvailable(qwen3_4bit))
 }
 
-@Suite("int4 Direct Load — no phys_footprint spike (GPU)", .serialized)
+@Suite("Klein 4B int4 → bf16 + on-the-fly quantize (GPU)", .serialized)
 struct Int4DirectLoadGPUTests {
 
-  /// Loading Klein 4B int4 via the direct pre-quantized path must keep the
-  /// transformer `weightLoadComplete` `phys_footprint` under the 8 GB ceiling.
+  /// (klein4B, .int4) resolves to bf16 (on-the-fly quantize), not the
+  /// noise-producing pre-quantized mflux 4-bit variant, and a small int4
+  /// generation completes and returns an image of the requested size.
   @Test(
-    "Klein 4B int4 direct load → transformer phys_footprint < 8 GB (no spike)",
+    "Klein 4B int4 loads bf16 + on-the-fly quantize and generates an image",
     .enabled(if: int4DirectLoadTestEnabled()),
     .timeLimit(.minutes(10))
   )
-  func int4DirectLoadHasNoPhysFootprintSpike() async throws {
+  func int4LoadsBf16AndGenerates() async throws {
     // ultraMinimal = { textEncoder: .mlx4bit, transformer: .int4 } — the int4
-    // path. Prove the variant resolution + pre-quantized flag before spending
-    // inference time (belt-and-suspenders with the pure-logic core tests).
+    // path. Prove the variant resolution + routing before spending inference
+    // time (belt-and-suspenders with the pure-logic core tests).
     let quantization = Flux2QuantizationConfig.ultraMinimal
     #expect(quantization.transformer == .int4)
     let variant = ModelRegistry.TransformerVariant.variant(
       for: .klein4B, quantization: quantization.transformer)
-    #expect(variant == .klein4B_4bit)
-    #expect(variant.isPreQuantizedMLX, "int4 path must take the direct pre-quantized branch")
+    #expect(
+      variant == .klein4B_bf16,
+      "(klein4B, .int4) must resolve to bf16 (on-the-fly quantize), not the noise-producing direct load")
+    #expect(
+      !variant.isPreQuantizedMLX,
+      "int4 path must take the bf16 + on-the-fly quantize branch, not the pre-quantized direct load")
 
-    // Capture telemetry so we can read the transformer weightLoadComplete
-    // phys_footprint the direct-load path emits (via loadQuantizedTransformer).
+    // Capture telemetry so we can assert the on-the-fly quantization actually
+    // ran (a quantizationComplete event for the transformer).
     let reporter = MockFlux2TelemetryReporter()
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: quantization)
     pipeline.setTelemetry(reporter)
@@ -84,36 +88,35 @@ struct Int4DirectLoadGPUTests {
     try await pipeline.loadModels()
 
     // The transformer is loaded lazily during generation; a tiny generation
-    // triggers loadTransformer() → the direct pre-quantized load path.
-    _ = try await pipeline.generateTextToImage(
+    // triggers loadTransformer() → bf16 load → on-the-fly quantize(bits: 4).
+    let width = 512
+    let height = 512
+    let image = try await pipeline.generateTextToImage(
       prompt: "a single red apple on a white table",
-      height: 512,
-      width: 512,
+      height: height,
+      width: width,
       steps: 4,
       guidance: 1.0,
       seed: 7
     )
 
-    // Find the transformer weightLoadComplete event and assert no spike.
+    // Generation returned a real image of the requested dimensions.
+    #expect(image.width == width)
+    #expect(image.height == height)
+
+    // The on-the-fly quantization ran (transformer took the bf16 + quantize path).
     let events = await reporter.snapshot()
-    var transformerFootprint: Int64?
+    var sawTransformerQuantization = false
     for event in events {
-      if case .weightLoadComplete(let component, _, _, let physFootprint) = event,
+      if case .quantizationComplete(let component, let bits, _, _) = event,
         component == .transformer
       {
-        transformerFootprint = physFootprint
+        sawTransformerQuantization = true
+        #expect(bits == 4, "int4 path must quantize the transformer to 4-bit on-the-fly")
       }
     }
-
     #expect(
-      transformerFootprint != nil,
-      "expected a transformer weightLoadComplete event carrying phys_footprint")
-
-    if let footprint = transformerFootprint {
-      #expect(
-        footprint < noSpikeCeilingBytes,
-        "int4 direct load spiked phys_footprint to \(footprint) bytes (≥ 8 GB ceiling \(noSpikeCeilingBytes)); the direct path must not materialize a bf16 intermediate"
-      )
-    }
+      sawTransformerQuantization,
+      "expected a transformer quantizationComplete event from the on-the-fly quantize path")
   }
 }
