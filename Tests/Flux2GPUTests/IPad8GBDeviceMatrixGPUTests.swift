@@ -129,7 +129,8 @@ struct IPad8GBDeviceMatrixGPUTests {
       for: .klein4B, quantization: quantization.transformer)
     #expect(
       variant == .klein4B_bf16,
-      "(klein4B, .int4) resolves to bf16 + on-the-fly quantize (the direct pre-quantized load produced noise)")
+      "(klein4B, .int4) resolves to bf16 + on-the-fly quantize (the direct pre-quantized load produced noise)"
+    )
     #expect(
       !variant.isPreQuantizedMLX,
       "int4 path must take the bf16 + on-the-fly quantize branch")

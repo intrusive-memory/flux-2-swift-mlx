@@ -74,10 +74,12 @@ struct Int4DirectLoadGPUTests {
       for: .klein4B, quantization: quantization.transformer)
     #expect(
       variant == .klein4B_bf16,
-      "(klein4B, .int4) must resolve to bf16 (on-the-fly quantize), not the noise-producing direct load")
+      "(klein4B, .int4) must resolve to bf16 (on-the-fly quantize), not the noise-producing direct load"
+    )
     #expect(
       !variant.isPreQuantizedMLX,
-      "int4 path must take the bf16 + on-the-fly quantize branch, not the pre-quantized direct load")
+      "int4 path must take the bf16 + on-the-fly quantize branch, not the pre-quantized direct load"
+    )
 
     // Capture telemetry so we can assert the on-the-fly quantization actually
     // ran (a quantizationComplete event for the transformer).
