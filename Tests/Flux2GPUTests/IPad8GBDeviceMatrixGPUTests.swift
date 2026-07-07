@@ -31,7 +31,8 @@
 //
 // The three 8 GB-tier components (B1 registers the transformer; VAE / Qwen3
 // encoder are the same Phase-1 components A7 already provisioned):
-//   • transformer (int4) → themindstudio/flux2-klein-4b-mlx-4bit (via .klein4B_4bit)
+//   • transformer (int4) → black-forest-labs/FLUX.2-klein-4B bf16 (via .klein4B_bf16,
+//     quantized to 4-bit on-the-fly; the mflux direct pre-quantized load produced noise)
 //   • VAE                 → black-forest-labs/FLUX.2-klein-4B (vae/ subfolder)
 //   • text encoder        → lmstudio-community/Qwen3-4B-MLX-{8,4}bit
 //
@@ -64,8 +65,8 @@ func iPad8GBSmokeTestEnabled() -> Bool {
   guard hasModelsDir || hasAppGroup else { return false }
 
   // Derive the int4 repoId from the registry so a variant rename can't
-  // silently desync this gate: (klein4B, .int4) → .klein4B_4bit →
-  // themindstudio/flux2-klein-4b-mlx-4bit.
+  // silently desync this gate: (klein4B, .int4) → .klein4B_bf16 →
+  // black-forest-labs/FLUX.2-klein-4B (quantized to 4-bit on-the-fly).
   let transformerRepoId =
     ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4).repoId
   let vaeRepoId = ModelRegistry.VAEVariant.standard.repoId
@@ -126,8 +127,13 @@ struct IPad8GBDeviceMatrixGPUTests {
 
     let variant = ModelRegistry.TransformerVariant.variant(
       for: .klein4B, quantization: quantization.transformer)
-    #expect(variant == .klein4B_4bit)
-    #expect(variant.isPreQuantizedMLX, "int4 path must take the direct pre-quantized branch")
+    #expect(
+      variant == .klein4B_bf16,
+      "(klein4B, .int4) resolves to bf16 + on-the-fly quantize (the direct pre-quantized load produced noise)"
+    )
+    #expect(
+      !variant.isPreQuantizedMLX,
+      "int4 path must take the bf16 + on-the-fly quantize branch")
 
     // Build the pipeline exactly as the iPad-8GB path would: forced Klein 4B
     // with the sub-tier-resolved (int4 transformer / Qwen3 encoder) quant.

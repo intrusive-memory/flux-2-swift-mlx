@@ -249,10 +249,12 @@ public enum ModelRegistry {
     /// For quantization levels without a pre-quantized variant (e.g. Klein 9B qint8, Dev int4),
     /// this returns the bf16 variant. The pipeline will then quantize on-the-fly after loading.
     ///
-    /// `(klein4B, .int4)` is the exception: it resolves to `klein4B_4bit`, a genuine
-    /// MLX-native pre-quantized variant (`isPreQuantizedMLX == true`) that the pipeline
-    /// loads DIRECTLY into `QuantizedLinear` — no bf16 intermediate, no on-the-fly
-    /// `quantize()` (Sortie B2, R2.1/R2.2/R2.3).
+    /// Klein 4B qint8/int4 both resolve to `klein4B_bf16` and quantize on-the-fly — the same
+    /// proven path Klein 9B uses. The direct pre-quantized mflux variants (`klein4B_4bit`,
+    /// `klein4B_8bit`) are NOT used for resolution: the int4 direct-load path
+    /// (`themindstudio/flux2-klein-4b-mlx-4bit`, mflux 0.15.2) empirically produced PURE NOISE,
+    /// and the 8bit direct variant isn't provisioned on disk. Loading bf16 via the mature
+    /// diffusers→Swift remapper and quantizing in-process yields correct images.
     public static func variant(for model: Flux2Model, quantization: TransformerQuantization)
       -> TransformerVariant
     {
@@ -261,8 +263,8 @@ public enum ModelRegistry {
       case (.dev, .qint8): return .qint8
       case (.dev, .int4): return .bf16  // Load bf16, quantize on-the-fly
       case (.klein4B, .bf16): return .klein4B_bf16
-      case (.klein4B, .qint8): return .klein4B_8bit
-      case (.klein4B, .int4): return .klein4B_4bit  // Direct pre-quantized MLX 4-bit load (B2)
+      case (.klein4B, .qint8): return .klein4B_bf16  // Load bf16, quantize on-the-fly (8bit direct not provisioned)
+      case (.klein4B, .int4): return .klein4B_bf16  // Load bf16, quantize on-the-fly (mflux direct load produced noise)
       // Base models only available in bf16
       case (.klein4BBase, _): return .klein4B_base_bf16
       case (.klein9BBase, _): return .klein9B_base_bf16

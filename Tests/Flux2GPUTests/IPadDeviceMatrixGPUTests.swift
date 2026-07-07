@@ -15,7 +15,8 @@
 //     `ON_DEVICE_CHECKLIST.md` at the repo root.
 //
 // The three Phase-1 components (A7 / CDN_PROVISIONING.md):
-//   • transformer (qint8) → aydin99/FLUX.2-klein-4B-int8   (via .klein4B_8bit)
+//   • transformer (qint8) → black-forest-labs/FLUX.2-klein-4B bf16 (via .klein4B_bf16,
+//     quantized to 8-bit on-the-fly)
 //   • VAE                 → black-forest-labs/FLUX.2-klein-4B (vae/ subfolder)
 //   • text encoder        → lmstudio-community/Qwen3-4B-MLX-{8,4}bit
 //
@@ -51,7 +52,8 @@ func iPad16GBSmokeTestEnabled() -> Bool {
   guard hasModelsDir || hasAppGroup else { return false }
 
   // Derive the repoIds from the registry so a variant rename can't silently
-  // desync this gate. (klein4B, qint8) → .klein4B_8bit → aydin99/…-int8.
+  // desync this gate. (klein4B, qint8) → .klein4B_bf16 →
+  // black-forest-labs/FLUX.2-klein-4B (quantized to 8-bit on-the-fly).
   let transformerRepoId =
     ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .qint8).repoId
   let vaeRepoId = ModelRegistry.VAEVariant.standard.repoId
