@@ -69,7 +69,7 @@ let package = Package(
           "SwiftTuberia",
           remote: "https://github.com/intrusive-memory/SwiftTuberia.git",
           from: "0.7.8"),
-        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.23.0")),
+        .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.25.0")),
         .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
