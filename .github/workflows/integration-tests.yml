@@ -1,21 +1,35 @@
 # Integration Tests — real Klein 4B qint8 inference against cached SwiftAcervo
-# models (Sortie A8, OPERATION THIMBLE TYPHOON).
+# models (Sortie A8, OPERATION THIMBLE TYPHOON), plus the Metal-only
+# Flux2CoreModuleTests.
 #
 # Follows the acervo-integration-ci standard: restore the Phase-1 model cache
 # with actions/cache → prime from the public R2 CDN on a miss (credential-free
-# curl+jq, no `acervo` binary) → run ONLY the iPad-16GB smoke suite with
-# TEST_RUNNER_ACERVO_* so xcodebuild forwards the primed cache + offline flag
-# into the xctest runner process.
+# curl+jq, no `acervo` binary) → VERIFY every primed model is complete → run
+# ONLY the iPad-16GB smoke suite with TEST_RUNNER_ACERVO_* so xcodebuild
+# forwards the primed cache + offline flag into the xctest runner process.
 #
-# The smoke test is model-presence-gated (`Acervo.isModelAvailable`), so if the
-# prime step ever fails to land a component the suite skips rather than hanging
-# on a multi-GB download (ACERVO_OFFLINE=1 blocks all network in the runner).
+# The smoke test is model-presence-gated (`Acervo.isModelAvailable`), so a
+# component that failed to land would make it SKIP (a green job). The verify
+# step fails the job first, so "skipped" can't be mistaken for "passed".
+#
+# Neither job is a required status check (branch protection requires only the
+# two `Tests` jobs), so a Metal/runner flake here cannot block a merge.
 
 name: Integration Tests
 
 on:
   pull_request:
     branches: [main, development]
+    # Skip the heavy jobs (multi-GB model cache, real inference) when a PR only
+    # touches docs, markdown, or the graphify codemap.
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - "Makefile"
+      - ".github/workflows/integration-tests.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 concurrency:
@@ -33,13 +47,15 @@ jobs:
       # Acervo.sharedModelsDirectory, so it overrides any App Group config.
       # Kept inside the workspace so actions/cache can snapshot it.
       ACERVO_MODELS_DIR: ${{ github.workspace }}/.acervo-ci-models
-      # Slugs == slugify(modelId) (/ → _). The three Phase-1 components
-      # confirmed .available in CDN_PROVISIONING.md (Sortie A7):
-      #   • aydin99/FLUX.2-klein-4B-int8        → qint8 transformer
-      #   • black-forest-labs/FLUX.2-klein-4B   → VAE (vae/ subfolder)
+      # Slugs == slugify(modelId) (/ → _). Exactly what the smoke test's gate
+      # (iPad16GBSmokeTestEnabled) and the pipeline load:
+      #   • black-forest-labs/FLUX.2-klein-4B   → transformer (bf16, quantized
+      #     to qint8 on the fly — (klein4B, qint8) resolves to klein4B_bf16)
+      #     and VAE (vae/ subfolder)
       #   • lmstudio-community/Qwen3-4B-MLX-4bit → Klein text encoder
+      # (aydin99/FLUX.2-klein-4B-int8 used to be primed here too, ~8.9 GB that
+      # nothing loads since Klein 4B qint8 moved to the bf16 + on-the-fly path.)
       ACERVO_CI_MODELS: |
-        aydin99_FLUX.2-klein-4B-int8
         black-forest-labs_FLUX.2-klein-4B
         lmstudio-community_Qwen3-4B-MLX-4bit
 
@@ -68,6 +84,11 @@ jobs:
         if: steps.modelcache.outputs.cache-hit != 'true'
         run: bash .github/scripts/acervo-ci-prime.sh
 
+      # Runs on cache hits too: a stale/partial cache must fail here, not turn
+      # the gated smoke test into a silent skip.
+      - name: Verify all models present
+        run: bash .github/scripts/acervo-ci-verify.sh
+
       - name: Resolve dependencies
         run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
 
@@ -90,3 +111,34 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             -clonedSourcePackagesDirPath .spm \
             -only-testing Flux2GPUTests/IPadDeviceMatrixGPUTests
+
+  metal-module-tests:
+    name: "Metal module tests (macOS)"
+    runs-on: macos-26
+    timeout-minutes: 30
+    # Flux2CoreModuleTests: transformer blocks, attention, RoPE, modulation,
+    # KV-cache masks. Needs a Metal device, no model weights. Not a required
+    # check, so a paravirtual-GPU flake here can't block a merge.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
+
+      - name: Flux2CoreModuleTests
+        run: |
+          xcodebuild test \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            -clonedSourcePackagesDirPath .spm \
+            -only-testing Flux2GPUTests/Flux2CoreModuleTests
