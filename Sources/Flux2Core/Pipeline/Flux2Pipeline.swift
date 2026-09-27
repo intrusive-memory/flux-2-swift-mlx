@@ -590,8 +590,13 @@ public class Flux2Pipeline: @unchecked Sendable {
           "Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
         memoryManager.logMemoryState()
         let quantStart = Date()
-        quantize(model: transformer!, groupSize: groupSize, bits: bits)
-        eval(transformer!.parameters())
+        // Quantize + eval one block at a time. A single whole-model eval here
+        // realizes ~8 GB of bf16 page-ins and every quantize kernel at once,
+        // which trips the Metal command-buffer watchdog on low-headroom GPUs
+        // (7 GB paravirtual CI runners, 8–16 GB iPads). See
+        // IncrementalQuantization for details.
+        IncrementalQuantization.quantize(
+          model: transformer!, groupSize: groupSize, bits: bits)
         let quantDuration = Date().timeIntervalSince(quantStart)
         memoryManager.fullCleanup()
         memoryManager.logMemoryState()
