@@ -74,13 +74,23 @@ enum IncrementalQuantization {
     // array (`transformerBlocks.3`) is quantized by passing that block itself
     // as the root. Top-level chunks (`xEmbedder`, `timeGuidanceEmbed`) contain
     // no arrays on their path, so they are safe to update from the model root.
-    let modulesByPath = Dictionary(model.namedModules(), uniquingKeysWith: { first, _ in first })
+    //
+    // Only the (non-leaf) chunk roots are retained here. Holding on to every
+    // module (e.g. a `namedModules()` dictionary) would keep each replaced
+    // bf16 `Linear` — and its weight buffer — alive until the whole pass
+    // finishes, defeating the point of chunking.
+    let chunkKeys = Set(chunkOrder)
+    var chunkRoots: [String: Module] = [:]
+    for (path, module) in model.namedModules()
+    where chunkKeys.contains(path) && !(module is Quantizable) {
+      chunkRoots[path] = module
+    }
     var deferred: [String] = []
 
     for key in chunkOrder {
       let isArrayElement = key.split(separator: ".").contains { Int($0) != nil }
       if isArrayElement {
-        guard let chunkModule = modulesByPath[key], !(chunkModule is Quantizable) else {
+        guard let chunkModule = chunkRoots.removeValue(forKey: key) else {
           // An array whose elements are themselves bare Linear layers: no
           // root that can be updated without a sparse array. Quantize these
           // together at the end (the pre-chunking behavior).

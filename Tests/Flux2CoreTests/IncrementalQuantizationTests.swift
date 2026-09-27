@@ -156,4 +156,30 @@ struct IncrementalQuantizationTests {
     #expect(!leaves.contains { $0.1 is Linear && !($0.1 is QuantizedLinear) })
     #expect(leaves.contains { $0.1 is QuantizedLinear })
   }
+
+  /// Regression: each replaced bf16 layer must be released as soon as its
+  /// chunk is done, not held until the whole pass finishes (which let Metal
+  /// memory grow to ~11 GB on Klein 4B).
+  @Test func replacedLayersAreReleasedChunkByChunk() {
+    let model = TinyModel(blockCount: 3)
+    eval(model.parameters())
+
+    weak var originalFirstBlockLinear = model.blocks[0].a
+    #expect(originalFirstBlockLinear != nil)
+
+    var releasedWhileOtherChunksPending: Bool?
+    IncrementalQuantization.quantize(
+      model: model, groupSize: 64, bits: 8,
+      afterChunk: {
+        let firstBlockDone = model.blocks[0].a is QuantizedLinear
+        let allDone = model.leafModules().flattened().allSatisfy {
+          !($0.1 is Linear) || $0.1 is QuantizedLinear
+        }
+        if firstBlockDone && !allDone && releasedWhileOtherChunksPending == nil {
+          releasedWhileOtherChunksPending = originalFirstBlockLinear == nil
+        }
+      })
+
+    #expect(releasedWhileOtherChunksPending == true)
+  }
 }
