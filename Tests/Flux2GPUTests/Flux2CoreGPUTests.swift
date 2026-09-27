@@ -12,14 +12,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 1: Klein 4B model loads (isLoaded == true after loadModels)
 
-  @Test(.timeLimit(.minutes(2))) func klein4BModelLoads() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(2)))
+  func klein4BModelLoads() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     // loadModels sets isLoaded = true when weights are present
     try await pipeline.loadModels()
@@ -28,14 +22,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 2: Generate 512×512 in 4 steps
 
-  @Test(.timeLimit(.minutes(3))) func generate512x512In4Steps() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func generate512x512In4Steps() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
     let image = try await pipeline.generateTextToImage(
@@ -52,14 +40,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 3: VAE decode has finite pixels (channel values in [0, 1])
 
-  @Test(.timeLimit(.minutes(3))) func vaeDecodeHasFinitePixels() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func vaeDecodeHasFinitePixels() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
     let image = try await pipeline.generateTextToImage(
@@ -109,14 +91,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 4: Fixed seed is deterministic
 
-  @Test(.timeLimit(.minutes(3))) func fixedSeedIsDeterministic() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func fixedSeedIsDeterministic() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
 
@@ -170,14 +146,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 5: Cancellation does not crash
 
-  @Test(.timeLimit(.minutes(3))) func cancellationDoesNotCrash() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func cancellationDoesNotCrash() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
 
@@ -240,14 +210,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 7: Quantization preset end-to-end (ultraMinimal)
 
-  @Test(.timeLimit(.minutes(10))) func quantizationPresetEndToEnd() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(10)))
+  func quantizationPresetEndToEnd() async throws {
     // Use ultraMinimal: textEncoder=.mlx4bit, transformer=.int4
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
@@ -267,14 +231,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 8: Image-to-image output is non-trivial
 
-  @Test(.timeLimit(.minutes(3))) func imageToImageOutputIsNonTrivial() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func imageToImageOutputIsNonTrivial() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
 
@@ -329,14 +287,8 @@ struct Flux2CoreGPUTests {
 
   // MARK: - Test 9: Progress callback fires exactly steps times
 
-  @Test(.timeLimit(.minutes(3))) func progressCallbackFiresStepsTimes() async throws {
-    guard checkGPUPreconditions(minimumBytes: 16 * 1_073_741_824) else { return }
-    guard ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"] != nil else {
-      Issue.record(
-        "No KLEIN_MODEL_PATH env var — model not available on this machine (test skipped at runtime)"
-      )
-      return
-    }
+  @Test(.enabled(if: klein4BPipelineTestsEnabled()), .timeLimit(.minutes(3)))
+  func progressCallbackFiresStepsTimes() async throws {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .ultraMinimal)
     try await pipeline.loadModels()
 
@@ -372,7 +324,7 @@ struct Flux2CoreGPUTests {
 
     // This exercises decodeWithTiling directly on a freshly-initialized VAE
     // module (random weights) — no CDN model weights are required, only a
-    // Metal device, so it is not gated on KLEIN_MODEL_PATH.
+    // Metal device, so it is not gated on model presence.
     let vae = AutoencoderKLFlux2(config: .flux2Dev)
 
     // A 768x768 image corresponds to a 96x96 latent (VAE downsamples by 8x).

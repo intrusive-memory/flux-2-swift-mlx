@@ -15,25 +15,21 @@ import Testing
 @Suite("FluxTextEncoders GPU")
 struct FluxTextEncodersGPUTests {
 
-  // Minimum memory: 16 GiB for Qwen3-4B-8bit (model ~4 GB + working memory)
-  private static let minimumBytes: UInt64 = 16 * 1_073_741_824
-
-  // Shared model path environment variable; must be set for real GPU runs
-  private static var kleinModelPath: String? {
-    ProcessInfo.processInfo.environment["KLEIN_MODEL_PATH"]
+  /// Load the Klein 4B Qwen3 encoder that `klein4BTextEncoderTestsEnabled()`
+  /// found on disk (Acervo resolves the local path; no download happens).
+  @MainActor
+  private static func loadKlein4BEncoder() async throws -> FluxTextEncoders {
+    let encoders = FluxTextEncoders.shared
+    try await encoders.loadKleinModel(
+      variant: .klein4B, qwen3Variant: downloadedKlein4BQwen3Variant())
+    return encoders
   }
 
   // MARK: - Test 1: Qwen3 embedding shape
 
-  @Test(.timeLimit(.minutes(3))) func qwen3EmbeddingShape() async throws {
-    guard checkGPUPreconditions(minimumBytes: Self.minimumBytes) else { return }
-    guard let modelPath = Self.kleinModelPath else {
-      // No model path on CI — precondition guard exits gracefully
-      return
-    }
-
-    let encoders = FluxTextEncoders.shared
-    try await encoders.loadKleinModel(variant: .klein4B, from: modelPath)
+  @Test(.enabled(if: klein4BTextEncoderTestsEnabled()), .timeLimit(.minutes(3)))
+  func qwen3EmbeddingShape() async throws {
+    let encoders = try await Self.loadKlein4BEncoder()
     defer { Task { @MainActor in encoders.unloadKleinModel() } }
 
     let embeddings = try encoders.extractKleinEmbeddings(
@@ -49,14 +45,9 @@ struct FluxTextEncodersGPUTests {
 
   // MARK: - Test 2: Embedding values are finite
 
-  @Test(.timeLimit(.minutes(3))) func embeddingValuesAreFinite() async throws {
-    guard checkGPUPreconditions(minimumBytes: Self.minimumBytes) else { return }
-    guard let modelPath = Self.kleinModelPath else {
-      return
-    }
-
-    let encoders = FluxTextEncoders.shared
-    try await encoders.loadKleinModel(variant: .klein4B, from: modelPath)
+  @Test(.enabled(if: klein4BTextEncoderTestsEnabled()), .timeLimit(.minutes(3)))
+  func embeddingValuesAreFinite() async throws {
+    let encoders = try await Self.loadKlein4BEncoder()
     defer { Task { @MainActor in encoders.unloadKleinModel() } }
 
     let embeddings = try encoders.extractKleinEmbeddings(prompt: "a cat sitting on a wooden table")
@@ -70,14 +61,9 @@ struct FluxTextEncodersGPUTests {
 
   // MARK: - Test 3: Generate returns non-empty text
 
-  @Test(.timeLimit(.minutes(3))) func generateReturnsNonEmptyText() async throws {
-    guard checkGPUPreconditions(minimumBytes: Self.minimumBytes) else { return }
-    guard let modelPath = Self.kleinModelPath else {
-      return
-    }
-
-    let encoders = FluxTextEncoders.shared
-    try await encoders.loadKleinModel(variant: .klein4B, from: modelPath)
+  @Test(.enabled(if: klein4BTextEncoderTestsEnabled()), .timeLimit(.minutes(3)))
+  func generateReturnsNonEmptyText() async throws {
+    let encoders = try await Self.loadKlein4BEncoder()
     defer { Task { @MainActor in encoders.unloadKleinModel() } }
 
     let result = try encoders.generateQwen3(
@@ -91,14 +77,9 @@ struct FluxTextEncodersGPUTests {
 
   // MARK: - Test 4: Klein embeddings are deterministic
 
-  @Test(.timeLimit(.minutes(3))) func kleinEmbeddingsAreDeterministic() async throws {
-    guard checkGPUPreconditions(minimumBytes: Self.minimumBytes) else { return }
-    guard let modelPath = Self.kleinModelPath else {
-      return
-    }
-
-    let encoders = FluxTextEncoders.shared
-    try await encoders.loadKleinModel(variant: .klein4B, from: modelPath)
+  @Test(.enabled(if: klein4BTextEncoderTestsEnabled()), .timeLimit(.minutes(3)))
+  func kleinEmbeddingsAreDeterministic() async throws {
+    let encoders = try await Self.loadKlein4BEncoder()
     defer { Task { @MainActor in encoders.unloadKleinModel() } }
 
     let prompt = "a mountain landscape at sunset with snow-capped peaks"
