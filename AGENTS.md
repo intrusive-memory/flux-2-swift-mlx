@@ -89,7 +89,9 @@ The repo ships a `Makefile` that wraps the canonical `xcodebuild` invocations fr
 | `make release` | Release build + copy to `./bin` |
 | `make test` | Run both CI-required suites (`FluxTextEncodersTests` + `Flux2CoreTests`) |
 | `make test-fte` / `make test-core` | Individual CI-safe suites |
-| `make test-gpu` | `Flux2GPUTests` — local-only, requires GPU + downloaded weights |
+| `make test-gpu` | `Flux2GPUTests` — local-only, requires GPU + downloaded weights (model tests skip, not fail, when weights are absent) |
+| `make test-integration` | Local mirror of `integration-tests.yml`: iPad-16GB smoke + Metal-only `Flux2CoreModuleTests` (`ACERVO_MODELS_DIR=<primed cache> make test-integration`) |
+| `make test-tsan` | `Flux2TelemetryLockContentionTests` under Thread Sanitizer |
 | `make lint` | `swift format -i` over `Sources/` + `Tests/` (no `.swift-format` config — first run rewrites a lot) |
 | `make lint-check` | Same scan, non-mutating (CI-friendly) |
 | `make resolve` | Resolve SPM dependencies into `.spm` |
@@ -107,7 +109,7 @@ Authoritative document: [TESTING_REQUIREMENTS.md](requirements/TESTING_REQUIREME
 |---|---|---|---|
 | `FluxTextEncodersTests` | Yes | Yes | Nothing — no GPU, no downloads |
 | `Flux2CoreTests` | Partial (config only) | Yes | Nothing for config; GPU + weights for inference |
-| `Flux2GPUTests` | No | Yes | Apple Silicon, ≥16 GB RAM, downloaded model weights |
+| `Flux2GPUTests` | Partial, non-required (`integration-tests.yml`: iPad-16GB smoke + `Flux2CoreModuleTests`) | Yes | Apple Silicon; Metal only for `Flux2CoreModuleTests`; ≥16 GB RAM + cached weights for the model tests |
 
 **Required CI status checks** (configured in `development` and `main` branch protection):
 
@@ -144,7 +146,7 @@ Tests use **Swift Testing** (`@Test`, `Issue.record`), not XCTest. The migration
 3. Ship via the `ship-swift-library` skill. The version bump rides with the release PR.
 
 ### Touching CI workflows
-1. The repo has exactly one workflow: `.github/workflows/tests.yml`. There is **no `release.yml`** — see §8.
+1. Workflows: `tests.yml` (the two required checks), `integration-tests.yml` (non-required: iPad-16GB smoke + Metal module tests, path-filtered), `tsan.yml` (non-required, path-filtered to the telemetry seam). There is **no `release.yml`** — see §8.
 2. Pin every `uses:` to the latest major (`@v6`, `@v5`, etc.) — older majors trigger Node 16/20 deprecation warnings.
 3. Job names are load-bearing — they're referenced by branch-protection contexts. Don't rename without updating protection.
 
