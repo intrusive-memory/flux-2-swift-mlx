@@ -1,0 +1,57 @@
+# Thread Sanitizer run of the telemetry lock-contention stress tests.
+#
+# Without TSan, Flux2TelemetryLockContentionTests only prove "no crash, no
+# deadlock, last write wins". Under TSan any unguarded access to
+# Flux2Pipeline's telemetry lock aborts the run with a data-race report.
+#
+# Not a required status check, and path-filtered to the telemetry seam, so
+# it adds no cost to unrelated PRs and a sanitizer flake can't block a merge.
+# Local equivalent: `make test-tsan`.
+
+name: TSan
+
+on:
+  pull_request:
+    branches: [main, development]
+    paths:
+      - "Sources/Flux2Core/Telemetry/**"
+      - "Sources/Flux2Core/Pipeline/Flux2Pipeline.swift"
+      - "Tests/Flux2CoreTests/Flux2TelemetryLockContentionTests.swift"
+      - "Tests/TestHelpers/**"
+      - "Package.swift"
+      - ".github/workflows/tsan.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tsan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tsan-lock-contention:
+    name: "TSan (lock contention)"
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v6
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -scheme Flux2Swift-Package -clonedSourcePackagesDirPath .spm
+
+      - name: Lock-contention tests under Thread Sanitizer
+        run: |
+          xcodebuild test \
+            -scheme Flux2Swift-Package \
+            -destination 'platform=macOS,arch=arm64' \
+            -skipPackagePluginValidation \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            -clonedSourcePackagesDirPath .spm \
+            -enableThreadSanitizer YES \
+            -only-testing Flux2CoreTests/Flux2TelemetryLockContentionTests

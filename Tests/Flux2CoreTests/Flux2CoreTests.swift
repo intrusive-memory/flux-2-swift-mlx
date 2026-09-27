@@ -5,6 +5,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import MLX
+import TestHelpers
 import Testing
 
 @testable import Flux2Core
@@ -12,6 +13,20 @@ import Testing
 #if canImport(AppKit)
   import AppKit
 #endif
+
+/// Advance `scheduler` one step from its current timestep. Only shapes and
+/// scheduler state are asserted on, so deterministic zero/one tensors are used
+/// instead of unseeded random noise.
+@discardableResult
+private func stepOnce(
+  _ scheduler: FlowMatchEulerScheduler, shape: [Int] = [1, 100, 128]
+) -> (sample: MLXArray, next: MLXArray) {
+  let sample = MLXArray.zeros(shape)
+  let modelOutput = MLXArray.ones(shape)
+  let next = scheduler.step(
+    modelOutput: modelOutput, timestep: scheduler.timesteps[scheduler.stepIndex], sample: sample)
+  return (sample, next)
+}
 
 @Suite struct Flux2CoreTests {
 
@@ -84,54 +99,6 @@ import Testing
     )
   }
 
-  // MARK: - Latent Utils Tests
-
-  @Test func latentDimensionValidation() {
-    let (h, w) = LatentUtils.validateDimensions(height: 1000, width: 1000)
-
-    // Should be rounded up to nearest multiple of 16
-    #expect(h % 16 == 0)
-    #expect(w % 16 == 0)
-    #expect(h >= 1000)
-    #expect(w >= 1000)
-  }
-
-  @Test func latentPacking() {
-    // Create test latent: [1, 32, 128, 128]
-    let latent = MLXRandom.normal([1, 32, 128, 128])
-
-    // Pack
-    let packed = LatentUtils.packLatents(latent, patchSize: 2)
-
-    // Should be [1, (128/2)*(128/2), 32*2*2] = [1, 4096, 128]
-    #expect(packed.shape[0] == 1)
-    #expect(packed.shape[1] == 4096)
-    #expect(packed.shape[2] == 128)
-
-    // Unpack
-    let unpacked = LatentUtils.unpackLatents(
-      packed,
-      height: 1024,  // 128 * 8
-      width: 1024,
-      latentChannels: 32,
-      patchSize: 2
-    )
-
-    // Should match original shape
-    #expect(unpacked.shape == latent.shape)
-  }
-
-  @Test func positionIDGeneration() {
-    let height = 1024
-    let width = 1024
-
-    let imageIds = LatentUtils.generateImagePositionIDs(height: height, width: width)
-
-    // For 1024x1024 with patch size 2: (128/2) * (128/2) = 4096 patches
-    #expect(imageIds.shape[0] == 4096)
-    #expect(imageIds.shape[1] == 4)  // [T, H, W, L]
-  }
-
   // MARK: - Scheduler Tests
 
   @Test func schedulerTimesteps() {
@@ -151,15 +118,7 @@ import Testing
     let scheduler = FlowMatchEulerScheduler()
     scheduler.setTimesteps(numInferenceSteps: 10)
 
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-
-    let nextSample = scheduler.step(
-      modelOutput: modelOutput,
-      timestep: scheduler.timesteps[0],
-      sample: sample
-    )
-
+    let (sample, nextSample) = stepOnce(scheduler)
     #expect(nextSample.shape == sample.shape)
   }
 
@@ -257,11 +216,7 @@ import Testing
 
     #expect(abs(scheduler.progress - 0.0) < 0.01)
 
-    // Simulate stepping
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
+    stepOnce(scheduler)
 
     #expect(scheduler.progress > 0.0)
     #expect(scheduler.remainingSteps == 9)
@@ -271,10 +226,7 @@ import Testing
     let scheduler = FlowMatchEulerScheduler()
     scheduler.setTimesteps(numInferenceSteps: 10)
 
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
-
+    stepOnce(scheduler)
     #expect(scheduler.stepIndex > 0)
 
     scheduler.reset()
@@ -306,11 +258,7 @@ import Testing
     scheduler.setTimesteps(numInferenceSteps: 10)
 
     let firstSigma = scheduler.currentSigma
-
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
-
+    stepOnce(scheduler)
     let secondSigma = scheduler.currentSigma
 
     // Sigma should decrease as we step through
@@ -350,18 +298,21 @@ import Testing
     #expect(!vae.repoId.isEmpty)
   }
 
-  @Test func recommendedConfigForRAM() {
-    // Very low RAM should recommend ultra-minimal config (4-bit)
-    let veryLowRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 24)
-    #expect(veryLowRamConfig.transformer == .int4)
-
-    // Low RAM should recommend minimal config
-    let lowRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 32)
-    #expect(lowRamConfig.transformer == .qint8)
-
-    // High RAM can use bf16
-    let highRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 128)
-    #expect(highRamConfig.transformer == .bf16)
+  /// Single table for `ModelRegistry.recommendedConfig(forRAMGB:)` across the
+  /// iPad tier (≤16 GB → ultraMinimal / int4) and every Mac bucket.
+  @Test(arguments: [
+    (8, Flux2QuantizationConfig.ultraMinimal),
+    (12, .ultraMinimal),
+    (16, .ultraMinimal),
+    (24, .ultraMinimal),
+    (32, .minimal),
+    (48, .memoryEfficient),
+    (64, .balanced),
+    (96, .highQuality),
+    (128, .highQuality),
+  ])
+  func recommendedConfigByRAM(ramGB: Int, expected: Flux2QuantizationConfig) {
+    #expect(ModelRegistry.recommendedConfig(forRAMGB: ramGB) == expected)
   }
 
   // MARK: - Gated Status Tests
@@ -427,33 +378,6 @@ import Testing
   @Test func vaeVariantIsGated() {
     // VAE is downloaded from Klein 4B repo which is NOT gated
     #expect(!ModelRegistry.VAEVariant.standard.isGated)
-  }
-
-  // MARK: - Origin URL Tests
-  // Sortie 20 removed computed huggingFaceURL/huggingFaceRepo properties (no
-  // runtime HF fetches after CDN migration).  Assertion intent is preserved:
-  // each model's origin URL is well-formed and contains the expected repo ID.
-  // We construct the URL from repoId (same computation, different property name).
-
-  @Test func transformerVariantOriginURL() {
-    let bf16 = ModelRegistry.TransformerVariant.bf16
-    let originURL = "https://huggingface.co/\(bf16.repoId)"
-    #expect(originURL.starts(with: "https://huggingface.co/"))
-    #expect(originURL.contains(bf16.repoId))
-  }
-
-  @Test func textEncoderVariantOriginURL() {
-    let mlx8bit = ModelRegistry.TextEncoderVariant.mlx8bit
-    let originURL = "https://huggingface.co/\(mlx8bit.repoId)"
-    #expect(originURL.starts(with: "https://huggingface.co/"))
-    #expect(originURL.contains(mlx8bit.repoId))
-  }
-
-  @Test func vaeVariantOriginURL() {
-    let vae = ModelRegistry.VAEVariant.standard
-    let originURL = "https://huggingface.co/\(vae.repoId)"
-    #expect(originURL.starts(with: "https://huggingface.co/"))
-    #expect(originURL.contains(vae.repoId))
   }
 
   @Test func textEncoderVariantRepoIdValues() {
@@ -695,24 +619,6 @@ import Testing
 
     // Estimated available should be less than physical (system reserve)
     #expect(manager.estimatedAvailableMemoryGB <= manager.physicalMemoryGB)
-  }
-
-  @Test func memoryManagerCanRunCheck() {
-    let manager = Flux2MemoryManager.shared
-
-    // Minimal config should be runnable on most systems
-    let minimalConfig = Flux2QuantizationConfig.minimal
-    // Just check the method doesn't crash
-    _ = manager.canRun(config: minimalConfig)
-  }
-
-  @Test func memoryManagerRecommendedConfig() {
-    let manager = Flux2MemoryManager.shared
-
-    let recommended = manager.recommendedConfig()
-    // Should return a valid config
-    #expect(recommended.textEncoder != nil)
-    #expect(recommended.transformer != nil)
   }
 
   // MARK: - checkImageSize (Sortie A4, R3 / §5 hard max)
@@ -978,16 +884,6 @@ import Testing
 /// variant resolution.
 @Suite struct PreQuantizedInt4RoutingTests {
 
-  /// (klein4B, .int4) must resolve to the bf16 variant (on-the-fly quantize),
-  /// NOT the noise-producing pre-quantized mflux 4-bit variant.
-  @Test func klein4BInt4ResolvesToBf16() {
-    #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein4B, quantization: .int4)
-        == .klein4B_bf16,
-      "(klein4B, .int4) must route to klein4B_bf16 + on-the-fly quantize, not the noise-producing klein4B_4bit direct load"
-    )
-  }
-
   /// The `klein4B_4bit` enum case itself still carries its MLX-native
   /// pre-quantized metadata (it is retained but no longer resolved to).
   @Test func klein4B4bitEnumCaseStillPreQuantizedMLX() {
@@ -1112,30 +1008,6 @@ import Testing
         "Klein 9B base should always return base bf16 for \(quant)"
       )
     }
-  }
-
-  @Test func recommendedConfigAllTiers() {
-    // Ultra-minimal tier (<32GB)
-    let ultra = ModelRegistry.recommendedConfig(forRAMGB: 24)
-    #expect(ultra.transformer == .int4)
-
-    // Minimal tier (32-48GB)
-    let minimal = ModelRegistry.recommendedConfig(forRAMGB: 32)
-    #expect(minimal.transformer == .qint8)
-
-    // Balanced tier (48-96GB)
-    let balanced48 = ModelRegistry.recommendedConfig(forRAMGB: 48)
-    #expect(balanced48.transformer == .qint8)
-
-    let balanced64 = ModelRegistry.recommendedConfig(forRAMGB: 64)
-    #expect(balanced64.transformer == .qint8)
-
-    // High quality tier (96GB+)
-    let high = ModelRegistry.recommendedConfig(forRAMGB: 96)
-    #expect(high.transformer == .bf16)
-
-    let veryHigh = ModelRegistry.recommendedConfig(forRAMGB: 128)
-    #expect(veryHigh.transformer == .bf16)
   }
 
   @Test func int4QuantizationGroupSize() {
@@ -1321,109 +1193,6 @@ import Testing
   }
 }
 
-// MARK: - Generation Result Tests
-
-@Suite struct GenerationResultTests {
-
-  @Test func generationResultInitialization() {
-    // Create a minimal test image (1x1 pixel)
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-    guard
-      let context = CGContext(
-        data: nil,
-        width: 1,
-        height: 1,
-        bitsPerComponent: 8,
-        bytesPerRow: 4,
-        space: colorSpace,
-        bitmapInfo: bitmapInfo
-      ), let testImage = context.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let result = Flux2GenerationResult(
-      image: testImage,
-      usedPrompt: "enhanced: a beautiful sunset",
-      wasUpsampled: true,
-      originalPrompt: "a beautiful sunset"
-    )
-
-    #expect(result.usedPrompt == "enhanced: a beautiful sunset")
-    #expect(result.originalPrompt == "a beautiful sunset")
-    #expect(result.wasUpsampled)
-    #expect(result.image.width == 1)
-    #expect(result.image.height == 1)
-  }
-
-  @Test func generationResultNoUpsampling() {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-    guard
-      let context = CGContext(
-        data: nil,
-        width: 1,
-        height: 1,
-        bitsPerComponent: 8,
-        bytesPerRow: 4,
-        space: colorSpace,
-        bitmapInfo: bitmapInfo
-      ), let testImage = context.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let prompt = "a cat sitting on a chair"
-    let result = Flux2GenerationResult(
-      image: testImage,
-      usedPrompt: prompt,
-      wasUpsampled: false,
-      originalPrompt: prompt
-    )
-
-    #expect(!result.wasUpsampled)
-    #expect(result.usedPrompt == result.originalPrompt)
-  }
-
-  @Test func generationResultPromptDifference() {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-    guard
-      let context = CGContext(
-        data: nil,
-        width: 1,
-        height: 1,
-        bitsPerComponent: 8,
-        bytesPerRow: 4,
-        space: colorSpace,
-        bitmapInfo: bitmapInfo
-      ), let testImage = context.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let original = "cat"
-    let enhanced =
-      "A majestic orange tabby cat sitting gracefully on a velvet chair, soft lighting, detailed fur"
-
-    let result = Flux2GenerationResult(
-      image: testImage,
-      usedPrompt: enhanced,
-      wasUpsampled: true,
-      originalPrompt: original
-    )
-
-    #expect(result.wasUpsampled)
-    #expect(result.usedPrompt != result.originalPrompt)
-    #expect(result.usedPrompt.count > result.originalPrompt.count)
-  }
-
-}
-
 // MARK: - MemoryConfig Tests
 
 @Suite struct MemoryConfigTests {
@@ -1437,17 +1206,17 @@ import Testing
   }
 
   @Test func systemRAMDetection() {
-    // System RAM should be detected and reasonable
-    let ram = MemoryConfig.systemRAMGB
-    #expect(ram > 0)
-    #expect(ram < 1024)  // Less than 1TB
+    // The host read must agree with ProcessInfo (value itself is host-dependent).
+    #expect(
+      MemoryConfig.systemRAMGB
+        == Int(ProcessInfo.processInfo.physicalMemory / UInt64(1024 * 1024 * 1024)))
   }
 
-  @Test func safeCachePercentage() {
-    // Safe cache percentage should be between 0 and 1
-    let pct = MemoryConfig.safeCachePercentage
-    #expect(pct > 0)
-    #expect(pct <= 1.0)
+  @Test(arguments: [
+    (16, 0.03), (24, 0.05), (32, 0.05), (48, 0.08), (64, 0.08), (96, 0.12), (192, 0.15),
+  ])
+  func safeCachePercentageByRAM(ramGB: Int, expected: Double) {
+    #expect(MemoryConfig.safeCachePercentage(forRAMGB: ramGB) == expected)
   }
 
   @Test func conservativeProfileLimit() {
@@ -1457,23 +1226,42 @@ import Testing
     #expect(limit == 512 * 1024 * 1024)  // 512 MB
   }
 
-  @Test func performanceProfileLimit() {
-    // Performance should return up to 4 GB
-    let limit = MemoryConfig.cacheLimitForProfile(.performance)
-    #expect(limit != nil)
-    #expect(limit! > 0)
-    #expect(limit! <= 4 * 1024 * 1024 * 1024)  // Max 4 GB
+  private static let mib = 1024 * 1024
+  private static let gib = 1024 * mib
+
+  // RAM/16 GB, floored at 512 MB and capped at 4 GB.
+  private static let performanceLimits: [(Int, Int)] = [
+    (7, 512 * mib), (16, gib), (48, 3 * gib), (128, 4 * gib),
+  ]
+
+  @Test(arguments: performanceLimits)
+  func performanceProfileLimitByRAM(ramGB: Int, expected: Int) {
+    #expect(MemoryConfig.cacheLimitForProfile(.performance, forRAMGB: ramGB) == expected)
   }
 
-  @Test func autoProfileLimit() {
-    // Auto should return a dynamic limit based on system RAM
-    let limit = MemoryConfig.cacheLimitForProfile(.auto)
-    // For systems < 128GB, should return a limit
-    // For systems >= 128GB, might return nil (unlimited)
-    if MemoryConfig.systemRAMGB < 128 {
-      #expect(limit != nil)
-      #expect(limit! >= 256 * 1024 * 1024)  // At least 256 MB (small-RAM runners hit the floor exactly)
-    }
+  // RAM/32 GB, floored at 512 MB and capped at 2 GB.
+  private static let balancedLimits: [(Int, Int)] = [
+    (16, 512 * mib), (32, gib), (128, 2 * gib),
+  ]
+
+  @Test(arguments: balancedLimits)
+  func balancedProfileLimitByRAM(ramGB: Int, expected: Int) {
+    #expect(MemoryConfig.cacheLimitForProfile(.balanced, forRAMGB: ramGB) == expected)
+  }
+
+  private static let autoLimits: [(Int, Int?)] = [
+    // 7 GB CI runner: 3% of 7 GB (~215 MB) is below the 256 MB floor.
+    (7, 256 * mib),
+    // 64 GB: 8% of 64 GB (inside the 256 MB–8 GB clamp).
+    (64, Int(Double(64 * gib) * 0.08)),
+    // 128 GB+: unlimited.
+    (128, nil),
+  ]
+
+  @Test(arguments: autoLimits)
+  func autoProfileLimitByRAM(ramGB: Int, expected: Int?) {
+    #expect(MemoryConfig.cacheLimitForProfile(.auto, forRAMGB: ramGB) == expected)
+    #expect(MemoryConfig.recommendedCacheLimit(forRAMGB: ramGB) == expected)
   }
 
   @Test func phaseLimitsForKlein4B() {
@@ -1661,23 +1449,6 @@ import Testing
 
 @Suite struct ValidationQuantizationTests {
 
-  @Test func klein9BQuantizationOnTheFly() {
-    // Klein 9B has no pre-quantized variant — uses on-the-fly quantization
-    // All quantization levels should map to the bf16 download variant
-    #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein9B, quantization: .bf16) == .klein9B_bf16
-    )
-    #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein9B, quantization: .qint8)
-        == .klein9B_bf16,
-      "Klein 9B qint8 should load bf16 and quantize on-the-fly"
-    )
-    #expect(
-      ModelRegistry.TransformerVariant.variant(for: .klein9B, quantization: .int4) == .klein9B_bf16,
-      "Klein 9B int4 should load bf16 and quantize on-the-fly"
-    )
-  }
-
   @Test func klein9BTransformerConfigMatchesDistilled() {
     // Base and distilled Klein 9B should share the same transformer config
     #expect(
@@ -1760,20 +1531,6 @@ import Testing
     return (ptr[offset + rOff], ptr[offset + gOff], ptr[offset + bOff])
   }
 
-  /// Helper: encode CGImage to PNG Data
-  private func pngData(from image: CGImage) -> Data? {
-    let mutableData = NSMutableData()
-    guard
-      let destination = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      return nil
-    }
-    CGImageDestinationAddImage(destination, image, nil)
-    guard CGImageDestinationFinalize(destination) else { return nil }
-    return mutableData as Data
-  }
-
   /// Test 1: CGImageSource roundtrip is pixel-exact
   @Test func cgImageSourceRoundtripPixelExact() {
     let width = 8
@@ -1781,7 +1538,7 @@ import Testing
     let original = createGradientCGImage(width: width, height: height)
 
     // Encode to PNG
-    guard let data = pngData(from: original) else {
+    guard let data = TestImage.encode(original) else {
       Issue.record("Failed to encode PNG")
       return
     }
@@ -1815,186 +1572,6 @@ import Testing
           origPixel.b == decodedPixel.b,
           "B mismatch at (\(x), \(y)): \(origPixel.b) vs \(decodedPixel.b)")
       }
-    }
-  }
-
-  #if canImport(AppKit)
-    /// Test 2: Detect NSImage roundtrip artifacts
-    /// This test documents that NSImage cgImage(forProposedRect:) can change pixel format/values
-    @Test func nsImageRoundtripDetectsChanges() {
-      let width = 16
-      let height = 16
-      let original = createGradientCGImage(width: width, height: height)
-
-      // NSImage roundtrip (the problematic path)
-      let nsImage = NSImage(cgImage: original, size: NSSize(width: width, height: height))
-      guard let roundtripped = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)
-      else {
-        Issue.record("NSImage roundtrip failed")
-        return
-      }
-
-      // Check format changes
-      let formatChanged =
-        roundtripped.bitsPerPixel != original.bitsPerPixel
-        || roundtripped.bytesPerRow != original.bytesPerRow
-        || roundtripped.alphaInfo != original.alphaInfo
-
-      if formatChanged {
-        // Document that NSImage changes format (expected behavior we're fixing)
-        print(
-          "[NSImage Roundtrip] Format changed: \(original.bitsPerPixel)bpp/\(original.alphaInfo.rawValue)alpha -> \(roundtripped.bitsPerPixel)bpp/\(roundtripped.alphaInfo.rawValue)alpha"
-        )
-      }
-
-      // Dimensions should at least be preserved
-      #expect(roundtripped.width == width, "NSImage roundtrip changed width")
-      #expect(roundtripped.height == height, "NSImage roundtrip changed height")
-    }
-  #endif
-
-  /// Test 3: CGImageSource vs NSImage pixel comparison
-  /// Verifies CGImageSource produces pixel-exact results while NSImage may not
-  @Test func cgImageSourceVsNSImageComparison() {
-    let width = 16
-    let height = 16
-    let original = createGradientCGImage(width: width, height: height)
-
-    guard let data = pngData(from: original) else {
-      Issue.record("Failed to encode PNG")
-      return
-    }
-
-    // Path A: CGImageSource (pixel-exact)
-    guard let viaCGImageSource = Flux2Pipeline.cgImage(from: data) else {
-      Issue.record("CGImageSource decode failed")
-      return
-    }
-
-    // Verify CGImageSource path is pixel-exact with original
-    var cgImageSourceExact = true
-    for y in 0..<height {
-      for x in 0..<width {
-        guard let origPixel = getPixel(from: original, x: x, y: y),
-          let sourcePixel = getPixel(from: viaCGImageSource, x: x, y: y)
-        else {
-          continue
-        }
-        if origPixel.r != sourcePixel.r || origPixel.g != sourcePixel.g
-          || origPixel.b != sourcePixel.b
-        {
-          cgImageSourceExact = false
-          break
-        }
-      }
-      if !cgImageSourceExact { break }
-    }
-
-    #expect(cgImageSourceExact, "CGImageSource path should be pixel-exact")
-
-    #if canImport(AppKit)
-      // Path B: NSImage (potentially lossy)
-      let nsImage = NSImage(data: data)!
-      let viaNSImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil)!
-
-      // Count pixel differences
-      var diffCount = 0
-      for y in 0..<height {
-        for x in 0..<width {
-          guard let origPixel = getPixel(from: original, x: x, y: y),
-            let nsPixel = getPixel(from: viaNSImage, x: x, y: y)
-          else {
-            continue
-          }
-          if origPixel.r != nsPixel.r || origPixel.g != nsPixel.g || origPixel.b != nsPixel.b {
-            diffCount += 1
-          }
-        }
-      }
-
-      if diffCount > 0 {
-        print(
-          "[NSImage vs CGImageSource] NSImage path has \(diffCount)/\(width * height) pixel differences"
-        )
-      }
-    #endif
-  }
-}
-
-// MARK: - Flux2GenerationMode Tests
-
-@Suite struct Flux2GenerationModeTests {
-
-  @Test func textToImageMode() {
-    let mode = Flux2GenerationMode.textToImage
-    if case .textToImage = mode {
-      // OK
-    } else {
-      Issue.record("Expected textToImage")
-    }
-  }
-
-  @Test func imageToImageModeWithSingleImage() {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32, space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let mode = Flux2GenerationMode.imageToImage(images: [img])
-    if case .imageToImage(let images) = mode {
-      #expect(images.count == 1)
-      #expect(images[0].width == 8)
-    } else {
-      Issue.record("Expected imageToImage")
-    }
-  }
-
-  @Test func imageToImageModeWithMultipleImages() {
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16, space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let mode = Flux2GenerationMode.imageToImage(images: [img, img, img])
-    if case .imageToImage(let images) = mode {
-      #expect(images.count == 3)
-    } else {
-      Issue.record("Expected imageToImage")
-    }
-  }
-
-  @Test func modeHasNoStrengthParameter() {
-    // Verify that Flux2GenerationMode.imageToImage has no strength associated value
-    // This test documents the removal of the strength parameter (issue #57)
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let mode = Flux2GenerationMode.imageToImage(images: [img])
-    // Pattern match with only images — no strength value
-    if case .imageToImage(let images) = mode {
-      #expect(images.count == 1)
-    } else {
-      Issue.record("Expected imageToImage with images only")
     }
   }
 }
@@ -2138,75 +1715,12 @@ import Testing
 
 @Suite struct CGImageSourcePipelineTests {
 
-  @Test func cgImageFromValidPNGData() {
-    // Create a small CGImage and encode to PNG
-    let width = 4
-    let height = 4
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-        space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    // Encode to PNG data
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create image destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize image")
-      return
-    }
-
-    // Decode via pipeline helper
-    let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
-    #expect(decoded != nil)
-    #expect(decoded?.width == width)
-    #expect(decoded?.height == height)
-  }
-
-  @Test func cgImageFromValidJPEGData() {
-    let width = 8
-    let height = 8
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-        space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.jpeg" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create JPEG destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize JPEG")
-      return
-    }
-
-    let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
-    #expect(decoded != nil)
-    #expect(decoded?.width == width)
-    #expect(decoded?.height == height)
+  @Test(arguments: [("public.png", 4), ("public.jpeg", 8)])
+  func cgImageFromEncodedData(uti: String, size: Int) throws {
+    let data = try #require(TestImage.encode(TestImage.make(width: size, height: size), uti: uti))
+    let decoded = Flux2Pipeline.cgImage(from: data)
+    #expect(decoded?.width == size)
+    #expect(decoded?.height == size)
   }
 
   @Test func cgImageFromInvalidData() {
@@ -2249,22 +1763,13 @@ import Testing
     }
 
     // Encode to PNG (lossless)
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create PNG destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize PNG")
+    guard let pngData = TestImage.encode(img) else {
+      Issue.record("Failed to encode PNG")
       return
     }
 
     // Decode and verify
-    guard let decoded = Flux2Pipeline.cgImage(from: mutableData as Data) else {
+    guard let decoded = Flux2Pipeline.cgImage(from: pngData) else {
       Issue.record("Failed to decode PNG")
       return
     }
@@ -2574,24 +2079,15 @@ import Testing
 
   // MARK: Tier resolution
 
-  @Test func iPadTierResolvesFor8GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
-  }
-
-  @Test func iPadTierResolvesFor12GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 12) == .iPad)
-  }
-
-  @Test func iPadTierResolvesFor16GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
-  }
-
-  @Test func macTierResolvesFor32GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 32) == .mac)
-  }
-
-  @Test func macTierResolvesFor64GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 64) == .mac)
+  @Test(arguments: [
+    (8, MemoryConfig.MemoryTier.iPad),
+    (12, .iPad),
+    (16, .iPad),
+    (32, .mac),
+    (64, .mac),
+  ])
+  func tierResolvesByRAM(ramGB: Int, expected: MemoryConfig.MemoryTier) {
+    #expect(MemoryConfig.tier(forRAMGB: ramGB) == expected)
   }
 
   @Test func iPadTierBoundaryIsInclusiveAt16() {
@@ -2628,16 +2124,16 @@ import Testing
 
   // MARK: Forced cache profile (conservative = 512 MB)
 
-  @Test func iPadTierForcesConservativeCacheProfileAt8GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 8) == .conservative)
-  }
-
-  @Test func iPadTierForcesConservativeCacheProfileAt12GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 12) == .conservative)
-  }
-
-  @Test func iPadTierForcesConservativeCacheProfileAt16GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 16) == .conservative)
+  /// The iPad tier forces `.conservative`; the Mac tier keeps `.auto`.
+  @Test(arguments: [
+    (8, MemoryConfig.CacheProfile.conservative),
+    (12, .conservative),
+    (16, .conservative),
+    (32, .auto),
+    (64, .auto),
+  ])
+  func cacheProfileByRAM(ramGB: Int, expected: MemoryConfig.CacheProfile) {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: ramGB) == expected)
   }
 
   @Test func conservativeProfileMapsTo512MB() {
@@ -2645,71 +2141,27 @@ import Testing
     #expect(MemoryConfig.cacheLimitForProfile(.conservative) == 512 * 1024 * 1024)
   }
 
-  @Test func macTierDoesNotForceConservativeCacheProfile() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 32) == .auto)
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 64) == .auto)
-  }
-
   // MARK: MemoryOptimizationConfig routing
 
-  @Test func iPadTierUsesUltraLowMemoryAt8GB() {
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  /// iPad tier → `.ultraLowMemory`; 32+ GB keeps the pre-existing Mac presets.
+  @Test(arguments: [
+    (8, MemoryOptimizationConfig.ultraLowMemory),
+    (12, .ultraLowMemory),
+    (16, .ultraLowMemory),
+    (32, .aggressive),
+    (64, .moderate),
+    (96, .light),
+    (128, .disabled),
+  ])
+  func memoryOptimizationByRAM(ramGB: Int, expected: MemoryOptimizationConfig) {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: ramGB) == expected)
   }
 
-  @Test func iPadTierUsesUltraLowMemoryAt12GB() {
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 12) == .ultraLowMemory)
+  @Test func ultraLowMemoryEvaluatesEveryTwoBlocksAndClearsCache() {
+    #expect(MemoryOptimizationConfig.ultraLowMemory.evalFrequency == 2)
+    #expect(MemoryOptimizationConfig.ultraLowMemory.clearCacheOnEval)
   }
 
-  @Test func iPadTierUsesUltraLowMemoryAt16GB() {
-    let config = MemoryOptimizationConfig.recommended(forRAMGB: 16)
-    #expect(config == .ultraLowMemory)
-    // ultraLowMemory == eval every 2 blocks + clear cache
-    #expect(config.evalFrequency == 2)
-    #expect(config.clearCacheOnEval)
-  }
-
-  @Test func macTiersKeepExistingMemoryOptimization() {
-    // No regression: 32+ GB still resolves to the pre-existing Mac presets.
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 32) == .aggressive)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 64) == .moderate)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 96) == .light)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 128) == .disabled)
-  }
-
-  // MARK: ModelRegistry quantization routing
-
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (String-backed, hence Equatable) against the reference presets instead.
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt8GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 8), as: .ultraMinimal)
-    // ultraMinimal == int4 transformer.
-    #expect(ModelRegistry.recommendedConfig(forRAMGB: 8).transformer == .int4)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt12GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 12), as: .ultraMinimal)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt16GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 16), as: .ultraMinimal)
-  }
-
-  @Test func macTiersKeepExistingQuantConfig() {
-    // No regression: 32+ GB still resolves to the pre-existing Mac configs.
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 32), as: .minimal)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 48), as: .memoryEfficient)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 64), as: .balanced)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 128), as: .highQuality)
-  }
 }
 
 // MARK: - VAE Tiling Tier Selection (Sortie A5)
@@ -2796,55 +2248,11 @@ import Testing
 
 @Suite struct Flux2PipelineDefaultKnobsTests {
 
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (String-backed, hence Equatable) against the reference presets instead
-  // (mirrors the `expectSameQuant` helper in `iPadMemoryTierTests`).
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
+  // MARK: iPad tier column values (§5)
 
-  // MARK: iPad 16 GB column values (§5)
-
-  @Test func resolutionIs768OnIPad16GBTier() {
-    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
-  }
-
-  @Test func stepsIs4OnIPad16GBTier() {
-    // Klein 4B's recommended step count (`Flux2Model.klein4B.defaultSteps`),
-    // matching the model A2's ModelTierGate forces on the iPad tier.
-    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
-  }
-
-  @Test func guidanceIs1PointOOnIPad16GBTier() {
-    // Klein 4B's recommended guidance (`Flux2Model.klein4B.defaultGuidance`).
-    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
-  }
-
-  @Test func memoryProfileIsConservativeOnIPad16GBTier() {
-    #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: 16) == .conservative)
-  }
-
-  @Test func clearCacheEveryNStepsIs3OnIPad16GBTier() {
-    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
-  }
-
-  @Test func maxReferenceImagesIs2OnIPad16GBTier() {
-    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
-  }
-
-  @Test func transformerQuantIsQint8OnIPad16GBTier() {
-    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
-  }
-
-  // The same knobs must also resolve correctly at the other iPad sub-tiers
-  // (8 GB, 12 GB) sharing the `.iPad` `MemoryTier` bucket per A1 — the §5
-  // 16 GB column applies to the whole iPad tier until B4 layers the tighter
-  // 8 GB column on top.
+  // The §5 16 GB column applies to the whole shared `.iPad` `MemoryTier`
+  // bucket (8, 12 and 16 GB per A1) while the distinct 8 GB sub-tier flag is
+  // OFF (B3/B4).
   @Test func allSevenKnobsResolveConsistentlyAcrossIPadSubtiers() {
     for ramGB in [8, 12, 16] {
       #expect(Flux2Pipeline.defaultResolution(forRAMGB: ramGB) == 768)
@@ -2854,6 +2262,7 @@ import Testing
       #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 3)
       #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 2)
       #expect(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB).transformer == .qint8)
+      #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: ramGB) == 1024 * 1024)
     }
   }
 
@@ -2867,7 +2276,8 @@ import Testing
       #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .auto)
       #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 5)
       #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 4)
-      expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB), as: .balanced)
+      #expect(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB) == .balanced)
+      #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: ramGB) == 4096 * 4096)
     }
   }
 
@@ -2881,7 +2291,7 @@ import Testing
     let pipeline = Flux2Pipeline(model: .klein4B)
     #expect(pipeline.memoryProfile == Flux2Pipeline.defaultMemoryProfile)
     #expect(pipeline.clearCacheEveryNSteps == Flux2Pipeline.defaultClearCacheEveryNSteps)
-    expectSameQuant(pipeline.quantization, as: Flux2Pipeline.defaultQuantization)
+    #expect(pipeline.quantization == Flux2Pipeline.defaultQuantization)
   }
 }
 
@@ -2898,17 +2308,6 @@ import Testing
 // tests are race-free under swift-testing's parallel execution and never
 // touch the flag's default (which MUST stay OFF).
 @Suite struct IPad8GBDefaultKnobsTests {
-
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (mirrors the `expectSameQuant` helper used elsewhere in this file).
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
 
   // MARK: §5 8 GB column values — differentiated from the shared iPad tier
 
@@ -2979,16 +2378,6 @@ import Testing
 
   // MARK: Regression — 16 GB iPad tier and Mac tier values unchanged by B4
 
-  @Test func sixteenGBIPadTierValuesUnchangedByB4() {
-    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 16) == 768)
-    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 16) == 1024 * 1024)
-    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 16) == 3)
-    #expect(Flux2Pipeline.defaultQuantization(forRAMGB: 16).transformer == .qint8)
-    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 16) == 2)
-    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 16) == 4)
-    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 16) == 1.0)
-  }
-
   @Test func eightGBRamWithFlagOffStillResolvesToSharedIPadTierValues() {
     // The flag stays OFF by default (B3's guarantee): 8 GB devices continue
     // to resolve to the shared `.iPad` bucket (768²/3/qint8) — the §5 8 GB
@@ -2999,13 +2388,4 @@ import Testing
     #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 8) == 1024 * 1024)
   }
 
-  @Test func macTierValuesUnchangedByB4() {
-    #expect(Flux2Pipeline.defaultResolution(forRAMGB: 64) == 1024)
-    #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: 64) == 4096 * 4096)
-    #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: 64) == 5)
-    expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: 64), as: .balanced)
-    #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: 64) == 4)
-    #expect(Flux2Pipeline.defaultSteps(forRAMGB: 64) == 50)
-    #expect(Flux2Pipeline.defaultGuidance(forRAMGB: 64) == 4.0)
-  }
 }

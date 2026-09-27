@@ -23,7 +23,7 @@ XCODEBUILD_FLAGS = \
 	-clonedSourcePackagesDirPath $(SPM_DIR)
 
 .PHONY: all build build-ios release install resolve \
-	test test-fte test-core test-gpu \
+	test test-fte test-core test-gpu test-tsan test-integration \
 	lint lint-check \
 	clean help codesign-cli
 
@@ -150,6 +150,41 @@ test-gpu: resolve
 		$(XCODEBUILD_FLAGS) \
 		-only-testing Flux2GPUTests
 
+# Thread Sanitizer run of the telemetry lock-contention stress tests. Without
+# TSan those tests only prove "no crash / no deadlock"; with it, any unguarded
+# access to Flux2Pipeline's telemetry lock aborts with a data-race report.
+# CI-safe (no GPU work, no model weights). Uses its own DerivedData so the
+# TSan-instrumented build doesn't invalidate the normal one.
+TSAN_DERIVED_DATA = .build/tsan-dd
+test-tsan: resolve
+	xcodebuild test \
+		-scheme $(PACKAGE_SCHEME) \
+		-destination '$(DESTINATION_MAC)' \
+		$(XCODEBUILD_FLAGS) \
+		-derivedDataPath $(TSAN_DERIVED_DATA) \
+		-enableThreadSanitizer YES \
+		-only-testing Flux2CoreTests/Flux2TelemetryLockContentionTests
+
+# Local mirror of the CI integration jobs (integration-tests.yml): the
+# iPad-16GB Klein 4B qint8 smoke test plus the Metal-only module tests.
+# The smoke test skips unless models are primed; point it at a primed cache:
+#   ACERVO_MODELS_DIR=/path/to/cache make test-integration
+# The two suites run as separate invocations (as in CI) so the model-loading
+# smoke test never shares the MLX runtime with the module tests in parallel.
+test-integration: resolve
+	TEST_RUNNER_ACERVO_MODELS_DIR="$(ACERVO_MODELS_DIR)" \
+	TEST_RUNNER_ACERVO_OFFLINE=1 \
+	xcodebuild test \
+		-scheme $(PACKAGE_SCHEME) \
+		-destination '$(DESTINATION_MAC)' \
+		$(XCODEBUILD_FLAGS) \
+		-only-testing Flux2GPUTests/IPadDeviceMatrixGPUTests
+	xcodebuild test \
+		-scheme $(PACKAGE_SCHEME) \
+		-destination '$(DESTINATION_MAC)' \
+		$(XCODEBUILD_FLAGS) \
+		-only-testing Flux2GPUTests/Flux2CoreModuleTests
+
 # Run the two CI-required test suites.
 test: test-fte test-core
 	@echo "All CI-safe tests complete."
@@ -194,6 +229,8 @@ help:
 	@echo "  test-fte    - Run FluxTextEncodersTests only"
 	@echo "  test-core   - Run Flux2CoreTests only"
 	@echo "  test-gpu    - Run Flux2GPUTests (local only — needs GPU + models)"
+	@echo "  test-tsan   - Run the telemetry lock-contention tests under Thread Sanitizer"
+	@echo "  test-integration - Run the CI integration suites (smoke + Metal module tests)"
 	@echo ""
 	@echo "Lint targets:"
 	@echo "  lint        - Format Sources/ and Tests/ in place with swift-format"

@@ -590,8 +590,13 @@ public class Flux2Pipeline: @unchecked Sendable {
           "Quantizing transformer on-the-fly to \(bits)-bit (groupSize=\(groupSize))...")
         memoryManager.logMemoryState()
         let quantStart = Date()
-        quantize(model: transformer!, groupSize: groupSize, bits: bits)
-        eval(transformer!.parameters())
+        // Quantize + eval one block at a time. A single whole-model eval here
+        // realizes ~8 GB of bf16 page-ins and every quantize kernel at once,
+        // which trips the Metal command-buffer watchdog on low-headroom GPUs
+        // (7 GB paravirtual CI runners, 8–16 GB iPads). See
+        // IncrementalQuantization for details.
+        IncrementalQuantization.quantize(
+          model: transformer!, groupSize: groupSize, bits: bits)
         let quantDuration = Date().timeIntervalSince(quantStart)
         memoryManager.fullCleanup()
         memoryManager.logMemoryState()
@@ -1087,17 +1092,14 @@ public class Flux2Pipeline: @unchecked Sendable {
       width: width
     )
 
-    // Check image size feasibility
+    // Image size feasibility is advisory only. The tier pixel cap is derived
+    // from total physical RAM, which does not predict whether a generation
+    // fits (the kernel reclaims pages on demand and MLX allocates lazily), so
+    // it must not refuse a generation. Real allocation failures surface from
+    // load/generate instead.
     let sizeCheck = memoryManager.checkImageSize(width: validWidth, height: validHeight)
-    if case .insufficientMemory = sizeCheck {
-      await currentTelemetry()?.capture(
-        .errorThrown(
-          phase: .insufficientMemory,
-          errorDescription:
-            "Insufficient memory: required 100GB, available \(memoryManager.estimatedAvailableMemoryGB)GB"
-        ))
-      throw Flux2Error.insufficientMemory(
-        required: 100, available: memoryManager.estimatedAvailableMemoryGB)
+    if !sizeCheck.isOk {
+      Flux2Debug.log("Memory warning: \(sizeCheck.message)")
     }
 
     // Set random seed

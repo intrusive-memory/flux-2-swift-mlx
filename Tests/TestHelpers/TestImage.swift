@@ -2,6 +2,8 @@
 // No bundled resources, no disk I/O.
 
 import CoreGraphics
+import Foundation
+import ImageIO
 
 /// Pure in-memory test image factory.
 public enum TestImage {
@@ -38,5 +40,21 @@ public enum TestImage {
       fatalError("TestImage: CGContext.makeImage() returned nil")
     }
     return image
+  }
+
+  /// Encode a CGImage to in-memory image data.
+  /// - Parameters:
+  ///   - image: The image to encode.
+  ///   - uti: Destination type identifier (default `public.png`; e.g. `public.jpeg`).
+  /// - Returns: The encoded bytes, or `nil` if ImageIO rejects the type or image.
+  public static func encode(_ image: CGImage, uti: String = "public.png") -> Data? {
+    let data = NSMutableData()
+    guard
+      let destination = CGImageDestinationCreateWithData(
+        data as CFMutableData, uti as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return data as Data
   }
 }
