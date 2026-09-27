@@ -23,10 +23,8 @@ struct Flux2TelemetryErrorPathTests {
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .minimal)
     pipeline.setTelemetry(reporter)
 
-    // Allow the detached pipelineInit Task to settle so it does not
-    // pollute the captured events list in an unpredictable order.
-    // (Best practice from B12 pattern — see MockFlux2TelemetryReporter docs.)
-    try await Task.sleep(for: .milliseconds(50))
+    // No settle-sleep for the fire-and-forget pipelineInit Task: the assertion
+    // below is `contains`, so an init event landing at any point is harmless.
 
     // Trigger the validation guard by passing an empty images array.
     // The guard: `guard !images.isEmpty && images.count <= 3 else { ... }`

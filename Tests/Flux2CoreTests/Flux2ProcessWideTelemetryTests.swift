@@ -27,8 +27,8 @@ import Testing
 /// After `setReporter` or `setTelemetry` returns, that Task may not yet have
 /// delivered the event. Tests that assert on `pipelineDispose` (a direct
 /// `await currentTelemetry()?.capture(...)` call from `dispose()`) are
-/// deterministic. Tests that need `pipelineInit` sleep 100 ms per the pattern
-/// established in `Flux2TelemetryBoundaryEventsTests`.
+/// deterministic. Tests that need `pipelineInit` await it with
+/// `MockFlux2TelemetryReporter.waitFor` rather than a fixed sleep.
 /// Serialized because every test writes to the process-global `Flux2Telemetry.current`.
 /// Running them concurrently (Swift Testing default) would cause cross-test contamination.
 @Suite("Flux2 Process-wide Telemetry Seam", .serialized)
@@ -69,15 +69,14 @@ struct Flux2ProcessWideTelemetryTests {
 
     // Keep a strong reference so the [weak self] capture in the init Task stays alive.
     let pipeline = Flux2Pipeline(model: .klein4B, quantization: .minimal)
-    // Let the detached pipelineInit Task deliver the event.
-    try await Task.sleep(for: .milliseconds(100))
-
-    let events = await processReporter.snapshot()
-    let hasInit = events.contains {
-      if case .pipelineInit = $0 { return true }
-      return false
+    // Await the detached pipelineInit Task's delivery (no fixed sleep).
+    let hasInit = await processReporter.waitFor { events in
+      events.contains {
+        if case .pipelineInit = $0 { return true }
+        return false
+      }
     }
-    // Retain the pipeline through the sleep to prevent premature deallocation.
+    // Retain the pipeline until the event has been observed.
     withExtendedLifetime(pipeline) {}
     #expect(hasInit, "pipelineInit must be delivered to the process-wide reporter")
   }
@@ -132,8 +131,10 @@ struct Flux2ProcessWideTelemetryTests {
     // No instance reporter either.
     await pipeline.dispose()
 
-    // Give the fire-and-forget pipelineInit Task a moment too.
-    try await Task.sleep(for: .milliseconds(100))
+    // No wait is needed for the fire-and-forget pipelineInit Task either: it
+    // resolves the reporter when it runs, and `processReporter` was cleared
+    // before the pipeline existed and is never reinstalled, so nothing can
+    // ever be delivered to it.
 
     let events = await processReporter.snapshot()
     #expect(

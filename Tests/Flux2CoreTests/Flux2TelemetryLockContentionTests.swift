@@ -27,19 +27,15 @@
 //
 // ## TSan verification
 //
-// Under the default `make test` invocation this test passes if no crash or
-// assertion fires.  Real data-race detection requires TSan:
+// Under the default `make test` invocation these tests only prove the lock
+// neither crashes nor deadlocks and that the final write wins. Real data-race
+// detection requires TSan, which `make test-tsan` runs (and the non-required
+// `TSan (lock contention)` workflow runs on PRs touching the telemetry seam):
 //
-//   xcodebuild test \
-//     -scheme Flux2Swift-Package \
-//     -destination 'platform=macOS,arch=arm64' \
-//     -enableThreadSanitizer YES \
-//     -skipPackagePluginValidation \
-//     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-//     -only-testing:Flux2CoreTests/Flux2TelemetryLockContentionTests
+//   make test-tsan
 //
-// A TSan run with zero `WARNING: ThreadSanitizer` / `data race` diagnostics
-// confirms that Sortie B3's `OSAllocatedUnfairLock` seam is correct.
+// TSan aborts the test process on the first `WARNING: ThreadSanitizer: data
+// race`, so a green TSan run confirms Sortie B3's `OSAllocatedUnfairLock` seam.
 //
 // ## F10 compliance (Swift 6 strict concurrency)
 //
@@ -64,6 +60,25 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
   /// no model weights are touched.
   private func makeFreshPipeline() -> Flux2Pipeline {
     Flux2Pipeline(model: .dev, quantization: .balanced)
+  }
+
+  /// After the contention phase the lock must still behave: the last write
+  /// wins and `nil` clears it. (A corrupted or wedged lock fails or hangs here.)
+  private func assertLockStillCoherent(
+    _ pipeline: Flux2Pipeline, reporter: MockFlux2TelemetryReporter,
+    file: StaticString = #filePath, line: UInt = #line
+  ) {
+    pipeline.setTelemetry(reporter)
+    XCTAssertTrue(
+      (pipeline.currentTelemetry() as AnyObject?) === reporter,
+      "last setTelemetry write must win after contention", file: file, line: line)
+    pipeline.setTelemetry(nil)
+    // `reporter` is local to this test, so it can never be the process-wide
+    // fallback; after clearing, currentTelemetry() must no longer return it.
+    XCTAssertFalse(
+      (pipeline.currentTelemetry() as AnyObject?) === reporter,
+      "setTelemetry(nil) must clear the instance reporter after contention",
+      file: file, line: line)
   }
 
   // MARK: - Concurrent set / nil cycle
@@ -104,13 +119,9 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
       }
     }
 
-    // If execution reaches here the lock held under all concurrent writes.
-    // Under a TSan-enabled build any unguarded access would have already
-    // triggered a diagnostic abort.
-    XCTAssert(
-      true,
-      "Completed \(500 + 500 + 2000) concurrent setTelemetry calls without crash"
-    )
+    // Under a TSan-enabled build any unguarded access would already have
+    // aborted with a data-race diagnostic.
+    assertLockStillCoherent(pipeline, reporter: reporter2)
   }
 
   // MARK: - Interleaved reporter swap
@@ -136,10 +147,7 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
       }
     }
 
-    XCTAssert(
-      true,
-      "Completed interleaved reporter swaps across 4 tasks without crash"
-    )
+    assertLockStillCoherent(pipeline, reporter: reporterB)
   }
 
   // MARK: - Set / dispose round-trip under contention
@@ -180,11 +188,8 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
       }
     }
 
-    // Give the actor time to process any fire-and-forget tasks that may still
-    // be in flight (dispose() is async/structured, so no sleep is needed for
-    // dispose itself; this guards against any pipelineInit Task from init).
-    try await Task.sleep(for: .milliseconds(50))
-
+    // dispose() awaits its capture directly, so every emitted event has
+    // already landed; no settle-sleep is needed.
     let captured1 = await reporter1.snapshot()
     let captured2 = await reporter2.snapshot()
     let totalEmitted = captured1.count + captured2.count
@@ -234,9 +239,6 @@ final class Flux2TelemetryLockContentionTests: XCTestCase {
       }
     }
 
-    XCTAssert(
-      true,
-      "High-frequency nil writer completed without crash alongside slow toggler"
-    )
+    assertLockStillCoherent(pipeline, reporter: reporter1)
   }
 }
