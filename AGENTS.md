@@ -167,7 +167,7 @@ The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries
 ## Queryable Codemap
 
 A prebuilt [graphify](https://pypi.org/project/graphifyy/) knowledge graph of this
-codebase lives in [`graphify-out/`](graphify-out/) (3193 nodes · 5973 edges · 193
+codebase lives in [`graphify-out/`](graphify-out/) (3281 nodes · 6147 edges · 188
 communities). **Prefer querying it before grepping** for architecture or "what
 connects to what" questions:
 

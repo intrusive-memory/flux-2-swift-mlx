@@ -1,15 +1,15 @@
-# Graph Report - .  (2026-07-05)
+# Graph Report - .  (2026-09-26)
 
 ## Corpus Check
 - cluster-only mode — file stats not available
 
 ## Summary
-- 3193 nodes · 5973 edges · 193 communities (129 shown, 64 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 312 edges (avg confidence: 0.82)
+- 3281 nodes · 6147 edges · 188 communities (123 shown, 65 thin omitted)
+- Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 341 edges (avg confidence: 0.82)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f82ad977`
+- Built from commit: `4b3174f2`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -183,11 +183,11 @@
 - [[_COMMUNITY_Tarot Training Example Config|Tarot Training Example Config]]
 - [[_COMMUNITY_Core and GPU Test Targets|Core and GPU Test Targets]]
 - [[_COMMUNITY_Striped Cat Figurine Image|Striped Cat Figurine Image]]
-- [[_COMMUNITY_Package Manifest|Package Manifest]]
 - [[_COMMUNITY_Flux2 Swift MLX Skill|Flux2 Swift MLX Skill]]
 - [[_COMMUNITY_Cat-Hat-Jacket I2I Step 7|Cat-Hat-Jacket I2I Step 7]]
 - [[_COMMUNITY_Cat-Hat-Jacket I2I Step 14|Cat-Hat-Jacket I2I Step 14]]
 - [[_COMMUNITY_Cat-Hat-Jacket I2I Step 21|Cat-Hat-Jacket I2I Step 21]]
+- [[_COMMUNITY_Ten of Swords Caption|Ten of Swords Caption]]
 - [[_COMMUNITY_Nine of Swords Caption|Nine of Swords Caption]]
 - [[_COMMUNITY_Eight of Swords Caption|Eight of Swords Caption]]
 - [[_COMMUNITY_Seven of Swords Caption|Seven of Swords Caption]]
@@ -201,15 +201,10 @@
 - [[_COMMUNITY_Page of Cups Caption|Page of Cups Caption]]
 - [[_COMMUNITY_Four of Cups Tarot Sample|Four of Cups Tarot Sample]]
 - [[_COMMUNITY_Flux Text Encoders Tests|Flux Text Encoders Tests]]
-- [[_COMMUNITY_Community 188|Community 188]]
-- [[_COMMUNITY_Community 189|Community 189]]
-- [[_COMMUNITY_Community 190|Community 190]]
-- [[_COMMUNITY_Community 191|Community 191]]
-- [[_COMMUNITY_Community 192|Community 192]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Flux2Pipeline` - 66 edges
-2. `FluxTextEncoders` - 50 edges
+1. `Flux2Pipeline` - 70 edges
+2. `FluxTextEncoders` - 51 edges
 3. `checkGPUPreconditions()` - 48 edges
 4. `SimpleLoRATrainer` - 40 edges
 5. `ModelManager` - 39 edges
@@ -220,8 +215,6 @@
 10. `TextEncoderModelRegistryTests` - 30 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `extractPath()` --calls--> `NSRegularExpression`  [INFERRED]
-  scripts/fix_learning_curve.swift → Sources/FluxTextEncoders/Tokenizer/TekkenTokenizer.swift
 - `CI Tests Workflow` --conceptually_related_to--> `Testing Requirements Standard`  [INFERRED]
   .github/workflows/tests.yml → TESTING_REQUIREMENTS.md
 - `Process-wide Telemetry Seam TODO` --conceptually_related_to--> `Telemetry Instrumentation Requirements`  [INFERRED]
@@ -230,27 +223,34 @@
   docs/examples/flux2-dev/i2i_cat_hat_jacket/README.md → docs/examples/flux2-dev/cat_beach_standard/step_028.png
 - `Photo: striped multicolor wooden cat figurine on carpet` --shares_data_with--> `Cat Toy Caption 1`  [INFERRED]
   examples/cat-toy/train/1.jpeg → examples/cat-toy/train/1.txt
+- `Photo: striped wooden cat figurine on carpeted stairs` --shares_data_with--> `Cat Toy Caption 1`  [INFERRED]
+  examples/cat-toy/train/2.jpeg → examples/cat-toy/train/1.txt
 
 ## Import Cycles
 - None detected.
 
-## Communities (193 total, 64 thin omitted)
+## Hyperedges (group relationships)
+- **Version strings that must move in lockstep** — agents_flux2core, agents_training, agents_fluxtextencoders, agents_mistralversion [EXTRACTED]
+- **Flux2 dual-seam telemetry surface** — agents_flux2pipeline, agents_flux2telemetry, agents_flux2telemetryevent, readme_flux2telemetryreporter, agents_currenttelemetry [EXTRACTED]
+- **Test targets** — agents_fluxtextencoderstests, agents_flux2coretests, agents_flux2gputests, agents_testhelpers [EXTRACTED]
+
+## Communities (188 total, 65 thin omitted)
 
 ### Community 0 - "Text Encoder GPU Tests"
-Cohesion: 0.07
-Nodes (48): CachedEmbeddingEntry, CachedLatentEntry, LossWeightingMode, bellShaped, none, SimpleLoRAConfig, SimpleLoRATrainer, SimpleLoRATrainerError (+40 more)
+Cohesion: 0.06
+Nodes (49): AsyncStream, Double, ExportFormat, FluxEncoderError, generationFailed, invalidInput, kleinNotLoaded, modelNotFound (+41 more)
 
 ### Community 1 - "Simple LoRA Trainer"
-Cohesion: 0.06
-Nodes (45): AsyncStream, ExportFormat, FluxEncoderError, generationFailed, invalidInput, kleinNotLoaded, modelNotFound, modelNotLoaded (+37 more)
+Cohesion: 0.05
+Nodes (32): FluxTextEncodersGPUTests, Flux2TextEncoder, ModelInfo, Qwen3ModelInfo, Set, Bool, Double, Int (+24 more)
 
 ### Community 2 - "Core GPU Tests"
 Cohesion: 0.06
-Nodes (30): FluxTextEncodersGPUTests, Flux2TextEncoder, ModelInfo, Qwen3ModelInfo, Set, Bool, Double, Int (+22 more)
+Nodes (42): AdaLayerNormContinuous, Flux2ParallelSelfAttentionSplit, Flux2SingleTransformerBlock, Flux2TimestepGuidanceEmbeddings, Flux2TransformerBlock, Float, Int, LayerNorm (+34 more)
 
 ### Community 3 - "Text Encoder Errors"
-Cohesion: 0.06
-Nodes (35): EmbeddingExtractor, EmbeddingError, invalidLayerIndex, noHiddenStates, tokenizationFailed, FluxConfig, Mode, embeddings (+27 more)
+Cohesion: 0.08
+Nodes (40): CachedEmbeddingEntry, CachedLatentEntry, LossWeightingMode, bellShaped, none, SimpleLoRAConfig, SimpleLoRATrainer, SimpleLoRATrainerError (+32 more)
 
 ### Community 4 - "Caption Dataset Parsing"
 Cohesion: 0.07
@@ -261,268 +261,268 @@ Cohesion: 0.05
 Nodes (41): CheckpointImage, Identifiable, MessageRole, ObservableObject, Date, Double, Float, Int (+33 more)
 
 ### Community 6 - "Generation Pipeline & Results"
+Cohesion: 0.06
+Nodes (58): Branch Protection Status Checks, Branching and Release Flow (development → main), CapturingFlux2Reporter, Telemetry Chokepoint Convention (cross-library), currentTelemetry(), Dual-Seam Telemetry (instance + process-wide), errorThrown precedes every throw, Flux2App (+50 more)
+
+### Community 7 - "Latent Caching"
 Cohesion: 0.08
 Nodes (32): CFAbsoluteTime, MemoryOptimizationConfig, TextEncoderMemoryConfig, CustomStringConvertible, Equatable, GPU, MemoryDelta, MemoryOptimizationConfig (+24 more)
 
-### Community 7 - "Latent Caching"
+### Community 8 - "Mistral Attention & KV Cache"
+Cohesion: 0.08
+Nodes (40): Codable, Flux2QuantizationConfig, MistralQuantization, bf16, mlx4bit, mlx6bit, mlx8bit, TransformerQuantization (+32 more)
+
+### Community 9 - "Model Registry"
 Cohesion: 0.05
 Nodes (4): Flux2ModelTests, Flux2PipelineDefaultKnobsTests, IPad8GBDefaultKnobsTests, iPadMemoryTierTests
 
-### Community 8 - "Mistral Attention & KV Cache"
-Cohesion: 0.08
-Nodes (20): AnyObject, TrainingController, TrainingControllerProtocol, TrainingObserver, TrainingStatus, cancelled, checkpointing, completed (+12 more)
-
-### Community 9 - "Model Registry"
-Cohesion: 0.06
-Nodes (37): ModelComponent, textEncoder, transformer, vae, ModelRegistry, TextEncoderVariant, bf16, mlx4bit (+29 more)
-
 ### Community 10 - "Telemetry & Anomaly Tests"
-Cohesion: 0.07
-Nodes (24): Linear, LoRALinear, LoRAManager, LoRALoader, LoRATargetBlocks, LoRAWeightPair, Flux2Transformer2DModel, LoRAInjectedLinear (+16 more)
+Cohesion: 0.08
+Nodes (33): CacheStatistics, CachedLatent, CacheStatistics, LatentCache, LatentCacheError, failedToLoad, failedToSave, latentNotCached (+25 more)
 
 ### Community 11 - "Hidden States & Weight Loading"
 Cohesion: 0.06
-Nodes (15): Flux2ProcessWideTelemetryTests, Flux2TelemetryAnomalyClassifyTests, Flux2TelemetryAnomalySideChannelTests, makeStat(), Flux2TelemetryBoundaryEventsTests, Flux2TelemetryErrorPathTests, Flux2TelemetryLockContentionTests, Flux2TelemetryReporter (+7 more)
+Nodes (39): ModelComponent, textEncoder, transformer, vae, ModelRegistry, TextEncoderVariant, bf16, mlx4bit (+31 more)
 
 ### Community 12 - "RMSNorm Layer"
-Cohesion: 0.09
-Nodes (36): CaseIterable, LoRATargetLayers, all, attention, attentionFFN, attentionOutput, LoRATrainingConfig, LossWeighting (+28 more)
+Cohesion: 0.08
+Nodes (20): AnyObject, TrainingController, TrainingControllerProtocol, TrainingObserver, TrainingStatus, cancelled, checkpointing, completed (+12 more)
 
 ### Community 13 - "Memory Delta Types"
-Cohesion: 0.07
-Nodes (18): Flux2CoreGPUTests, TransformerBlockKVTests, checkGPUPreconditions(), MemoryConfig, Flux2Pipeline, AutoencoderKLFlux2, Flux2Model, Flux2QuantizationConfig (+10 more)
+Cohesion: 0.09
+Nodes (27): getLlama4AttentionScale(), KVCache, KVCacheQuantizationConfig, MistralAttention, MistralRoPE, scaledDotProductAttention(), Qwen3ForCausalLM, Qwen3Model (+19 more)
 
 ### Community 14 - "Scheduler & Core Tests"
+Cohesion: 0.07
+Nodes (24): Linear, LoRALinear, LoRAManager, LoRALoader, LoRATargetBlocks, LoRAWeightPair, Flux2Transformer2DModel, LoRAInjectedLinear (+16 more)
+
+### Community 15 - "Training Session & Resume"
+Cohesion: 0.08
+Nodes (26): HiddenStatesConfig, PoolingStrategy, cls, lastToken, max, mean, none, Flux2WeightLoader (+18 more)
+
+### Community 16 - "Image Processor Tests"
+Cohesion: 0.06
+Nodes (14): Flux2ProcessWideTelemetryTests, Flux2TelemetryAnomalyClassifyTests, Flux2TelemetryAnomalySideChannelTests, makeStat(), Flux2TelemetryBoundaryEventsTests, Flux2TelemetryErrorPathTests, Flux2TelemetryLockContentionTests, MockFlux2TelemetryReporter (+6 more)
+
+### Community 17 - "LoRA Training Config"
 Cohesion: 0.09
 Nodes (25): RMSNorm, Float, Int, MLXArray, Conv2d, Float, Int, Linear (+17 more)
 
-### Community 15 - "Training Session & Resume"
+### Community 18 - "Mistral VLM Model"
 Cohesion: 0.06
 Nodes (36): CodingKeys, activationFunction, blockOutChannels, inChannels, latentChannels, layersPerBlock, normEps, normNumGroups (+28 more)
 
-### Community 16 - "Image Processor Tests"
-Cohesion: 0.11
-Nodes (23): CacheStatistics, CachedLatent, CacheStatistics, LatentCache, LatentCacheError, failedToLoad, failedToSave, latentNotCached (+15 more)
-
-### Community 17 - "LoRA Training Config"
+### Community 19 - "Text Encoder Model Registry"
 Cohesion: 0.08
 Nodes (9): FlowMatchEulerScheduler, EmpiricalMuTests, Flux2CoreTests, SchedulerExtendedTests, computeEmpiricalMu(), Float, Flux2TelemetryReporter, Int (+1 more)
 
-### Community 18 - "Mistral VLM Model"
+### Community 20 - "Embedding Extractor"
 Cohesion: 0.07
-Nodes (30): ResumeMode, autoResume, forceFresh, fresh, fromStep, SessionError, alreadyRunning, incompatibleCheckpoint (+22 more)
+Nodes (23): AutoencoderKLFlux2, Flux2DownloadProgressCallback, Int4DirectLoadGPUTests, int4DirectLoadTestEnabled(), Flux2TelemetryReporter, Flux2Transformer2DModel, LoRAInfo, LoRAManager (+15 more)
 
-### Community 19 - "Text Encoder Model Registry"
+### Community 21 - "Profiler"
+Cohesion: 0.11
+Nodes (23): async, escaping, AutoencoderKLFlux2, CachedEmbeddingEntry, CachedLatentEntry, CGImage, Double, Float (+15 more)
+
+### Community 22 - "Transformer Config Coding Keys"
+Cohesion: 0.11
+Nodes (28): LoRATargetLayers, all, attention, attentionFFN, attentionOutput, LoRATrainingConfig, LossWeighting, bellShaped (+20 more)
+
+### Community 23 - "Model Registry Tests"
+Cohesion: 0.08
+Nodes (9): Flux2CoreGPUTests, IntegrationTests, TransformerBlockKVTests, checkGPUPreconditions(), CachedLatentEntryI2ITests, LatentPackingI2ITests, PositionIDI2ITests, Bool (+1 more)
+
+### Community 24 - "Mistral Model Layers"
 Cohesion: 0.08
 Nodes (15): ImageProcessorTests, CGImage, Float, Int, MLXArray, NSImage, String, UIImage (+7 more)
 
-### Community 20 - "Embedding Extractor"
-Cohesion: 0.12
-Nodes (20): ExportFormat, binary, json, numpy, MistralVLM, MultiModalProjector, MultiModalProjectorConfig, PixtralVisionConfig (+12 more)
-
-### Community 21 - "Profiler"
-Cohesion: 0.19
-Nodes (14): Flux2CheckpointCallback, GenerationResultTests, Flux2ProgressCallback, Flux2GenerationResult, Bool, CGImage, Data, Float (+6 more)
-
-### Community 22 - "Transformer Config Coding Keys"
+### Community 25 - "Qwen3 Configuration"
 Cohesion: 0.12
 Nodes (19): BatchNorm2d, Conv2d, Decoder, Bool, CGImage, Conv2d, Float, Int (+11 more)
 
-### Community 23 - "Model Registry Tests"
-Cohesion: 0.16
-Nodes (19): Codable, NSRegularExpression, Bool, Data, Error, Int, MLXArray, String (+11 more)
-
-### Community 24 - "Mistral Model Layers"
-Cohesion: 0.13
-Nodes (20): AutoencoderKLFlux2, CachedEmbeddingEntry, CachedLatentEntry, CGImage, Double, Float, Flux2Model, Flux2Transformer2DModel (+12 more)
-
-### Community 25 - "Qwen3 Configuration"
-Cohesion: 0.11
-Nodes (19): ModelInfo, ModelType, mistral, qwen3, ModelVariant, bf16, mlx4bit, mlx6bit (+11 more)
-
 ### Community 26 - "Training Control Tests"
+Cohesion: 0.15
+Nodes (16): MistralVLM, MultiModalProjector, MultiModalProjectorConfig, PixtralVisionConfig, Bool, Int, KVCache, MistralForCausalLM (+8 more)
+
+### Community 27 - "LoRA Adapter & Manager"
+Cohesion: 0.11
+Nodes (20): CaseIterable, ModelInfo, ModelType, mistral, qwen3, ModelVariant, bf16, mlx4bit (+12 more)
+
+### Community 28 - "Vision Config Coding Keys"
+Cohesion: 0.11
+Nodes (21): EmbeddingExtractor, EmbeddingError, invalidLayerIndex, noHiddenStates, tokenizationFailed, ExportFormat, binary, numpy (+13 more)
+
+### Community 29 - "LoRA Loader"
 Cohesion: 0.13
 Nodes (10): Bool, Date, Double, Int, T, TimeInterval, Flux2Profiler, Flux2ProfilerActor (+2 more)
 
-### Community 28 - "Vision Config Coding Keys"
+### Community 30 - "Beaver Render Prompts"
+Cohesion: 0.10
+Nodes (12): EmbeddingTests, Flux2AttentionKVTests, Flux2ParallelAttentionKVTests, KVExtractionMaskTests, SchedulerEvalTests, WeightConversionTests, KVCache, MLXArray (+4 more)
+
+### Community 32 - "Tekken Tokenizer"
 Cohesion: 0.14
 Nodes (17): MistralAttention, MistralMLP, MistralDecoderLayer, MistralForCausalLM, MistralModel, MistralModelOutput, ModelConfigWithQuantization, QuantizationConfig (+9 more)
 
-### Community 29 - "LoRA Loader"
-Cohesion: 0.12
-Nodes (14): KleinTextEncoder, DevTextEncoder, TrainingTextEncoder, Bool, Flux2TelemetryReporter, Int, KleinVariant, MistralQuantization (+6 more)
+### Community 33 - "VAE Resnet Blocks"
+Cohesion: 0.09
+Nodes (25): CodingKeys, attentionBias, attentionDropout, bosTokenId, eosTokenId, headDim, hiddenAct, hiddenSize (+17 more)
 
-### Community 30 - "Beaver Render Prompts"
+### Community 34 - "Training Controller"
+Cohesion: 0.26
+Nodes (14): Flux2CheckpointCallback, Flux2ProgressCallback, Flux2GenerationResult, Bool, CGImage, Data, Float, Flux2CheckpointCallback (+6 more)
+
+### Community 35 - "Single Transformer Block Attention"
 Cohesion: 0.15
 Nodes (15): CacheProfile, auto, balanced, conservative, performance, MemoryConfig, MemoryTier, iPad (+7 more)
 
-### Community 31 - "Latent Utilities"
+### Community 36 - "Memory Manager"
 Cohesion: 0.09
 Nodes (7): MockTrainingObserver, TrainingControlTests, Float, Int, TrainingStatus, URL, TrainingObserver
 
-### Community 32 - "Tekken Tokenizer"
-Cohesion: 0.15
-Nodes (15): Qwen3ForCausalLM, Qwen3Model, Qwen3ModelConfigWithQuantization, Qwen3ModelOutput, Qwen3QuantizationConfig, Qwen3DecoderLayer, Bool, Embedding (+7 more)
+### Community 37 - "LoRA Linear Injection"
+Cohesion: 0.12
+Nodes (14): KleinTextEncoder, DevTextEncoder, TrainingTextEncoder, Bool, Flux2TelemetryReporter, Int, KleinVariant, MistralQuantization (+6 more)
 
-### Community 33 - "VAE Resnet Blocks"
+### Community 38 - "Tarot Card Illustrations"
 Cohesion: 0.07
 Nodes (28): CodingKeys, attentionBias, attentionDropout, bosTokenId, eosTokenId, headDim, hiddenAct, hiddenSize (+20 more)
 
-### Community 34 - "Training Controller"
+### Community 39 - "Image Generation ViewModel"
 Cohesion: 0.16
 Nodes (14): LoRALoader, LoRALoaderError, fileNotFound, incompatibleModel, invalidFormat, missingWeights, Bool, Float (+6 more)
 
-### Community 35 - "Single Transformer Block Attention"
+### Community 40 - "Quantization Config"
 Cohesion: 0.10
 Nodes (27): Beaver Building a Dam (1024x1024 T2I), Beaver Dam Scene (256px low-res), Beaver Dam bf16 Benchmark Render, Beaver with Prompt Upsampling (final), Futuristic City with Flying Cars (2048x2048 T2I), Majestic Eagle over Mountains at Sunset (1536x1024 T2I), Comic-style illustration of a beaver (Klein 4B I2I), Photo: beaver wearing red hat and denim jacket (Klein 4B I2I) (+19 more)
 
-### Community 36 - "Memory Manager"
+### Community 41 - "Text Encoders Integration Tests"
 Cohesion: 0.18
 Nodes (5): LatentUtils, Float, Int, MLXArray, UInt64
 
-### Community 37 - "LoRA Linear Injection"
-Cohesion: 0.20
-Nodes (12): getLlama4AttentionScale(), KVCache, KVCacheQuantizationConfig, MistralAttention, MistralRoPE, scaledDotProductAttention(), Bool, Float (+4 more)
-
-### Community 38 - "Tarot Card Illustrations"
+### Community 42 - "Mistral Generator"
 Cohesion: 0.19
 Nodes (12): Bool, Conv2d, Float, Int, Linear, MLXArray, AttentionBlock, BatchNorm2d (+4 more)
 
-### Community 39 - "Image Generation ViewModel"
-Cohesion: 0.08
-Nodes (24): AnomalyPhase, denoiseLoopEnd, textEncode, vaeDecode, DenoiseVariant, imageToImageFullRecompute, imageToImageKVCached, imageToImageKVExtractStep0 (+16 more)
-
-### Community 40 - "Quantization Config"
-Cohesion: 0.08
-Nodes (5): GradientCheckpointingConfigTests, Klein4BInt4RegistryTests, Klein9BKVEnumTests, LatentUtilsExtendedTests, ValidationQuantizationTests
-
-### Community 41 - "Text Encoders Integration Tests"
+### Community 43 - "LoRA Config"
 Cohesion: 0.14
 Nodes (11): MemoryCheckResult, Bool, Flux2QuantizationConfig, Int, String, UInt64, Flux2MemoryManager, MemoryCheckResult (+3 more)
 
-### Community 42 - "Mistral Generator"
+### Community 44 - "Telemetry Event Anomalies"
 Cohesion: 0.13
 Nodes (10): DevTextEncoderTests, DevTextEncoder, Bool, Flux2TelemetryReporter, Int, MistralQuantization, MLXArray, ModelVariant (+2 more)
 
-### Community 43 - "LoRA Config"
-Cohesion: 0.19
-Nodes (14): Flux2ParallelSelfAttentionSplit, Float, Flux2Modulation, Flux2ParallelSelfAttention, Flux2RoPE, Int, LayerKVCacheEntry, LayerNorm (+6 more)
+### Community 45 - "Debug Logging"
+Cohesion: 0.17
+Nodes (17): LoRAConfig, LoRAInfo, LoRAWeightPair, MLXArrayWrapper, SchedulerOverrides, TargetModel, dev, klein4B (+9 more)
 
-### Community 44 - "Telemetry Event Anomalies"
+### Community 46 - "Memory Config & Cache"
 Cohesion: 0.11
 Nodes (23): Ten of Swords (tarot card illustration), Nine of Swords (tarot card illustration), Four of Swords (tarot card illustration), Three of Swords (tarot card illustration), Two of Swords (tarot card illustration), King of Cups (tarot card illustration), Queen of Cups (tarot card illustration), Knight of Cups (tarot card illustration) (+15 more)
 
-### Community 46 - "Memory Config & Cache"
+### Community 48 - "Qwen3 Generator"
 Cohesion: 0.22
 Nodes (13): GenerateParameters, GenerationResult, MistralGenerator, AsyncStream, Bool, Double, Float, Int (+5 more)
 
-### Community 47 - "Model Registry Variant Tests"
-Cohesion: 0.16
-Nodes (16): LoRAConfig, LoRAInfo, LoRAWeightPair, MLXArrayWrapper, SchedulerOverrides, TargetModel, dev, klein4B (+8 more)
+### Community 49 - "FeedForward Layers"
+Cohesion: 0.07
+Nodes (28): AnomalyKind, inf, nan, outOfRange, zeroLatent, AnomalyPhase, denoiseLoopEnd, textEncode (+20 more)
 
-### Community 48 - "Qwen3 Generator"
+### Community 50 - "Parallel Attention"
 Cohesion: 0.17
 Nodes (11): Comparable, Int, Bool, String, T, Flux2Debug, Level, error (+3 more)
 
-### Community 50 - "Parallel Attention"
+### Community 51 - "Content & Chat View"
+Cohesion: 0.13
+Nodes (18): SessionError, alreadyRunning, incompatibleCheckpoint, invalidState, missingOptimizerState, noCheckpointFound, notRunning, SimpleLoRAConfig (+10 more)
+
+### Community 53 - "Chat ViewModel"
 Cohesion: 0.23
 Nodes (11): Qwen3Generator, AsyncStream, Bool, Float, GenerateParameters, GenerationResult, Int, MLXArray (+3 more)
 
-### Community 51 - "Content & Chat View"
+### Community 54 - "RoPE Embeddings"
 Cohesion: 0.25
 Nodes (10): Module, Bool, Int, Linear, MLXArray, Flux2ContextFeedForward, Flux2FeedForward, Flux2FeedForwardSplit (+2 more)
 
-### Community 52 - "Klein Text Encoder"
+### Community 55 - "Transformer Blocks"
 Cohesion: 0.29
 Nodes (8): Float, Int, LayerKVCacheEntry, Linear, MLXArray, RMSNorm, Flux2ParallelSelfAttention, Flux2ParallelSelfAttentionSplit
 
-### Community 53 - "Chat ViewModel"
-Cohesion: 0.22
-Nodes (19): ChatMessage, ChatViewModel, ModelManager, ModelRegistry, ProfileSummary, View, AvailableModelCard, AvailableQwen3ModelCard (+11 more)
+### Community 56 - "Mock Pipeline & Coverage Tests"
+Cohesion: 0.19
+Nodes (22): ChatMessage, ChatViewModel, ModelInfo, ModelManager, ModelRegistry, ProfileSummary, Qwen3ModelInfo, View (+14 more)
 
-### Community 54 - "RoPE Embeddings"
+### Community 57 - "Tokenizer Tests"
 Cohesion: 0.17
 Nodes (16): Flux2Model, dev, klein4B, klein4BBase, klein9B, klein9BBase, klein9BKV, Flux2TransformerConfig (+8 more)
 
-### Community 55 - "Transformer Blocks"
+### Community 58 - "Flux2 Attention"
 Cohesion: 0.24
 Nodes (10): Float, Int, MLXArray, String, UInt64, Flux2RoPE, generateCombinedPositionIDs(), generateImagePositionIDs() (+2 more)
 
-### Community 56 - "Mock Pipeline & Coverage Tests"
-Cohesion: 0.12
-Nodes (18): AdaLayerNormContinuous, Flux2SingleTransformerBlock, Flux2TimestepGuidanceEmbeddings, Flux2TransformerBlock, Bool, Flux2Modulation, Flux2RoPE, Flux2TelemetryReporter (+10 more)
-
-### Community 57 - "Tokenizer Tests"
-Cohesion: 0.20
-Nodes (12): Flux2FeedForward, Float, Flux2Attention, Flux2Modulation, Int, LayerKVCacheEntry, LayerNorm, MLXArray (+4 more)
-
-### Community 58 - "Flux2 Attention"
+### Community 59 - "Timestep Embeddings"
 Cohesion: 0.12
 Nodes (12): Flux2GenerationMode, CoverageGapTests, MockFlux2Pipeline, Bool, CGImage, Error, Float, Flux2CheckpointCallback (+4 more)
 
-### Community 60 - "Modulation Layers"
+### Community 61 - "Project Documentation"
 Cohesion: 0.31
 Nodes (7): Float, Int, LayerKVCacheEntry, Linear, MLXArray, Flux2Attention, RMSNorm
 
-### Community 61 - "Project Documentation"
+### Community 62 - "Klein Embedding Extractor"
 Cohesion: 0.22
 Nodes (10): Bool, Float, Int, Linear, MLXArray, String, Flux2TimestepGuidanceEmbeddings, PooledTextProjection (+2 more)
-
-### Community 62 - "Klein Embedding Extractor"
-Cohesion: 0.21
-Nodes (9): Float, Int, LayerNorm, Linear, MLXArray, AdaLayerNormContinuous, DoubleStreamModulation, Flux2Modulation (+1 more)
 
 ### Community 63 - "Checkpoint Image ViewModel"
 Cohesion: 0.23
 Nodes (18): AI Agent Instructions (Universal), Claude-Specific Agent Instructions, Flux.2 CLI Documentation, Custom Model Integration Guide, Flux2App Demo Application Guide, Gemini-Specific Agent Instructions, LoRA Adapters Guide, Operation Marching Relay — Brief (+10 more)
 
 ### Community 64 - "Transformer Block"
-Cohesion: 0.11
-Nodes (18): CodingKeys, attentionBias, attentionDropout, bosTokenId, eosTokenId, headDim, hiddenAct, hiddenSize (+10 more)
-
-### Community 65 - "Hidden States Config Tests"
 Cohesion: 0.18
 Nodes (13): KleinEmbeddingError, invalidLayerIndex, modelNotLoaded, noHiddenStates, tokenizerError, KleinEmbeddingExtractor, Bool, Int (+5 more)
 
-### Community 66 - "Flux2 Model Config"
+### Community 65 - "Hidden States Config Tests"
 Cohesion: 0.21
 Nodes (7): CGImageSourcePipelineTests, ImageRoundtripTests, NSImage, CGImage, Data, Int, UInt8
 
+### Community 66 - "Flux2 Model Config"
+Cohesion: 0.21
+Nodes (11): Flux2FeedForward, Float, Flux2Attention, Flux2Modulation, Int, LayerKVCacheEntry, LayerNorm, MLXArray (+3 more)
+
 ### Community 68 - "Dev Text Encoder"
-Cohesion: 0.18
-Nodes (6): Flux2AttentionKVTests, Flux2ParallelAttentionKVTests, KVExtractionMaskTests, Flux2Attention, Flux2ParallelSelfAttention, Int
+Cohesion: 0.12
+Nodes (4): Klein4BInt4RegistryTests, Klein9BKVRegistryTests, LatentUtilsExtendedTests, ValidationQuantizationTests
 
 ### Community 69 - "Klein Config"
-Cohesion: 0.21
-Nodes (9): Flux2DownloadError, notProvisionedOnCDN, Flux2ModelPaths, ModelRegistry.TransformerVariant, Bool, Int64, ModelRegistry, String (+1 more)
-
-### Community 70 - "Superhero Render Outputs"
 Cohesion: 0.14
 Nodes (16): Cat wearing sunglasses on sunny beach (final output), Flux.2 Model Comparison (Dev vs Klein), Dev bf16 — superhero flying over datacenter, Dev bf16 upsampled — futuristic hero over data hub, Dev qint8 — superhero flying over datacenter, Dev qint8 upsampled — futuristic hero over data hub, Iridescent rainbow baseball cap (reference image), Yellow wool peacoat jacket (reference image) (+8 more)
 
+### Community 70 - "Superhero Render Outputs"
+Cohesion: 0.12
+Nodes (16): CodingKey, CodingKeys, applyTrigger, is1024, is512, prompt, referenceImage, seed (+8 more)
+
 ### Community 71 - "Training State"
+Cohesion: 0.15
+Nodes (7): TrainingSession, Error, TrainingController, TrainingObserver, TrainingStatus, URL, Void
+
+### Community 72 - "Image-to-Image Training Tests"
 Cohesion: 0.24
 Nodes (8): TrainingState, Date, Float, Int, String, TimeInterval, UInt64, URL
 
-### Community 72 - "Image-to-Image Training Tests"
-Cohesion: 0.19
-Nodes (3): LoRAConfigSchedulerOverridesTests, SchedulerOverridesTests, SchedulerOverrides
-
 ### Community 75 - "Generation Result Tests"
+Cohesion: 0.28
+Nodes (7): Int64, Flux2ModelPaths, ModelRegistry.TransformerVariant, Bool, Int64, ModelRegistry, URL
+
+### Community 76 - "Resumable AdamW Optimizer"
 Cohesion: 0.28
 Nodes (9): Float, Int, Linear, MLXArray, RMSNorm, String, MultiModalProjector, MultiModalProjectorConfig (+1 more)
 
-### Community 76 - "Resumable AdamW Optimizer"
+### Community 77 - "Qwen3 Attention"
 Cohesion: 0.29
 Nodes (13): AGENTS.md — Universal Agent Instructions, CDN Provisioning Verification — Sortie A7, CLAUDE.md — Claude-Specific Agent Instructions, Completed Work — OPERATION THIMBLE TYPHOON, EXECUTION_PLAN.md — FLUX.2 on iPad, GEMINI.md — Gemini-Specific Agent Instructions, Integration Tests CI Workflow, On-Device Manual Checklist — FLUX.2 on iPad (+5 more)
 
-### Community 77 - "Qwen3 Attention"
+### Community 78 - "Telemetry Event Types"
 Cohesion: 0.13
 Nodes (15): CodingKeys, activationFunction, attentionHeadDim, axesDimsRope, guidanceEmbeds, inChannels, jointAttentionDim, mlpRatio (+7 more)
-
-### Community 78 - "Telemetry Event Types"
-Cohesion: 0.20
-Nodes (12): Flux2QuantizationConfig, MistralQuantization, bf16, mlx4bit, mlx6bit, mlx8bit, TransformerQuantization, bf16 (+4 more)
 
 ### Community 79 - "Core Extended Tests"
 Cohesion: 0.17
@@ -533,218 +533,194 @@ Cohesion: 0.19
 Nodes (10): ResumableAdamW, ResumableAdamWError, invalidStateFormat, stateMismatch, AdamW, Float, Int, MLXArray (+2 more)
 
 ### Community 83 - "Error Phase Types"
-Cohesion: 0.27
-Nodes (10): Qwen3Attention, Qwen3RoPE, Bool, Float, Int, KVCache, Linear, MLXArray (+2 more)
-
-### Community 84 - "App Lifecycle"
-Cohesion: 0.19
-Nodes (5): EmbeddingTests, IntegrationTests, SchedulerEvalTests, WeightConversionTests, MLXArray
+Cohesion: 0.13
+Nodes (15): Flux2TelemetryEvent, denoiseLoopEnd, denoiseLoopStart, denoiseStepComplete, denoiseStepStart, errorThrown, generationCancelled, numericalAnomaly (+7 more)
 
 ### Community 85 - "Training Status"
-Cohesion: 0.14
-Nodes (3): CachedLatentEntryI2ITests, LatentPackingI2ITests, PositionIDI2ITests
-
-### Community 87 - "Encoder Configuration"
 Cohesion: 0.15
 Nodes (11): KleinVariant, MLXArray, FluxToolMode, embeddings, klein4B, klein9B, kleinUpI2I, kleinUpT2I (+3 more)
 
-### Community 88 - "Quantization Config Tests"
-Cohesion: 0.14
-Nodes (14): ErrorPhase, generationCancelled, generationFailed, imageProcessingFailed, insufficientMemory, invalidConfiguration, loraLoadFailed, modelNotDownloaded (+6 more)
+### Community 86 - "Training Variants Tests"
+Cohesion: 0.29
+Nodes (7): WeightComponent, lora, textEncoderDev, textEncoderKlein, textEncoderTraining, transformer, vae
 
-### Community 89 - "Model Error Types"
+### Community 87 - "Encoder Configuration"
 Cohesion: 0.15
 Nodes (9): App, AppDelegate, Flux2App, Notification, NSApplication, NSApplicationDelegate, NSObject, Scene (+1 more)
 
-### Community 91 - "LoRA Training Helper"
-Cohesion: 0.23
-Nodes (9): async, escaping, Sendable, AnomalyKind, inf, nan, outOfRange, zeroLatent (+1 more)
-
-### Community 92 - "Transformer KV Cache"
+### Community 89 - "Model Error Types"
 Cohesion: 0.24
 Nodes (4): GenerationConfig, MistralConfig, MistralVisionConfig, Int
 
-### Community 93 - "Pentacles Tarot Captions"
-Cohesion: 0.29
-Nodes (7): Qwen3GenerationConfig, Qwen3TextConfig, Bool, Decoder, Float, Int, String
-
-### Community 94 - "Cat Beach Render Steps"
+### Community 90 - "Instrumentation Requirements"
 Cohesion: 0.26
-Nodes (9): HiddenStatesConfig, PoolingStrategy, cls, lastToken, max, none, Bool, Int (+1 more)
+Nodes (3): LoRAConfigSchedulerOverridesTests, LoRAConfigTests, LoRAConfig
 
-### Community 95 - "LoRA Config Validation Errors"
+### Community 91 - "LoRA Training Helper"
 Cohesion: 0.17
-Nodes (11): Flux2Core, Flux2Error, generationCancelled, generationFailed, imageProcessingFailed, insufficientMemory, invalidConfiguration, modelNotLoaded (+3 more)
+Nodes (12): Flux2DownloadError, notProvisionedOnCDN, LocalizedError, MistralModelError, invalidConfig, loadError, noWeightsFound, Qwen3ModelError (+4 more)
 
-### Community 96 - "Memory Config Tests"
+### Community 92 - "Transformer KV Cache"
+Cohesion: 0.36
+Nodes (8): Qwen3Attention, Qwen3RoPE, Bool, Float, Int, Linear, Qwen3TextConfig, RMSNorm
+
+### Community 93 - "Pentacles Tarot Captions"
 Cohesion: 0.17
 Nodes (12): Instrumentation Requirements, FlowMatchEulerScheduler, Flux2Error, Flux2Pipeline, Flux2TelemetryAdapter (Vinetas), Flux2TelemetryEvent, Flux2TelemetryReporter, KleinTextEncoder (+4 more)
 
-### Community 97 - "Text Encoder Weight Loader"
+### Community 94 - "Cat Beach Render Steps"
 Cohesion: 0.33
 Nodes (4): Int, MLXArray, LayerKVCacheEntry, TransformerKVCache
 
-### Community 98 - "Models Management View"
+### Community 95 - "LoRA Config Validation Errors"
 Cohesion: 0.17
 Nodes (12): Image: Queen of Pentacles (Rider-Waite woodcut), Caption: Queen of Pentacles, Caption: Knight of Pentacles, Caption: Page of Pentacles, Caption: Ten of Pentacles, Caption: Nine of Pentacles, Caption: Six of Pentacles, Caption: Five of Pentacles (+4 more)
 
-### Community 99 - "VAE Decoder"
+### Community 96 - "Memory Config Tests"
 Cohesion: 0.20
 Nodes (11): Cat Beach Standard — Step 7 (early noise, faint silhouette), Cat Beach Standard — Step 14 (emerging cat silhouette), Cat Beach Standard — Step 21 (refining cat on beach), Cat Beach Standard — Step 28 (final: tabby cat in sunglasses on sunny beach), Cat Beach Upsampled — Final (tabby cat in black sunglasses on beach), Cat Beach Upsampled — Step 7 (early noise), Cat Beach Upsampled — Step 14 (emerging silhouette), Cat Beach Upsampled — Step 21 (refining cat) (+3 more)
 
-### Community 100 - "Mistral Text Config"
+### Community 97 - "Text Encoder Weight Loader"
 Cohesion: 0.31
 Nodes (10): LoRATrainingConfigError, controlPathNotFound, datasetNotFound, invalidAlpha, invalidBatchSize, invalidEpochs, invalidImageSize, invalidLearningRate (+2 more)
 
-### Community 103 - "Learning Curve SVG Plot"
+### Community 102 - "Qwen3 Decoder Layer"
 Cohesion: 0.27
 Nodes (7): TextEncoderWeightLoader, TextEncoderWeightLoaderError, fileNotFound, noWeightsFound, weightMismatch, MLXArray, String
 
-### Community 104 - "Transformer KV Cache"
-Cohesion: 0.18
-Nodes (11): LocalizedError, MistralModelError, invalidConfig, loadError, noWeightsFound, Qwen3ModelError, invalidConfig, loadError (+3 more)
+### Community 103 - "Learning Curve SVG Plot"
+Cohesion: 0.36
+Nodes (7): Bool, Int64, ModelVariant, Void, ModelRowView, ModelStatusBar, Qwen3ModelRowView
 
-### Community 105 - "Lazy Text Encoder Cache"
-Cohesion: 0.25
-Nodes (10): Bool, Int64, ModelInfo, ModelVariant, Qwen3ModelInfo, Void, ModelRowView, ModelsManagementView (+2 more)
+### Community 104 - "Transformer KV Cache"
+Cohesion: 0.29
+Nodes (6): MistralTextConfig, json, Bool, Decoder, Float, String
 
 ### Community 107 - "Image-to-Image Artistic Variation"
 Cohesion: 0.29
 Nodes (7): Qwen3DecoderLayer, Qwen3Attention, Qwen3MLP, KVCache, MLXArray, Qwen3TextConfig, RMSNorm
 
-### Community 109 - "Training Controller Observers"
+### Community 108 - "Training Text Encoder"
 Cohesion: 0.39
 Nodes (9): Cat Toy LoRA Config — Flux.2 Dev, Cat Toy LoRA Config — Klein 4B, Cat Toy LoRA Config — Klein 9B, Cat Toy Caption 1, Photo: striped multicolor wooden cat figurine on carpet, Photo: striped wooden cat figurine on carpeted stairs, Photo: striped wooden cat figurine on desk near water bottle and glasses, Photo: striped wooden cat figurine in front of a book (+1 more)
 
-### Community 110 - "Tokenizer CDN Migration Op"
-Cohesion: 0.22
-Nodes (9): CodingKey, CodingKeys, bits, groupSize, quantization, CodingKeys, bits, groupSize (+1 more)
-
-### Community 111 - "Memory Optimization Config"
-Cohesion: 0.33
-Nodes (5): MistralTextConfig, Bool, Decoder, Float, String
-
-### Community 112 - "Training Checkpoint Notifications"
+### Community 109 - "Training Controller Observers"
 Cohesion: 0.31
 Nodes (3): Flux2PhysFootprintTelemetryTests, makeStat(), TuberiaTensorStat
 
-### Community 113 - "Fused Rotary Embedding Kernels"
+### Community 110 - "Tokenizer CDN Migration Op"
 Cohesion: 0.22
 Nodes (9): I2I Artistic Variation — Final (colored-pencil tabby cat on beach), I2I Artistic Variation — Step 7 (early noise), I2I Artistic Variation — Step 14 (faint cat), I2I Artistic Variation — Step 21 (emerging cat), I2I Artistic Variation — Step 28 (soft painterly cat on beach), I2I Artistic Variation — Watercolor (cat in sunglasses, watercolor style), Watercolor Checkpoints — Step 7 (early noise), Watercolor Checkpoints — Step 21 (faint cat silhouette) (+1 more)
 
-### Community 114 - "On-the-Fly Quantization Tests"
+### Community 111 - "Memory Optimization Config"
 Cohesion: 0.43
 Nodes (8): CDN Ship Log, EXECUTION_PLAN — Operation Farewell Embrace, Recon — CDN Inventory (Sortie 1), Recon — swift-tokenizers Reference, SUPERVISOR_STATE — Operation Farewell Embrace, SwiftAcervo / R2 CDN, DePasqualeOrg/swift-tokenizers, Tokenizer Migration Requirements
 
-### Community 115 - "MLX Checkpoint Bindings"
+### Community 112 - "Training Checkpoint Notifications"
 Cohesion: 0.29
 Nodes (6): Flux2Model, ModelTierGate, Bool, Flux2TelemetryReporter, Int, MemoryConfig
 
-### Community 116 - "Qwen3 Chat View"
+### Community 113 - "Fused Rotary Embedding Kernels"
 Cohesion: 0.29
 Nodes (5): DType, Bool, Int, MLXArray, Flux2FusedKernels
 
-### Community 119 - "Timestep Sampling Modes"
+### Community 115 - "MLX Checkpoint Bindings"
 Cohesion: 0.50
 Nodes (7): mlx_closure, mlx_vector_array, MLXArray, checkpoint(), mlx_vector_array_values(), new_mlx_closure(), new_mlx_vector_array()
 
-### Community 120 - "Transformer KV Cache Tests"
+### Community 116 - "Qwen3 Chat View"
 Cohesion: 0.39
 Nodes (6): Double, Int, String, formatBytesUI(), formatDeltaBytesUI(), Qwen3ChatView
 
-### Community 121 - "Vision View Image Loading"
+### Community 117 - "Image Drop Handling"
 Cohesion: 0.25
 Nodes (4): Bool, ModelManager, NSItemProvider, ImageToImageView
 
-### Community 122 - "LoRA Training Learning Curve"
+### Community 118 - "Reference Image Slots UI"
 Cohesion: 0.32
 Nodes (7): ReferenceImage, URL, Void, AddImageSlot, EmptyImageSlot, InterpretImageThumbnail, ReferenceImageSlot
 
-### Community 123 - "Mistral MLP"
+### Community 119 - "Timestep Sampling Modes"
 Cohesion: 0.29
-Nodes (7): CodingKeys, applyTrigger, is1024, is512, prompt, referenceImage, seed
+Nodes (7): TimestepSampling, balanced, content, fluxShift, logitNormal, style, uniform
 
-### Community 125 - "Training Memory Config"
+### Community 121 - "Vision View Image Loading"
 Cohesion: 0.38
 Nodes (4): GenerationStats, NSImage, NSItemProvider, VisionView
 
-### Community 126 - "Text Encoder Memory Config"
+### Community 122 - "LoRA Training Learning Curve"
 Cohesion: 0.33
 Nodes (7): LoRA Training Learning Curve (chart), Step 0 No-Trigger — real tabby cat on couch, Step 0 Trigger — painted wooden cat figurine on beach, Step 125 No-Trigger — real tabby cat on couch, Step 125 Trigger — rainbow-striped cat figurine on beach, Step 250 Trigger — striped cat figurine statue on beach, Flux.2 LoRA Training Guide
 
-### Community 127 - "Dev Text Encoder Tests"
+### Community 123 - "Mistral MLP"
 Cohesion: 0.43
 Nodes (4): MistralMLP, Linear, MistralTextConfig, MLXArray
 
-### Community 128 - "Flux2 Model Tests"
+### Community 124 - "Qwen3 MLP"
 Cohesion: 0.43
 Nodes (4): Qwen3MLP, Linear, MLXArray, Qwen3TextConfig
 
-### Community 129 - "Gradient Checkpointing Config Tests"
+### Community 125 - "Training Memory Config"
 Cohesion: 0.29
 Nodes (5): Flux2Model, Int, String, Training, TrainingQuantization
 
-### Community 130 - "Inference Variant Tests"
-Cohesion: 0.29
-Nodes (7): WeightComponent, lora, textEncoderDev, textEncoderKlein, textEncoderTraining, transformer, vae
+### Community 126 - "Text Encoder Memory Config"
+Cohesion: 0.33
+Nodes (5): ResumeMode, autoResume, forceFresh, fresh, fromStep
 
-### Community 135 - "VAE Config Tests"
+### Community 132 - "Klein9B KV Enum Tests"
 Cohesion: 0.47
 Nodes (6): Input Map of Paris with Red Arrow, Generated Photo of Paris (Eiffel Tower, final output), I2I Map to Paris Photo Example README, Map-Paris Generation Checkpoint Step 7 (early noise), Map-Paris Generation Checkpoint Step 21 (Eiffel Tower emerging), Map-Paris Generation Final Step 28 (Paris cityscape)
 
-### Community 136 - "Map-to-Paris I2I Example"
+### Community 133 - "LoRA Config Tests"
 Cohesion: 0.40
 Nodes (3): Flux2TelemetryEvent, Flux2TelemetryReporter, NoopFlux2TelemetryReporter
 
-### Community 137 - "Telemetry Reporter"
+### Community 134 - "Memory Manager Tests"
 Cohesion: 0.47
 Nodes (3): Int, String, FluxDebug
 
-### Community 138 - "Flux Debug Logging"
+### Community 135 - "VAE Config Tests"
 Cohesion: 0.40
 Nodes (5): FLUX.2 image generation, Watercolor fox by a waterfall (final), Fox watercolor checkpoint step 002 (noise), Fox watercolor checkpoint step 004 (formed), On-the-fly Transformer Quantization Benchmark
 
-### Community 142 - "Transformer Config Tests"
-Cohesion: 0.40
-Nodes (3): Int4DirectLoadGPUTests, int4DirectLoadTestEnabled(), Bool
-
-### Community 143 - "Anomaly Check Classifier"
+### Community 138 - "Flux Debug Logging"
 Cohesion: 0.40
 Nodes (3): IPad8GBDeviceMatrixGPUTests, iPad8GBSmokeTestEnabled(), Bool
 
-### Community 144 - "Tarot LoRA Training Assets"
+### Community 139 - "Watercolor Fox Generation"
 Cohesion: 0.40
 Nodes (3): iPad16GBSmokeTestEnabled(), IPadDeviceMatrixGPUTests, Bool
 
-### Community 145 - "Test Image Helper"
+### Community 140 - "Generation Mode Tests"
 Cohesion: 0.60
 Nodes (3): fetch(), prime_one(), acervo-ci-prime.sh script
 
-### Community 146 - "LoRA Training Helper"
+### Community 141 - "Klein9B KV Registry Tests"
 Cohesion: 0.40
 Nodes (3): Flux2TelemetryEvent, TuberiaTensorStat, AnomalyCheck
 
-### Community 147 - "Twin Lighthouse Telemetry Audit"
+### Community 142 - "Transformer Config Tests"
 Cohesion: 0.50
 Nodes (5): Image: King of Pentacles (Rider-Waite woodcut), Caption: King of Pentacles, Tarot Style LoRA Training Configuration, klein-4b base model, Tarot Dataset (multimodalart/tarot-dataset)
 
-### Community 148 - "Bulk Ship Script"
+### Community 143 - "Anomaly Check Classifier"
 Cohesion: 0.40
 Nodes (3): TestImage, CGImage, Int
 
-### Community 149 - "Flux2 Telemetry Setup"
+### Community 145 - "Test Image Helper"
 Cohesion: 0.83
 Nodes (4): Operation Twin Lighthouse Iteration 03 Brief, Twin Lighthouse Supervisor State, Cross-Library Telemetry Audit, Test Cleanup Report
 
-### Community 150 - "Operation Universal Solvent Docs"
+### Community 146 - "LoRA Training Helper"
 Cohesion: 0.50
 Nodes (3): Flux2GenerationMode, imageToImage, textToImage
 
-### Community 151 - "Text-to-Image View"
+### Community 147 - "Twin Lighthouse Telemetry Audit"
 Cohesion: 0.83
 Nodes (3): run_ship(), ship_repo(), wu1-bulk-ship.sh script
 
-### Community 154 - "Quantization Benchmark Output"
+### Community 150 - "Operation Universal Solvent Docs"
 Cohesion: 0.50
 Nodes (4): Operation Universal Solvent — Brief, Operation Universal Solvent — Completion Log, Operation Universal Solvent — Execution Plan, Operation Universal Solvent — Supervisor State
 
@@ -753,24 +729,24 @@ Nodes (4): Operation Universal Solvent — Brief, Operation Universal Solvent �
   docs/examples/flux2-dev/i2i_cat_hat_jacket/checkpoints/step_028.png · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **646 isolated node(s):** `Scene`, `Notification`, `NSApplication`, `Bool`, `MessageRole` (+641 more)
+- **655 isolated node(s):** `Scene`, `Notification`, `NSApplication`, `Bool`, `MessageRole` (+650 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **64 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **65 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Cat-Hat-Jacket I2I Final Step 28 (cat in hat and jacket on beach)` and `Beaver Building a Dam (1024x1024 T2I)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `Flux2Pipeline` connect `Memory Delta Types` to `Core GPU Tests`, `Qwen3 Decoder Layer`, `Latent Caching`, `Generation Pipeline & Results`, `Image-to-Image Training Tests`, `LoRA Training Helper`, `Training Text Encoder`, `Transformer Config Tests`, `Anomaly Check Classifier`, `Tarot LoRA Training Assets`, `LoRA Training Config`, `Profiler`, `Operation Universal Solvent Docs`, `Telemetry Surface Audit`, `LoRA Loader`?**
-  _High betweenness centrality (0.103) - this node is a cross-community bridge._
-- **Why does `Task` connect `Core GPU Tests` to `Text Encoder Errors`, `VAE Configuration`, `Mistral Generator`, `Telemetry & Anomaly Tests`, `Memory Delta Types`, `Memory Config & Cache`, `Mistral VLM Model`, `Parallel Attention`, `Profiler`, `Encoder Configuration`, `Model Registry Tests`, `Transformer KV Cache Tests`, `Training Memory Config`, `LoRA Loader`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Why does `FlowMatchEulerScheduler` connect `LoRA Training Config` to `LoRA Training Helper`, `App Lifecycle`, `Memory Delta Types`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Are the 14 inferred relationships involving `Flux2Pipeline` (e.g. with `.pipelinePropertyDefaultsMatchTierAwareStatics()` and `.pipelineVAETilingConfigMatchesRAMDerivedSelection()`) actually correct?**
-  _`Flux2Pipeline` has 14 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Flux2Pipeline` connect `Embedding Extractor` to `Simple LoRA Trainer`, `Training Controller`, `Mistral Text Config`, `Scheduler Overrides Tests`, `LoRA Linear Injection`, `Latent Caching`, `Model Registry`, `Flux Debug Logging`, `Watercolor Fox Generation`, `Debug Logging`, `LoRA Training Helper`, `Text Encoder Model Registry`, `Model Registry Tests`?**
+  _High betweenness centrality (0.120) - this node is a cross-community bridge._
+- **Why does `Task` connect `Simple LoRA Trainer` to `Training Controller`, `LoRA Linear Injection`, `VAE Configuration`, `Training State`, `Mistral Attention & KV Cache`, `Telemetry Event Anomalies`, `Scheduler & Core Tests`, `Training Session & Resume`, `Qwen3 Generator`, `Embedding Extractor`, `Chat ViewModel`, `Training Status`, `Model Registry Tests`, `Qwen3 Chat View`, `Vision View Image Loading`?**
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
+- **Why does `FlowMatchEulerScheduler` connect `Text Encoder Model Registry` to `Embedding Extractor`, `Debug Logging`, `Beaver Render Prompts`?**
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Are the 15 inferred relationships involving `Flux2Pipeline` (e.g. with `.pipelinePropertyDefaultsMatchTierAwareStatics()` and `.pipelineVAETilingConfigMatchesRAMDerivedSelection()`) actually correct?**
+  _`Flux2Pipeline` has 15 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `Scene`, `Notification`, `NSApplication` to the rest of the system?**
-  _646 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _657 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Text Encoder GPU Tests` be split into smaller, more focused modules?**
-  _Cohesion score 0.0680379746835443 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05907172995780591 - nodes in this community are weakly interconnected._
