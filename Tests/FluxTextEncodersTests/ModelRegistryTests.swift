@@ -133,14 +133,6 @@ struct TextEncoderModelRegistryTests {
     #expect(model == nil, "Should return nil for non-existent ID")
   }
 
-  @Test @MainActor func textEncoderModelRegistryFindByVariantNotFound() {
-    // All variants should exist, but test the lookup mechanism
-    let model = TextEncoderModelRegistry.shared.model(withVariant: .bf16)
-    // bf16 may or may not be registered depending on implementation
-    // Just verify the lookup doesn't crash
-    _ = model
-  }
-
   // MARK: - Model Metadata Tests
 
   @Test @MainActor func registeredModelsHaveValidMetadata() {
@@ -228,39 +220,6 @@ struct TextEncoderModelRegistryTests {
     #expect(!Qwen3Variant.qwen3_4B_4bit.isGated)
     #expect(!Qwen3Variant.qwen3_8B_8bit.isGated)
     #expect(!Qwen3Variant.qwen3_8B_4bit.isGated)
-  }
-
-  // MARK: - Origin URL Tests
-  // Sortie 20 removed the computed `huggingFaceURL` property from ModelVariant,
-  // ModelInfo, and Qwen3Variant (no runtime HF fetches occur after the CDN
-  // migration).  The assertion intent was: "each model's origin URL is well-formed
-  // and contains the expected repo ID."  We replicate that intent by constructing
-  // the origin URL from `repoId` — same computation, different spelling.
-
-  @Test @MainActor func modelVariantOriginURL() {
-    for variant in ModelVariant.allCases {
-      let originURL = "https://huggingface.co/\(variant.repoId)"
-      #expect(originURL.starts(with: "https://huggingface.co/"))
-      #expect(originURL.contains(variant.repoId))
-    }
-  }
-
-  @Test @MainActor func modelInfoOriginURL() {
-    let models = TextEncoderModelRegistry.shared.allModels()
-
-    for model in models {
-      let originURL = "https://huggingface.co/\(model.repoId)"
-      #expect(originURL.starts(with: "https://huggingface.co/"))
-      #expect(originURL.contains(model.repoId))
-    }
-  }
-
-  @Test @MainActor func qwen3VariantOriginURL() {
-    for variant in Qwen3Variant.allCases {
-      let originURL = "https://huggingface.co/\(variant.repoId)"
-      #expect(originURL.starts(with: "https://huggingface.co/"))
-      #expect(originURL.contains(variant.repoId))
-    }
   }
 
   @Test @MainActor func modelVariantRepoIdValues() {

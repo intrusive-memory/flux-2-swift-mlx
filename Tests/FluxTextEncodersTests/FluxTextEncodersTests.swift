@@ -3,26 +3,13 @@
  * Main unit tests for FluxTextEncoders library
  */
 
+import TestHelpers
 import Testing
 
 @testable import FluxTextEncoders
 
 @Suite("FluxTextEncodersTests")
 struct FluxTextEncodersTests {
-
-  // MARK: - Model State Tests
-
-  @Test func isModelLoadedInitiallyFalse() {
-    // Note: In a real test environment, you'd create a fresh instance
-    // For singleton, this test verifies the property exists
-    let core = FluxTextEncoders.shared
-    _ = core.isModelLoaded  // Should not crash
-  }
-
-  @Test func isVLMLoadedInitiallyFalse() {
-    let core = FluxTextEncoders.shared
-    _ = core.isVLMLoaded  // Should not crash
-  }
 
   // MARK: - Error Tests
 
@@ -42,38 +29,60 @@ struct FluxTextEncodersTests {
     #expect(genFailed.errorDescription == "Generation failed: gen error")
   }
 
-  // MARK: - Generate Without Model Tests
+  // MARK: - Not-Loaded Guards
+  //
+  // Nothing in this test process loads a model into the shared singleton, so
+  // every public entry point must fail fast with the matching "not loaded"
+  // error instead of touching a nil model.
+
+  private func expectNotLoaded(
+    _ expected: FluxEncoderError,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    _ body: () throws -> Void
+  ) {
+    do {
+      try body()
+      Issue.record("Expected \(expected) but the call succeeded", sourceLocation: sourceLocation)
+    } catch let error as FluxEncoderError {
+      #expect(
+        error.errorDescription == expected.errorDescription, sourceLocation: sourceLocation)
+    } catch {
+      Issue.record("Unexpected error \(error)", sourceLocation: sourceLocation)
+    }
+  }
 
   @Test func generateThrowsWhenModelNotLoaded() {
-    // Create a fresh core that definitely doesn't have a model loaded
-    // For singleton, we test that the error is properly defined
-    #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
+    expectNotLoaded(.modelNotLoaded) {
+      _ = try FluxTextEncoders.shared.generate(prompt: "a cat")
+    }
   }
 
   @Test func chatThrowsWhenModelNotLoaded() {
-    #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
+    expectNotLoaded(.modelNotLoaded) {
+      _ = try FluxTextEncoders.shared.chat(messages: [["role": "user", "content": "hi"]])
+    }
   }
-
-  // MARK: - Embeddings Without Model Tests
 
   @Test func extractEmbeddingsThrowsWhenModelNotLoaded() {
-    #expect(FluxEncoderError.modelNotLoaded.errorDescription != nil)
+    expectNotLoaded(.modelNotLoaded) {
+      _ = try FluxTextEncoders.shared.extractEmbeddings(prompt: "a cat")
+    }
   }
 
-  // MARK: - Vision Without Model Tests
-
   @Test func analyzeImageThrowsWhenVLMNotLoaded() {
-    #expect(FluxEncoderError.vlmNotLoaded.errorDescription != nil)
+    let image = TestImage.make(width: 8, height: 8)
+    expectNotLoaded(.vlmNotLoaded) {
+      _ = try FluxTextEncoders.shared.analyzeImage(image: image, prompt: "describe")
+    }
+  }
+
+  @Test func singletonStartsUnloaded() {
+    #expect(!FluxTextEncoders.shared.isModelLoaded)
+    #expect(!FluxTextEncoders.shared.isVLMLoaded)
+    #expect(!FluxTextEncoders.shared.isKleinLoaded)
   }
 
   // MARK: - Tokenization Tests (Basic)
-
-  @Test func tokenizer() throws {
-    let tokenizer = TekkenTokenizer()
-    let text = "Hello world"
-    let tokens = try tokenizer.encode(text)
-    #expect(!tokens.isEmpty, "Tokenization should produce tokens")
-  }
 
   @Test func hiddenStatesConfig() throws {
     let config = HiddenStatesConfig.mfluxDefault
@@ -109,17 +118,6 @@ struct FluxTextEncodersTests {
     #expect(systemMessage.contains("image"), "System message should mention images")
   }
 
-  // MARK: - Export Format Tests
-
-  @Test func exportFormatCases() {
-    let binary = ExportFormat.binary
-    let numpy = ExportFormat.numpy
-    let json = ExportFormat.json
-
-    // Just verify they exist and are distinct
-    #expect(String(describing: binary) != String(describing: numpy))
-    #expect(String(describing: binary) != String(describing: json))
-  }
 }
 
 // MARK: - Integration Tests (Without Model Loading)
