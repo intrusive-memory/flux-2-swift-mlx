@@ -169,6 +169,8 @@ test-tsan: resolve
 # iPad-16GB Klein 4B qint8 smoke test plus the Metal-only module tests.
 # The smoke test skips unless models are primed; point it at a primed cache:
 #   ACERVO_MODELS_DIR=/path/to/cache make test-integration
+# The two suites run as separate invocations (as in CI) so the model-loading
+# smoke test never shares the MLX runtime with the module tests in parallel.
 test-integration: resolve
 	TEST_RUNNER_ACERVO_MODELS_DIR="$(ACERVO_MODELS_DIR)" \
 	TEST_RUNNER_ACERVO_OFFLINE=1 \
@@ -176,7 +178,11 @@ test-integration: resolve
 		-scheme $(PACKAGE_SCHEME) \
 		-destination '$(DESTINATION_MAC)' \
 		$(XCODEBUILD_FLAGS) \
-		-only-testing Flux2GPUTests/IPadDeviceMatrixGPUTests \
+		-only-testing Flux2GPUTests/IPadDeviceMatrixGPUTests
+	xcodebuild test \
+		-scheme $(PACKAGE_SCHEME) \
+		-destination '$(DESTINATION_MAC)' \
+		$(XCODEBUILD_FLAGS) \
 		-only-testing Flux2GPUTests/Flux2CoreModuleTests
 
 # Run the two CI-required test suites.

@@ -19,6 +19,15 @@ func checkGPUPreconditions(minimumBytes: UInt64) -> Bool {
   return true
 }
 
+// MARK: - Shared serialized parent
+
+/// Parent for the GPU suites that load Klein 4B through the process-wide
+/// `FluxTextEncoders.shared` singleton (Flux2CoreGPUTests,
+/// FluxTextEncodersGPUTests). `.serialized` is inherited by the nested suites,
+/// so no two of these tests load/unload the shared encoder or a multi-GB
+/// pipeline concurrently.
+@Suite(.serialized) enum KleinModelGPUTests {}
+
 // MARK: - `.enabled(if:)` gates (skip, never fail, when the host can't run a test)
 
 /// Metal device present and at least `minimumBytes` of physical memory.

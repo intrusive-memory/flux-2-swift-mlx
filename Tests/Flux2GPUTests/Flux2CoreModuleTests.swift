@@ -14,7 +14,12 @@ import Testing
 /// Parent suite so CI can select every Metal-only module test with a single
 /// `-only-testing Flux2GPUTests/Flux2CoreModuleTests` (integration-tests.yml).
 /// These need a Metal device but no model weights.
-@Suite enum Flux2CoreModuleTests {}
+///
+/// `.serialized` (inherited by every nested suite): several of these paths go
+/// through `MLX.compile`, and concurrent compiled calls from swift-testing's
+/// parallel runner deadlock inside MLX (observed: every worker parked in
+/// `__psynch_mutexwait` under `mlx::core::detail::compile`).
+@Suite(.serialized) enum Flux2CoreModuleTests {}
 
 extension Flux2CoreModuleTests {
   // MARK: - Embedding Tests
