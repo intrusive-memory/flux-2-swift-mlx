@@ -1087,17 +1087,14 @@ public class Flux2Pipeline: @unchecked Sendable {
       width: width
     )
 
-    // Check image size feasibility
+    // Image size feasibility is advisory only. The tier pixel cap is derived
+    // from total physical RAM, which does not predict whether a generation
+    // fits (the kernel reclaims pages on demand and MLX allocates lazily), so
+    // it must not refuse a generation. Real allocation failures surface from
+    // load/generate instead.
     let sizeCheck = memoryManager.checkImageSize(width: validWidth, height: validHeight)
-    if case .insufficientMemory = sizeCheck {
-      await currentTelemetry()?.capture(
-        .errorThrown(
-          phase: .insufficientMemory,
-          errorDescription:
-            "Insufficient memory: required 100GB, available \(memoryManager.estimatedAvailableMemoryGB)GB"
-        ))
-      throw Flux2Error.insufficientMemory(
-        required: 100, available: memoryManager.estimatedAvailableMemoryGB)
+    if !sizeCheck.isOk {
+      Flux2Debug.log("Memory warning: \(sizeCheck.message)")
     }
 
     // Set random seed
