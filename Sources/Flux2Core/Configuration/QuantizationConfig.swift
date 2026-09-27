@@ -63,7 +63,7 @@ public enum TransformerQuantization: String, CaseIterable, Codable, Sendable {
 }
 
 /// Independent quantization configuration for text encoder and transformer
-public struct Flux2QuantizationConfig: Codable, Sendable {
+public struct Flux2QuantizationConfig: Codable, Sendable, Equatable {
   /// Quantization for the Mistral text encoder
   public var textEncoder: MistralQuantization
 

@@ -186,7 +186,12 @@ public struct MemoryConfig {
   /// Calculate what percentage of RAM we can safely use for GPU cache
   /// Higher RAM systems can afford to use more cache
   public static var safeCachePercentage: Double {
-    let ram = systemRAMGB
+    safeCachePercentage(forRAMGB: systemRAMGB)
+  }
+
+  /// `safeCachePercentage` for an explicit RAM figure (testable without
+  /// depending on the host's memory).
+  public static func safeCachePercentage(forRAMGB ram: Int) -> Double {
     switch ram {
     case ..<24: return 0.03  // 3% - Very conservative for 16-24GB
     case 24..<48: return 0.05  // 5% - Conservative for 24-48GB
@@ -201,15 +206,19 @@ public struct MemoryConfig {
   /// Calculate recommended cache limit based on system RAM
   /// Returns bytes, or nil for unlimited
   public static func recommendedCacheLimit() -> Int? {
-    let ram = systemRAMGB
+    recommendedCacheLimit(forRAMGB: systemRAMGB)
+  }
 
+  /// `recommendedCacheLimit()` for an explicit RAM figure (testable without
+  /// depending on the host's memory).
+  public static func recommendedCacheLimit(forRAMGB ram: Int) -> Int? {
     // Very high RAM systems (128GB+) can use unlimited cache
     if ram >= 128 {
       return nil
     }
 
     // Calculate based on percentage of RAM
-    let cacheBytes = Int(Double(ram * GB) * safeCachePercentage)
+    let cacheBytes = Int(Double(ram * GB) * safeCachePercentage(forRAMGB: ram))
 
     // Clamp to reasonable bounds
     let minCache = 256 * MB  // At least 256 MB
@@ -253,19 +262,25 @@ public struct MemoryConfig {
 
   /// Get cache limit for a specific profile
   public static func cacheLimitForProfile(_ profile: CacheProfile) -> Int? {
+    cacheLimitForProfile(profile, forRAMGB: systemRAMGB)
+  }
+
+  /// `cacheLimitForProfile(_:)` for an explicit RAM figure (testable without
+  /// depending on the host's memory).
+  public static func cacheLimitForProfile(_ profile: CacheProfile, forRAMGB ram: Int) -> Int? {
     switch profile {
     case .auto:
-      return recommendedCacheLimit()
+      return recommendedCacheLimit(forRAMGB: ram)
     case .conservative:
       return 512 * MB
     case .balanced:
       // Floor at the conservative profile so small-RAM systems still return a
       // positive limit (RAM/32 floors to 0 on < 32 GB systems).
-      return min(2 * GB, max(512 * MB, (systemRAMGB / 32) * GB))
+      return min(2 * GB, max(512 * MB, (ram / 32) * GB))
     case .performance:
       // Floor at the conservative profile so small-RAM systems still return a
       // positive limit (RAM/16 floors to 0 on < 16 GB systems).
-      return min(4 * GB, max(512 * MB, (systemRAMGB / 16) * GB))
+      return min(4 * GB, max(512 * MB, (ram / 16) * GB))
     }
   }
 

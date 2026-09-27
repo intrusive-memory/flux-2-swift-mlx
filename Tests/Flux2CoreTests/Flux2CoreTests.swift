@@ -5,6 +5,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import MLX
+import TestHelpers
 import Testing
 
 @testable import Flux2Core
@@ -12,6 +13,20 @@ import Testing
 #if canImport(AppKit)
   import AppKit
 #endif
+
+/// Advance `scheduler` one step from its current timestep. Only shapes and
+/// scheduler state are asserted on, so deterministic zero/one tensors are used
+/// instead of unseeded random noise.
+@discardableResult
+private func stepOnce(
+  _ scheduler: FlowMatchEulerScheduler, shape: [Int] = [1, 100, 128]
+) -> (sample: MLXArray, next: MLXArray) {
+  let sample = MLXArray.zeros(shape)
+  let modelOutput = MLXArray.ones(shape)
+  let next = scheduler.step(
+    modelOutput: modelOutput, timestep: scheduler.timesteps[scheduler.stepIndex], sample: sample)
+  return (sample, next)
+}
 
 @Suite struct Flux2CoreTests {
 
@@ -103,15 +118,7 @@ import Testing
     let scheduler = FlowMatchEulerScheduler()
     scheduler.setTimesteps(numInferenceSteps: 10)
 
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-
-    let nextSample = scheduler.step(
-      modelOutput: modelOutput,
-      timestep: scheduler.timesteps[0],
-      sample: sample
-    )
-
+    let (sample, nextSample) = stepOnce(scheduler)
     #expect(nextSample.shape == sample.shape)
   }
 
@@ -209,11 +216,7 @@ import Testing
 
     #expect(abs(scheduler.progress - 0.0) < 0.01)
 
-    // Simulate stepping
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
+    stepOnce(scheduler)
 
     #expect(scheduler.progress > 0.0)
     #expect(scheduler.remainingSteps == 9)
@@ -223,10 +226,7 @@ import Testing
     let scheduler = FlowMatchEulerScheduler()
     scheduler.setTimesteps(numInferenceSteps: 10)
 
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
-
+    stepOnce(scheduler)
     #expect(scheduler.stepIndex > 0)
 
     scheduler.reset()
@@ -258,11 +258,7 @@ import Testing
     scheduler.setTimesteps(numInferenceSteps: 10)
 
     let firstSigma = scheduler.currentSigma
-
-    let sample = MLXRandom.normal([1, 100, 128])
-    let modelOutput = MLXRandom.normal([1, 100, 128])
-    _ = scheduler.step(modelOutput: modelOutput, timestep: scheduler.timesteps[0], sample: sample)
-
+    stepOnce(scheduler)
     let secondSigma = scheduler.currentSigma
 
     // Sigma should decrease as we step through
@@ -302,18 +298,21 @@ import Testing
     #expect(!vae.repoId.isEmpty)
   }
 
-  @Test func recommendedConfigForRAM() {
-    // Very low RAM should recommend ultra-minimal config (4-bit)
-    let veryLowRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 24)
-    #expect(veryLowRamConfig.transformer == .int4)
-
-    // Low RAM should recommend minimal config
-    let lowRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 32)
-    #expect(lowRamConfig.transformer == .qint8)
-
-    // High RAM can use bf16
-    let highRamConfig = ModelRegistry.recommendedConfig(forRAMGB: 128)
-    #expect(highRamConfig.transformer == .bf16)
+  /// Single table for `ModelRegistry.recommendedConfig(forRAMGB:)` across the
+  /// iPad tier (≤16 GB → ultraMinimal / int4) and every Mac bucket.
+  @Test(arguments: [
+    (8, Flux2QuantizationConfig.ultraMinimal),
+    (12, .ultraMinimal),
+    (16, .ultraMinimal),
+    (24, .ultraMinimal),
+    (32, .minimal),
+    (48, .memoryEfficient),
+    (64, .balanced),
+    (96, .highQuality),
+    (128, .highQuality),
+  ])
+  func recommendedConfigByRAM(ramGB: Int, expected: Flux2QuantizationConfig) {
+    #expect(ModelRegistry.recommendedConfig(forRAMGB: ramGB) == expected)
   }
 
   // MARK: - Gated Status Tests
@@ -1011,30 +1010,6 @@ import Testing
     }
   }
 
-  @Test func recommendedConfigAllTiers() {
-    // Ultra-minimal tier (<32GB)
-    let ultra = ModelRegistry.recommendedConfig(forRAMGB: 24)
-    #expect(ultra.transformer == .int4)
-
-    // Minimal tier (32-48GB)
-    let minimal = ModelRegistry.recommendedConfig(forRAMGB: 32)
-    #expect(minimal.transformer == .qint8)
-
-    // Balanced tier (48-96GB)
-    let balanced48 = ModelRegistry.recommendedConfig(forRAMGB: 48)
-    #expect(balanced48.transformer == .qint8)
-
-    let balanced64 = ModelRegistry.recommendedConfig(forRAMGB: 64)
-    #expect(balanced64.transformer == .qint8)
-
-    // High quality tier (96GB+)
-    let high = ModelRegistry.recommendedConfig(forRAMGB: 96)
-    #expect(high.transformer == .bf16)
-
-    let veryHigh = ModelRegistry.recommendedConfig(forRAMGB: 128)
-    #expect(veryHigh.transformer == .bf16)
-  }
-
   @Test func int4QuantizationGroupSize() {
     // All quantization levels use the same group size
     #expect(TransformerQuantization.bf16.groupSize == 64)
@@ -1231,17 +1206,17 @@ import Testing
   }
 
   @Test func systemRAMDetection() {
-    // System RAM should be detected and reasonable
-    let ram = MemoryConfig.systemRAMGB
-    #expect(ram > 0)
-    #expect(ram < 1024)  // Less than 1TB
+    // The host read must agree with ProcessInfo (value itself is host-dependent).
+    #expect(
+      MemoryConfig.systemRAMGB
+        == Int(ProcessInfo.processInfo.physicalMemory / UInt64(1024 * 1024 * 1024)))
   }
 
-  @Test func safeCachePercentage() {
-    // Safe cache percentage should be between 0 and 1
-    let pct = MemoryConfig.safeCachePercentage
-    #expect(pct > 0)
-    #expect(pct <= 1.0)
+  @Test(arguments: [
+    (16, 0.03), (24, 0.05), (32, 0.05), (48, 0.08), (64, 0.08), (96, 0.12), (192, 0.15),
+  ])
+  func safeCachePercentageByRAM(ramGB: Int, expected: Double) {
+    #expect(MemoryConfig.safeCachePercentage(forRAMGB: ramGB) == expected)
   }
 
   @Test func conservativeProfileLimit() {
@@ -1251,23 +1226,42 @@ import Testing
     #expect(limit == 512 * 1024 * 1024)  // 512 MB
   }
 
-  @Test func performanceProfileLimit() {
-    // Performance should return up to 4 GB
-    let limit = MemoryConfig.cacheLimitForProfile(.performance)
-    #expect(limit != nil)
-    #expect(limit! > 0)
-    #expect(limit! <= 4 * 1024 * 1024 * 1024)  // Max 4 GB
+  private static let mib = 1024 * 1024
+  private static let gib = 1024 * mib
+
+  // RAM/16 GB, floored at 512 MB and capped at 4 GB.
+  private static let performanceLimits: [(Int, Int)] = [
+    (7, 512 * mib), (16, gib), (48, 3 * gib), (128, 4 * gib),
+  ]
+
+  @Test(arguments: performanceLimits)
+  func performanceProfileLimitByRAM(ramGB: Int, expected: Int) {
+    #expect(MemoryConfig.cacheLimitForProfile(.performance, forRAMGB: ramGB) == expected)
   }
 
-  @Test func autoProfileLimit() {
-    // Auto should return a dynamic limit based on system RAM
-    let limit = MemoryConfig.cacheLimitForProfile(.auto)
-    // For systems < 128GB, should return a limit
-    // For systems >= 128GB, might return nil (unlimited)
-    if MemoryConfig.systemRAMGB < 128 {
-      #expect(limit != nil)
-      #expect(limit! >= 256 * 1024 * 1024)  // At least 256 MB (small-RAM runners hit the floor exactly)
-    }
+  // RAM/32 GB, floored at 512 MB and capped at 2 GB.
+  private static let balancedLimits: [(Int, Int)] = [
+    (16, 512 * mib), (32, gib), (128, 2 * gib),
+  ]
+
+  @Test(arguments: balancedLimits)
+  func balancedProfileLimitByRAM(ramGB: Int, expected: Int) {
+    #expect(MemoryConfig.cacheLimitForProfile(.balanced, forRAMGB: ramGB) == expected)
+  }
+
+  private static let autoLimits: [(Int, Int?)] = [
+    // 7 GB CI runner: 3% of 7 GB (~215 MB) is below the 256 MB floor.
+    (7, 256 * mib),
+    // 64 GB: 8% of 64 GB (inside the 256 MB–8 GB clamp).
+    (64, Int(Double(64 * gib) * 0.08)),
+    // 128 GB+: unlimited.
+    (128, nil),
+  ]
+
+  @Test(arguments: autoLimits)
+  func autoProfileLimitByRAM(ramGB: Int, expected: Int?) {
+    #expect(MemoryConfig.cacheLimitForProfile(.auto, forRAMGB: ramGB) == expected)
+    #expect(MemoryConfig.recommendedCacheLimit(forRAMGB: ramGB) == expected)
   }
 
   @Test func phaseLimitsForKlein4B() {
@@ -1537,20 +1531,6 @@ import Testing
     return (ptr[offset + rOff], ptr[offset + gOff], ptr[offset + bOff])
   }
 
-  /// Helper: encode CGImage to PNG Data
-  private func pngData(from image: CGImage) -> Data? {
-    let mutableData = NSMutableData()
-    guard
-      let destination = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      return nil
-    }
-    CGImageDestinationAddImage(destination, image, nil)
-    guard CGImageDestinationFinalize(destination) else { return nil }
-    return mutableData as Data
-  }
-
   /// Test 1: CGImageSource roundtrip is pixel-exact
   @Test func cgImageSourceRoundtripPixelExact() {
     let width = 8
@@ -1558,7 +1538,7 @@ import Testing
     let original = createGradientCGImage(width: width, height: height)
 
     // Encode to PNG
-    guard let data = pngData(from: original) else {
+    guard let data = TestImage.encode(original) else {
       Issue.record("Failed to encode PNG")
       return
     }
@@ -1735,75 +1715,12 @@ import Testing
 
 @Suite struct CGImageSourcePipelineTests {
 
-  @Test func cgImageFromValidPNGData() {
-    // Create a small CGImage and encode to PNG
-    let width = 4
-    let height = 4
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-        space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    // Encode to PNG data
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create image destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize image")
-      return
-    }
-
-    // Decode via pipeline helper
-    let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
-    #expect(decoded != nil)
-    #expect(decoded?.width == width)
-    #expect(decoded?.height == height)
-  }
-
-  @Test func cgImageFromValidJPEGData() {
-    let width = 8
-    let height = 8
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    guard
-      let ctx = CGContext(
-        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-        space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
-      let img = ctx.makeImage()
-    else {
-      Issue.record("Failed to create test image")
-      return
-    }
-
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.jpeg" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create JPEG destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize JPEG")
-      return
-    }
-
-    let decoded = Flux2Pipeline.cgImage(from: mutableData as Data)
-    #expect(decoded != nil)
-    #expect(decoded?.width == width)
-    #expect(decoded?.height == height)
+  @Test(arguments: [("public.png", 4), ("public.jpeg", 8)])
+  func cgImageFromEncodedData(uti: String, size: Int) throws {
+    let data = try #require(TestImage.encode(TestImage.make(width: size, height: size), uti: uti))
+    let decoded = Flux2Pipeline.cgImage(from: data)
+    #expect(decoded?.width == size)
+    #expect(decoded?.height == size)
   }
 
   @Test func cgImageFromInvalidData() {
@@ -1846,22 +1763,13 @@ import Testing
     }
 
     // Encode to PNG (lossless)
-    let mutableData = NSMutableData()
-    guard
-      let dest = CGImageDestinationCreateWithData(
-        mutableData as CFMutableData, "public.png" as CFString, 1, nil)
-    else {
-      Issue.record("Failed to create PNG destination")
-      return
-    }
-    CGImageDestinationAddImage(dest, img, nil)
-    guard CGImageDestinationFinalize(dest) else {
-      Issue.record("Failed to finalize PNG")
+    guard let pngData = TestImage.encode(img) else {
+      Issue.record("Failed to encode PNG")
       return
     }
 
     // Decode and verify
-    guard let decoded = Flux2Pipeline.cgImage(from: mutableData as Data) else {
+    guard let decoded = Flux2Pipeline.cgImage(from: pngData) else {
       Issue.record("Failed to decode PNG")
       return
     }
@@ -2171,24 +2079,15 @@ import Testing
 
   // MARK: Tier resolution
 
-  @Test func iPadTierResolvesFor8GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 8) == .iPad)
-  }
-
-  @Test func iPadTierResolvesFor12GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 12) == .iPad)
-  }
-
-  @Test func iPadTierResolvesFor16GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 16) == .iPad)
-  }
-
-  @Test func macTierResolvesFor32GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 32) == .mac)
-  }
-
-  @Test func macTierResolvesFor64GB() {
-    #expect(MemoryConfig.tier(forRAMGB: 64) == .mac)
+  @Test(arguments: [
+    (8, MemoryConfig.MemoryTier.iPad),
+    (12, .iPad),
+    (16, .iPad),
+    (32, .mac),
+    (64, .mac),
+  ])
+  func tierResolvesByRAM(ramGB: Int, expected: MemoryConfig.MemoryTier) {
+    #expect(MemoryConfig.tier(forRAMGB: ramGB) == expected)
   }
 
   @Test func iPadTierBoundaryIsInclusiveAt16() {
@@ -2225,16 +2124,16 @@ import Testing
 
   // MARK: Forced cache profile (conservative = 512 MB)
 
-  @Test func iPadTierForcesConservativeCacheProfileAt8GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 8) == .conservative)
-  }
-
-  @Test func iPadTierForcesConservativeCacheProfileAt12GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 12) == .conservative)
-  }
-
-  @Test func iPadTierForcesConservativeCacheProfileAt16GB() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 16) == .conservative)
+  /// The iPad tier forces `.conservative`; the Mac tier keeps `.auto`.
+  @Test(arguments: [
+    (8, MemoryConfig.CacheProfile.conservative),
+    (12, .conservative),
+    (16, .conservative),
+    (32, .auto),
+    (64, .auto),
+  ])
+  func cacheProfileByRAM(ramGB: Int, expected: MemoryConfig.CacheProfile) {
+    #expect(MemoryConfig.cacheProfile(forRAMGB: ramGB) == expected)
   }
 
   @Test func conservativeProfileMapsTo512MB() {
@@ -2242,71 +2141,27 @@ import Testing
     #expect(MemoryConfig.cacheLimitForProfile(.conservative) == 512 * 1024 * 1024)
   }
 
-  @Test func macTierDoesNotForceConservativeCacheProfile() {
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 32) == .auto)
-    #expect(MemoryConfig.cacheProfile(forRAMGB: 64) == .auto)
-  }
-
   // MARK: MemoryOptimizationConfig routing
 
-  @Test func iPadTierUsesUltraLowMemoryAt8GB() {
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 8) == .ultraLowMemory)
+  /// iPad tier → `.ultraLowMemory`; 32+ GB keeps the pre-existing Mac presets.
+  @Test(arguments: [
+    (8, MemoryOptimizationConfig.ultraLowMemory),
+    (12, .ultraLowMemory),
+    (16, .ultraLowMemory),
+    (32, .aggressive),
+    (64, .moderate),
+    (96, .light),
+    (128, .disabled),
+  ])
+  func memoryOptimizationByRAM(ramGB: Int, expected: MemoryOptimizationConfig) {
+    #expect(MemoryOptimizationConfig.recommended(forRAMGB: ramGB) == expected)
   }
 
-  @Test func iPadTierUsesUltraLowMemoryAt12GB() {
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 12) == .ultraLowMemory)
+  @Test func ultraLowMemoryEvaluatesEveryTwoBlocksAndClearsCache() {
+    #expect(MemoryOptimizationConfig.ultraLowMemory.evalFrequency == 2)
+    #expect(MemoryOptimizationConfig.ultraLowMemory.clearCacheOnEval)
   }
 
-  @Test func iPadTierUsesUltraLowMemoryAt16GB() {
-    let config = MemoryOptimizationConfig.recommended(forRAMGB: 16)
-    #expect(config == .ultraLowMemory)
-    // ultraLowMemory == eval every 2 blocks + clear cache
-    #expect(config.evalFrequency == 2)
-    #expect(config.clearCacheOnEval)
-  }
-
-  @Test func macTiersKeepExistingMemoryOptimization() {
-    // No regression: 32+ GB still resolves to the pre-existing Mac presets.
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 32) == .aggressive)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 64) == .moderate)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 96) == .light)
-    #expect(MemoryOptimizationConfig.recommended(forRAMGB: 128) == .disabled)
-  }
-
-  // MARK: ModelRegistry quantization routing
-
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (String-backed, hence Equatable) against the reference presets instead.
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt8GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 8), as: .ultraMinimal)
-    // ultraMinimal == int4 transformer.
-    #expect(ModelRegistry.recommendedConfig(forRAMGB: 8).transformer == .int4)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt12GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 12), as: .ultraMinimal)
-  }
-
-  @Test func iPadTierUsesUltraMinimalQuantAt16GB() {
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 16), as: .ultraMinimal)
-  }
-
-  @Test func macTiersKeepExistingQuantConfig() {
-    // No regression: 32+ GB still resolves to the pre-existing Mac configs.
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 32), as: .minimal)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 48), as: .memoryEfficient)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 64), as: .balanced)
-    expectSameQuant(ModelRegistry.recommendedConfig(forRAMGB: 128), as: .highQuality)
-  }
 }
 
 // MARK: - VAE Tiling Tier Selection (Sortie A5)
@@ -2393,18 +2248,6 @@ import Testing
 
 @Suite struct Flux2PipelineDefaultKnobsTests {
 
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (String-backed, hence Equatable) against the reference presets instead
-  // (mirrors the `expectSameQuant` helper in `iPadMemoryTierTests`).
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
-
   // MARK: iPad tier column values (§5)
 
   // The §5 16 GB column applies to the whole shared `.iPad` `MemoryTier`
@@ -2433,7 +2276,7 @@ import Testing
       #expect(Flux2Pipeline.defaultMemoryProfile(forRAMGB: ramGB) == .auto)
       #expect(Flux2Pipeline.defaultClearCacheEveryNSteps(forRAMGB: ramGB) == 5)
       #expect(Flux2Model.klein4B.maxReferenceImages(forRAMGB: ramGB) == 4)
-      expectSameQuant(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB), as: .balanced)
+      #expect(Flux2Pipeline.defaultQuantization(forRAMGB: ramGB) == .balanced)
       #expect(MemoryConfig.hardMaxImagePixels(forRAMGB: ramGB) == 4096 * 4096)
     }
   }
@@ -2448,7 +2291,7 @@ import Testing
     let pipeline = Flux2Pipeline(model: .klein4B)
     #expect(pipeline.memoryProfile == Flux2Pipeline.defaultMemoryProfile)
     #expect(pipeline.clearCacheEveryNSteps == Flux2Pipeline.defaultClearCacheEveryNSteps)
-    expectSameQuant(pipeline.quantization, as: Flux2Pipeline.defaultQuantization)
+    #expect(pipeline.quantization == Flux2Pipeline.defaultQuantization)
   }
 }
 
@@ -2465,17 +2308,6 @@ import Testing
 // tests are race-free under swift-testing's parallel execution and never
 // touch the flag's default (which MUST stay OFF).
 @Suite struct IPad8GBDefaultKnobsTests {
-
-  // Flux2QuantizationConfig isn't Equatable; compare its component fields
-  // (mirrors the `expectSameQuant` helper used elsewhere in this file).
-  private func expectSameQuant(
-    _ config: Flux2QuantizationConfig,
-    as reference: Flux2QuantizationConfig,
-    sourceLocation: SourceLocation = #_sourceLocation
-  ) {
-    #expect(config.textEncoder == reference.textEncoder, sourceLocation: sourceLocation)
-    #expect(config.transformer == reference.transformer, sourceLocation: sourceLocation)
-  }
 
   // MARK: §5 8 GB column values — differentiated from the shared iPad tier
 
