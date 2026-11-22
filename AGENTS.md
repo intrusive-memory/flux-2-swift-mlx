@@ -32,7 +32,8 @@ The `Flux2CLI` and `FluxEncodersCLI` executables were removed in v3.0.0 (OPERATI
 - **Swift tools**: 6.2 (declared in `Package.swift`)
 - **Platforms**: `macOS .v26`, `iOS .v26`
 - **Hardware**: Apple Silicon required (arm64; MLX has no x86_64 path)
-- **CI runner**: `macos-26` (never older — Swift 6.2 + macOS 26 SDK assumed throughout)
+- **CI runner**: `xcode-27` (macOS 27, Xcode 27, Swift 6.4; GitHub names macOS images by Xcode version from 27 on). Never older.
+- **MLX**: mlx-swift `0.33.0`+ (since 3.5.0). 3.3.3–3.4.x pinned exactly `0.31.3` after 0.31.4 deadlocked generation (upstream #410); 0.33.0 carries the `evalLock` lock-order fixes. `ResumableAdamW` uses the `AdamState`/`biasCorrection` optimizer API.
 - **iOS Simulator destination** (when needed): `'platform=iOS Simulator,name=iPhone 17,OS=26.1'` — pin an exact OS version, never `OS=latest`.
 
 ---
@@ -169,7 +170,7 @@ The upstream `VincentGourbin/flux-2-swift-mlx` does publish App and CLI binaries
 ## Queryable Codemap
 
 A prebuilt [graphify](https://pypi.org/project/graphifyy/) knowledge graph of this
-codebase lives in [`graphify-out/`](graphify-out/) (3281 nodes · 6147 edges · 188
+codebase lives in [`graphify-out/`](graphify-out/) (3551 nodes · 6816 edges · 208
 communities). **Prefer querying it before grepping** for architecture or "what
 connects to what" questions:
 
