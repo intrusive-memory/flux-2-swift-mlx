@@ -91,7 +91,7 @@ The user's global Claude instructions live at `~/.claude/CLAUDE.md`. Key load-be
 - **Complete candor** — flag ill-advised actions/architectures up front, even if not asked.
 - **Secrets and private data** — never echo env vars, API keys, or contents of `.env`/`.p8` files. Never read `~/.claude/@private` without per-operation consent.
 - **Swift/Xcode builds** — use XcodeBuildMCP locally, raw `xcodebuild` in CI; never `swift build` / `swift test`.
-- **GitHub Actions** — `runs-on: macos-26` minimum, Swift 6.2+, pin iOS Simulator OS version exactly.
+- **GitHub Actions** — `runs-on: xcode-27` (macOS 27, Swift 6.4), pin iOS Simulator OS version exactly.
 
 ---
 

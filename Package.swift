@@ -13,23 +13,19 @@ let package = Package(
         .executable(name: "Flux2App", targets: ["Flux2App"]),
     ],
     dependencies: [
-        // Pinned to exactly 0.31.3. mlx-swift 0.31.4 carries upstream #410
-        // (evalLock-during-toString deadlock / EINVAL fatal) that breaks
-        // generation. A floor (.upToNextMajor) is not enough — SPM would still
-        // resolve 0.31.4 as the highest in range — so pin exactly until an
-        // upstream release fixes #410. ResumableAdamW is kept on the 0.31.3
-        // (TupleState / no biasCorrection) API to match.
-        .package(url: "https://github.com/ml-explore/mlx-swift", .exact("0.31.3")),
-        .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.7.1")),
+        // 0.33.0 carries the evalLock lock-order fixes (#461, #474, #499) that the
+        // old exact 0.31.3 pin was waiting on (0.31.4's #410 deadlocked generation).
+        // ResumableAdamW is back on the AdamState / biasCorrection optimizer API.
+        .package(url: "https://github.com/ml-explore/mlx-swift", .upToNextMajor(from: "0.33.0")),
+        .package(url: "https://github.com/apple/swift-argument-parser", .upToNextMajor(from: "1.8.2")),
         // swift-tokenizers 0.7.1 carries upstream 0.6.3's "Fixes for Xcode build
         // with artifact bundle", which resolves the UniFFI module-map/linker
         // blocker that previously froze us at 0.5.x. 0.6.0+ also makes the
         // Tokenizer protocol typed-throwing (throws(TokenizerError)) and
         // relabels the encode/decode/tokenize convenience overloads.
-        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.7.1")),
-        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.9.0")),
+        .package(url: "https://github.com/DePasqualeOrg/swift-tokenizers", .upToNextMinor(from: "0.7.5")),
+        .package(url: "https://github.com/intrusive-memory/SwiftTuberia.git", .upToNextMajor(from: "0.10.0")),
         .package(url: "https://github.com/intrusive-memory/SwiftAcervo", .upToNextMajor(from: "0.25.0")),
-        .package(url: "https://github.com/marcprux/universal", .upToNextMajor(from: "5.3.0")),
     ],
     targets: [
         // MARK: - Libraries

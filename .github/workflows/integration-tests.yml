@@ -39,7 +39,7 @@ concurrency:
 jobs:
   ipad-16gb-smoke:
     name: "iPad 16GB qint8 smoke (macOS)"
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
 
     env:
@@ -61,6 +61,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Cache SwiftPM dependencies
         uses: actions/cache@v6
@@ -114,13 +118,17 @@ jobs:
 
   metal-module-tests:
     name: "Metal module tests (macOS)"
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     # Flux2CoreModuleTests: transformer blocks, attention, RoPE, modulation,
     # KV-cache masks. Needs a Metal device, no model weights. Not a required
     # check, so a paravirtual-GPU flake here can't block a merge.
     steps:
       - uses: actions/checkout@v7
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Cache SwiftPM dependencies
         uses: actions/cache@v6
